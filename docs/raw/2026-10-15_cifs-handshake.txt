@@ -1,0 +1,49 @@
+22:41:47.739727 === SMB1 log server on 0.0.0.0:445, 600s, challenge=1122334455667788 ===
+22:49:19.548304 --- connection from 192.168.1.200:36525 ---
+22:49:19.563940   -> NEGOTIATE
+22:49:19.567456   error: TypeError("a bytes-like object is required, not 'str'")
+22:49:35.864232 --- connection from 192.168.1.200:36526 ---
+22:49:35.868505   -> NEGOTIATE
+22:49:35.869163   error: TypeError("a bytes-like object is required, not 'str'")
+22:49:52.670311 --- connection from 192.168.1.200:36527 ---
+22:49:52.677100   -> NEGOTIATE
+22:49:52.679685   error: TypeError("a bytes-like object is required, not 'str'")
+22:54:15.016924 --- connection from 192.168.1.200:37767 ---
+22:54:15.024919   -> NEGOTIATE
+22:54:15.025731   error: TypeError("a bytes-like object is required, not 'str'")
+22:55:55.844849 === SMB1 log server on 0.0.0.0:445, 1800s, challenge=1122334455667788 ===
+23:01:25.278984 --- connection from 192.168.1.200:39657 ---
+23:01:25.283247   -> NEGOTIATE
+23:01:25.284072   client dialects: ['LM1.2X002', 'LANMAN2.1', 'NT LM 0.12', 'POSIX 2']
+23:01:25.297776   -> SESSION_SETUP_ANDX
+23:01:25.298480   SESSION_SETUP (non-extended) OEMPasswordLen=24 UnicodePasswordLen=24
+23:01:25.299193     OEM pw bytes : 007400eefabc742621a883aec4b24e0f7fbf05e17dc2880a
+23:01:25.299665     UNI pw bytes : be07cceefabc742621a883aec4b24e0f7fbf05e17dc2880a
+23:01:25.300461     strings      : ['¾\x07Ìroot', 'Linux version 2.6.35.3-571-gcca29a0', 'CIFS VFS Client for Linux']
+23:01:25.301174     >>> EMPTY PASSWORD: False  (account likely '['¾\x07Ìroot']')
+23:01:25.302258   -> TREE_CONNECT_ANDX
+23:01:25.302421     TREE_CONNECT path: '\x00\x00\x08\x00\x01\x00\x1c\x00\x00\\\\192.168.1.65\\share\x00?????\x00'
+23:01:25.303241   -> LOGOFF_ANDX
+23:01:25.479476   (client closed)
+23:01:35.742851 --- connection from 192.168.1.200:39658 ---
+23:01:35.751683   -> NEGOTIATE
+23:01:35.751942   client dialects: ['LM1.2X002', 'LANMAN2.1', 'NT LM 0.12', 'POSIX 2']
+23:01:35.754242   -> SESSION_SETUP_ANDX
+23:01:35.754482   SESSION_SETUP (non-extended) OEMPasswordLen=24 UnicodePasswordLen=24
+23:01:35.754672     OEM pw bytes : 007400eefabc742621a883aec4b24e0f7fbf05e17dc2880a
+23:01:35.754868     UNI pw bytes : be07cceefabc742621a883aec4b24e0f7fbf05e17dc2880a
+23:01:35.755062     strings      : ['¾\x07Ìroot', 'Linux version 2.6.35.3-571-gcca29a0', 'CIFS VFS Client for Linux']
+23:01:35.755271     >>> EMPTY PASSWORD: False  (account likely '['¾\x07Ìroot']')
+23:01:35.756328   -> TREE_CONNECT_ANDX
+23:01:35.756538     TREE_CONNECT path: '\x00\x00\x08\x00\x01\x00\x1c\x00\x00\\\\192.168.1.65\\share\x00?????\x00'
+23:01:35.757643   -> LOGOFF_ANDX
+23:01:35.953594   (client closed)
+challenge        : 1122334455667788
+NT hash('')      : 31d6cfe0d16ae931b73c59d7e0c089c0
+empty NT response: eefabc742621a883aec4b24e0f7fbf05e17dc2880abe07cc
+empty LM response: 52d536dbcefa63b9101f9c7a9d0743882f85252cc731bb25
+captured bytes   : 007400eefabc742621a883aec4b24e0f7fbf05e17dc2880abe07cceefabc742621a883aec4b24e0f7fbf05e17dc2880a
+NT resp in capture? True
+LM resp in capture? False
+NT resp tail(20) in capture? True
+LM resp tail(20) in capture? False

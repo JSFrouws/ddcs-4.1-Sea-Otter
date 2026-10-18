@@ -1,0 +1,28 @@
+== 1. jog X +10 mm (keypad-style step jog, ramped)
+{"ok":true,"state":"IDLE"}
+   took 0.50 s
+   state=IDLE fpga=[1047544, 548982, -182501, -40000] steps=[1047544, 548982, -182501, -40000] faults=1 checks=776 waited=0 bursts=55 line=1
+== 2. 20 alternating 1 mm jogs on Y, sent without waiting (reversals while stepping)
+   state=IDLE fpga=[1047544, 547619, -182501, -40000] steps=[1047544, 543106, -182501, -40000] faults=1 checks=778 waited=196 bursts=100 line=1
+== 3. G54 around the current position, load Bracket_v3.nc
+{"ok":true}
+{"ok":true,"lines":40}
+== 4. run it (pauses at M6: resume once)
+{"ok":true,"state":"RUN"}
+{"ok":true,"state":"RUN"}
+   took 64.50 s
+   state=IDLE fpga=[1147773, 513848, -190335, -40000] steps=[1147544, 497912, -192501, -40000] faults=1 checks=778 waited=258 bursts=7021 line=40
+== 5. Sign_rosette.nc: 1200 short segments, constant direction changes
+{"ok":true,"lines":1208}
+{"ok":true,"state":"RUN"}
+   took 226.06 s
+   state=IDLE fpga=[968729, 497086, -206489, -40000] steps=[968729, 497086, -206489, -40000] faults=4 checks=785 waited=5641 bursts=46124 line=1208
+== 6. pause mid-run, resume, then Reset mid-run
+{"ok":true,"state":"RUN"}
+{"ok":true,"state":"HOLD"}
+   state=HOLD fpga=[1027544, 547912, -217083, -40000] steps=[1027544, 547912, -220064, -40000] faults=4 checks=786 waited=5641 bursts=46402 line=6
+{"ok":true,"state":"RUN"}
+{"ok":true,"state":"IDLE"}
+   state=IDLE fpga=[1027538, 542459, -219519, -40000] steps=[1027538, 542459, -219519, -40000] faults=7 checks=801 waited=5910 bursts=46704 line=80
+== 7. pendant-style nudges: 200 x 0.001 mm on Z
+   state=IDLE fpga=[1027538, 542459, -219129, -40000] steps=[1027538, 542459, -219129, -40000] faults=7 checks=823 waited=5910 bursts=46743 line=80

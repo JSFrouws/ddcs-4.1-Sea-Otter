@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pandora DDCS panel</title>
+<style>
+:root{--txt:#fff;--dim:#8fa7ca;--cyan:#5cc8ff;--amber:#ffb547;--red:#ff5d5d;--edge2:rgba(130,180,255,.30)}
+*{box-sizing:border-box}
+body{margin:0;padding:18px 18px 40px;color:var(--txt);font:15px "Segoe UI",system-ui,sans-serif;
+  background:radial-gradient(ellipse at 20% -10%,#0d2a52 0%,#061630 45%,#030b19 100%) fixed}
+h1{font-weight:600;font-size:22px;margin:0 0 4px}h1 span{color:var(--cyan);font-weight:500}
+p{color:var(--dim);margin:0 0 10px;max-width:1100px;line-height:1.45}
+#fit{position:relative}
+#panel{position:absolute;left:0;top:0;width:1392px;height:912px;transform-origin:0 0;border-radius:18px;
+  background:linear-gradient(160deg,#3a3f47,#24282e 40%,#1b1e23);box-shadow:0 18px 50px rgba(0,0,0,.55)}
+.brand{position:absolute;left:1110px;top:20px;font-style:italic;font-weight:700;font-size:44px;color:#3a3f47}
+.sled{position:absolute;right:30px;font-size:15px;color:#6c727b;font-weight:700;letter-spacing:2px}
+.sled i{display:inline-block;width:10px;height:10px;border-radius:50%;background:#2c3036;margin-left:12px;vertical-align:middle}
+.sled i.on{background:#4dff9a;box-shadow:0 0 8px #4dff9a}
+.lcdframe{position:absolute;left:39px;top:84px;background:#0b0c0e;padding:9px;border-radius:6px}
+canvas{display:block;width:1024px;height:600px;image-rendering:pixelated}
+.cframe{position:absolute;left:1108px;top:192px;width:272px;height:566px;border-radius:12px;background:rgba(0,0,0,.18);box-shadow:inset 0 2px 6px rgba(0,0,0,.5)}
+.key{position:absolute;width:106px;height:108px;top:776px;border-radius:12px;cursor:pointer;user-select:none;display:flex;flex-direction:column;
+  align-items:center;justify-content:flex-end;padding-bottom:12px;font-weight:700;font-size:15px;color:#e9edf3;text-align:center;line-height:1.1;
+  background:linear-gradient(180deg,#3b3f46,#25282d);border:1px solid #111;box-shadow:0 3px 0 #0b0c0e,inset 0 1px 0 rgba(255,255,255,.12)}
+.key.hit{transform:translateY(2px)}
+.key .fn{position:absolute;top:6px;right:9px;font-size:13px;opacity:.65}
+.key .ico{font-size:24px;line-height:1;margin-bottom:8px;display:flex;flex-direction:column;align-items:center}
+.key .ico small{font-size:11px}
+.key .big{font-size:24px;margin-bottom:28px}
+.key .sub{font-size:12px;opacity:.8}
+.key .led{position:absolute;top:9px;left:10px;width:10px;height:10px;border-radius:50%;background:#1a1c20}
+.key .led.on{background:#5dff9e;box-shadow:0 0 9px #5dff9e}.key .led.red{background:#ff4d4d;box-shadow:0 0 9px #ff4d4d}
+.k-green{background:linear-gradient(180deg,#2c9b56,#1d6e3c)}.k-yellow{background:linear-gradient(180deg,#e7bf34,#b8901c);color:#2a2000}
+.k-red{background:linear-gradient(180deg,#d8443e,#9f2622)}.k-blue{background:linear-gradient(180deg,#2f7fd6,#1d58a3)}
+.k-light{background:linear-gradient(180deg,#f3f4f6,#c9ccd2);color:#2a2e35}.k-dark{background:linear-gradient(180deg,#34383f,#1d2024)}
+.red{color:#e33b35}.yel{color:#e6b022}.grn{color:#2c9b56}.ol{color:#555b63}
+.below{display:flex;gap:18px;flex-wrap:wrap;margin-top:18px;align-items:flex-start}
+.card{border:1px solid var(--edge2);border-radius:12px;padding:12px 14px;background:linear-gradient(180deg,rgba(22,62,115,.45),rgba(8,30,60,.55))}
+.card h3{margin:0 0 8px;font-size:13px;letter-spacing:1.8px;text-transform:uppercase;color:var(--cyan)}
+.b{display:inline-block;font-size:14px;font-weight:600;min-width:36px;text-align:center;padding:4px 9px;margin:2px;border-radius:7px;cursor:pointer;
+  color:#cfe0f5;background:rgba(255,255,255,.06);border:1px solid var(--edge2);user-select:none}
+.b.on{background:var(--amber);color:#241800;border-color:var(--amber)}.b.es{background:linear-gradient(180deg,#d8443e,#9f2622);color:#fff}
+.wheel{width:100px;height:100px;border-radius:50%;cursor:ns-resize;position:relative;flex:none;background:radial-gradient(circle at 40% 35%,#4b525c,#22262b 70%);border:5px solid #15171a}
+.wheel i{position:absolute;left:50%;top:8px;width:4px;height:15px;margin-left:-2px;border-radius:2px;background:var(--cyan);transform-origin:2px 42px}
+td{padding:2px 8px;font-size:13px;color:var(--dim)}td:first-child{color:#fff;font-weight:600}
+#st{font:13px Consolas,monospace;color:var(--dim);white-space:pre-wrap;max-width:520px}
+</style>
+</head>
+<body>
+<h1>Pandora DDCS V4.1 &nbsp;<span>live panel</span></h1>
+<p>This is the real application running (C, same code as on the controller); the screen below is its 1024&times;600 RGB565
+framebuffer. Keys, pendant and the simulated machine are driven from here. Keyboard: 1&ndash;7 F-keys, S Shift, M Mode, T Tab,
+A Select, P Modify, arrows, Esc Cancel, Enter; pendant [ ] wheel, Space hold.</p>
+<div id="fit"><div id="panel">
+  <div class="brand">DDCS V4.1</div>
+  <div class="sled" style="top:98px">ETHERNET<i id="lEth"></i></div>
+  <div class="sled" style="top:140px">USB DISK<i id="lUsb"></i></div>
+  <div class="lcdframe"><canvas id="lcd" width="1024" height="600"></canvas></div>
+  <div class="cframe"></div>
+  <div class="key k-blue" data-k="TAB" style="left:1122px;top:205px"><span class="fn">8</span><span class="big">Tab</span></div>
+  <div class="key k-light" data-k="SEL" style="left:1259px;top:205px"><span class="fn">9</span><span class="ico ol">&#8679;<small>A+</small></span>SELECT<span class="sub">A</span></div>
+  <div class="key k-blue" data-k="SHIFT" style="left:1122px;top:348px"><span class="led" id="lShift"></span><span class="fn">6</span><span class="big">Shift</span></div>
+  <div class="key k-light" data-k="MOD" style="left:1259px;top:348px"><span class="fn">7</span><span class="ico ol">&#8681;<small>A&minus;</small></span>MODIFY<span class="sub">PROBE</span></div>
+  <div class="key k-blue" data-k="MODE" style="left:1122px;top:492px"><span class="fn">5</span><span class="big">Mode</span></div>
+  <div class="key k-light" data-k="CANCEL" style="left:1259px;top:492px"><span class="ico red">&#9650;<small>Z+</small></span>CANCEL<span class="sub">Z</span></div>
+  <div class="key k-light" data-k="YP" style="left:1122px;top:637px"><span class="ico yel">&#9650;<small>Y+</small></span>Y</div>
+  <div class="key k-light" data-k="ENTER" style="left:1259px;top:637px"><span class="ico red">&#9660;<small>Z&minus;</small></span>ENTER<span class="sub">HOME</span></div>
+  <div class="key k-green" data-k="F1" style="left:21px"><span class="led" id="lStart"></span><span class="fn">F1</span><span class="ico">&#9654;</span>START</div>
+  <div class="key k-yellow" data-k="F2" style="left:159px"><span class="led" id="lPause"></span><span class="fn">F2</span><span class="ico">&#10074;&#10074;</span>PAUSE</div>
+  <div class="key k-red" data-k="F3" style="left:296px"><span class="led" id="lReset"></span><span class="fn">F3</span><span class="ico">&#8635;</span>RESET</div>
+  <div class="key k-dark" data-k="F4" style="left:434px"><span class="fn">F4</span><span class="ico">&#8644;</span>VIEW</div>
+  <div class="key k-dark" data-k="F5" style="left:571px"><span class="fn">F5</span><span class="ico">&#10683;</span>TryCut</div>
+  <div class="key k-dark" data-k="F6" style="left:709px"><span class="led" id="lSpin"></span><span class="fn">F6</span><span class="ico">&#11015;</span>SPINDLE</div>
+  <div class="key k-blue" data-k="F7" style="left:847px"><span class="fn">F7</span><span class="ico">&#10063;</span>PAGE R</div>
+  <div class="key k-light" data-k="XM" style="left:984px"><span class="ico grn">&#9664;<small>X&minus;</small></span>GOTO 0</div>
+  <div class="key k-light" data-k="YM" style="left:1122px"><span class="ico yel">&#9660;<small>Y&minus;</small></span>ZERO</div>
+  <div class="key k-light" data-k="XP" style="left:1259px"><span class="ico grn">&#9654;<small>X+</small></span>X</div>
+</div></div>
+<div class="below">
+  <div class="card" style="width:420px"><h3>MPG pendant</h3>
+    <div style="display:flex;gap:16px;align-items:center">
+      <div class="wheel" id="wheel" title="scroll to turn"><i id="wmk"></i></div>
+      <div>
+        <div>Axis <span id="pAx"></span></div>
+        <div>Mult <span id="pMu"></span></div>
+        <div><span class="b" id="hold" title="press = dead-man; quick click = Enter">hold</span><span class="b" id="latch">latch</span><span class="b es" id="pes">E-STOP</span></div>
+      </div></div>
+    <p style="font-size:12px;margin-top:8px">Released: the wheel moves the cursor. Held: it changes values (axis OFF) or jogs (X/Y/Z/4).
+    A quick press (&lt;0.4 s, no turning) is Enter. The pendant is optional.</p></div>
+  <div class="card"><h3>Simulated machine</h3>
+    <span class="b" id="ees">External E-stop</span>
+    <span class="b" data-lim="X">Trip X switch</span><span class="b" data-lim="Y">Trip Y switch</span><span class="b" data-lim="Z">Trip Z switch</span><br>
+    <div id="st" style="margin-top:8px"></div></div>
+</div>
+<script>
+const api=(p,b)=>fetch('/api/v1/'+p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})}).then(r=>r.json()).catch(()=>({}));
+const cv=document.getElementById('lcd'),cx=cv.getContext('2d'),img=cx.createImageData(1024,600);
+let lastFrame=-1,busy=false;
+async function frame(){
+  if(busy)return;busy=true;
+  try{const r=await fetch('/frame');const f=+r.headers.get('X-Frame'),leds=+r.headers.get('X-Leds');
+    setLeds(leds);
+    if(f!==lastFrame){lastFrame=f;const b=new Uint16Array(await r.arrayBuffer()),d=img.data;
+      for(let i=0,j=0;i<b.length;i++,j+=4){const v=b[i];d[j]=(v>>8)&0xF8|(v>>13);d[j+1]=(v>>3)&0xFC|(v>>9)&3;d[j+2]=(v<<3)&0xF8|(v>>2)&7;d[j+3]=255}
+      cx.putImageData(img,0,0)}else await r.arrayBuffer();
+  }catch(e){}busy=false}
+function setLeds(l){const s=(id,on,c)=>{const e=document.getElementById(id);e.className=(id[0]=='l'&&id!='lEth'&&id!='lUsb'?'led':'')+(on?' on':'')+(on&&c?' '+c:'')};
+  s('lStart',l&1);s('lPause',l&2);s('lReset',l&4,'red');s('lSpin',l&8);s('lShift',l&16);s('lEth',l&32);s('lUsb',l&64)}
+setInterval(frame,120);
+async function status(){const s=await fetch('/api/v1/status').then(r=>r.json()).catch(()=>null);if(!s)return;
+  document.getElementById('st').textContent=`state ${s.state}  homed ${s.homed}  ${s.wcs}\nmachine X${s.machine.x} Y${s.machine.y} Z${s.machine.z}\nfeed ${s.overrides.feed}%  rapid ${s.overrides.rapid}%  spindle ${s.spindle.on?s.spindle.rpm:0}\nbackend: ${s.backend}`}
+setInterval(status,700);
+/* keys */
+document.querySelectorAll('[data-k]').forEach(e=>{const k=e.dataset.k;
+  e.addEventListener('mousedown',()=>{e.classList.add('hit');api('key',{key:k,down:true})});
+  const up=()=>{if(!e.classList.contains('hit'))return;e.classList.remove('hit');api('key',{key:k,down:false})};
+  e.addEventListener('mouseup',up);e.addEventListener('mouseleave',up)});
+const KM={'1':'F1','2':'F2','3':'F3','4':'F4','5':'F5','6':'F6','7':'F7',s:'SHIFT',m:'MODE',t:'TAB',a:'SEL',p:'MOD',Escape:'CANCEL',Enter:'ENTER',ArrowUp:'YP',ArrowDown:'YM',ArrowLeft:'XM',ArrowRight:'XP'};
+const held={};
+addEventListener('keydown',e=>{if(e.key===' '){e.preventDefault();if(!e.repeat)setHold(true);return}
+  if(e.key==='['||e.key===']'){e.preventDefault();turn(e.key===']'?1:-1);return}
+  const k=KM[e.key]||KM[e.key.toLowerCase()];if(!k)return;e.preventDefault();if(held[k])return;held[k]=1;api('key',{key:k,down:true})});
+addEventListener('keyup',e=>{if(e.key===' '){setHold(false);return}const k=KM[e.key]||KM[e.key.toLowerCase()];if(!k)return;held[k]=0;api('key',{key:k,down:false})});
+/* pendant - axis positions 5 and 6 have no wires and read as OFF, so only OFF X Y Z 4 are offered */
+let P={axis:-1,mult:1,held:false,latch:false},ang=0;
+function drawP(){document.getElementById('pAx').innerHTML=[['OFF',-1],['X',0],['Y',1],['Z',2],['4',3]].map(a=>`<span class="b ${P.axis==a[1]?'on':''}" data-ax="${a[1]}">${a[0]}</span>`).join('');
+  document.getElementById('pMu').innerHTML=[1,10,100].map(m=>`<span class="b ${P.mult==m?'on':''}" data-mu="${m}">X${m}</span>`).join('');
+  document.getElementById('hold').className='b'+(P.held?' on':'');document.getElementById('latch').className='b'+(P.latch?' on':'')}
+document.getElementById('pAx').onclick=e=>{if(e.target.dataset.ax){P.axis=+e.target.dataset.ax;api('sim',{axis:P.axis});drawP()}};
+document.getElementById('pMu').onclick=e=>{if(e.target.dataset.mu){P.mult=+e.target.dataset.mu;api('sim',{mult:P.mult});drawP()}};
+function setHold(h){if(P.latch&&!h)return;P.held=h;api('sim',{held:h,axis:P.axis,mult:P.mult});drawP()}
+const hb=document.getElementById('hold');hb.onmousedown=()=>setHold(true);addEventListener('mouseup',()=>{if(P.held&&!P.latch)setHold(false)});
+document.getElementById('latch').onclick=()=>{P.latch=!P.latch;P.held=P.latch;api('sim',{held:P.held,axis:P.axis,mult:P.mult});drawP()};
+function turn(d){ang+=d*9;document.getElementById('wmk').style.transform=`rotate(${ang}deg)`;api('sim',{wheel:-d*4})}
+const wh=document.getElementById('wheel');wh.addEventListener('wheel',e=>{e.preventDefault();turn(e.deltaY<0?1:-1)},{passive:false});
+let pes=false,ees=false,strict=false;
+document.getElementById('pes').onclick=e=>{pes=!pes;e.target.style.outline=pes?'3px solid #fff':'';api('sim',{pendantEstop:pes})};
+document.getElementById('ees').onclick=e=>{ees=!ees;e.target.className='b'+(ees?' on':'');api('sim',{estop:ees})};
+document.querySelectorAll('[data-lim]').forEach(b=>b.onclick=()=>api('sim',{limit:b.dataset.lim}));
+drawP();
+function fit(){const s=Math.min(1,(innerWidth-36)/1392);document.getElementById('panel').style.transform=`scale(${s})`;document.getElementById('fit').style.height=912*s+'px'}
+addEventListener('resize',fit);fit();
+</script>
+</body>
+</html>

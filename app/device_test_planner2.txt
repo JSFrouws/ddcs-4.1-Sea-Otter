@@ -1,0 +1,12 @@
+== 1. jog X +10 mm (keypad-style step jog, ramped)
+{"ok":true,"state":"IDLE"}
+   took 0.50 s
+   state=IDLE fpga=[947169, 548982, -182501, -42000] steps=[947536, 548982, -182501, -42000] faults=0 checks=1 waited=35 bursts=13 line=1
+== 2. 20 alternating 1 mm jogs on Y, sent without waiting (reversals while stepping)
+   state=IDLE fpga=[947964, 549964, -182501, -42000] steps=[947964, 549402, -182501, -42000] faults=0 checks=1 waited=102 bursts=73 line=1
+== 3. G54 around the current position, load Bracket_v3.nc
+{"ok":true}
+{"ok":true,"lines":40}
+== 4. run it (pauses at M6: resume once)
+{"error":"state","state":"IDLE","detail":"Wait for the jog to finish"}
+{"ok":true,"state":"RUN"}

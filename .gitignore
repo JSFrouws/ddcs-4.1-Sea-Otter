@@ -1,0 +1,12 @@
+# This repo publishes app/ and docs/ only
+/*
+!/.gitignore
+!/README.md
+!/app/
+!/docs/
+
+/app/build/
+# vendor firmware files and the local network scans stay private
+/docs/raw/sysdisk-2026-10-15/
+/docs/raw/2026-10-15_lan-sweep.txt
+/docs/raw/2026-10-15_ddcs-scan.txt

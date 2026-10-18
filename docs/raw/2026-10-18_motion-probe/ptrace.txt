@@ -1,0 +1,1 @@
+cat: can't open '/tmp/ptrace.txt': No such file or directory

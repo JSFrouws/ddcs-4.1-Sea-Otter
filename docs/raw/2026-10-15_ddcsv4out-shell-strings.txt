@@ -1,0 +1,33 @@
+# 2026-10-15 ddcsv4.out shell-command strings (tools/strfind.py)
+## mount / network / file ops via system()/popen()
+0x000d33a8: cat /proc/mounts | grep -e "/udisk-" | cut -d ' ' -f 2
+0x000d34c8: /share
+0x000d34d0: ifconfig eth0 | grep Bcast | cut -d ':' -f2 | cut -d ' ' -f1
+0x000d3528: /sys/class/net/eth0/carrier
+0x000d3550: ifconfig eth0 up
+0x000d3564: ifconfig eth0 %s netmask %s
+0x000d3580: route del default gw 0.0.0.0 dev eth0
+0x000d35a8: route add default gw %s dev eth0
+0x000d3618: udhcpc -i eth0 -q
+0x000d362c: umount /share
+0x000d363c: mount -t cifs //%s/share /share -o username=root,password=,iocharset=utf8
+0x000d3688: cat /proc/mounts | grep -e "/share" | cut -d ' ' -f 2
+0x000d3b28: sync
+0x000d46d0: share
+0x000d4758: /share
+0x000d4778: df %s | grep -v Used | tr -s ' ' | cut -d ' ' -f 4
+0x000d47fc: sync
+0x000d4810: /share/%s
+0x000d482c: mv %s %s
+0x000d4838: rm %s
+0x000d486c: cat /proc/mounts | grep -e "/udisk-" | cut -d ' ' -f 2
+0x000d48a4: cat /proc/mounts | grep -e "/share" | cut -d ' ' -f 2
+0x000d4adc: cat /proc/mounts | grep -e "/udisk-" | cut -d ' ' -f 2
+0x000d4b28: sync
+0x000d4b30: cat /proc/mounts | grep -e "/share" | cut -d ' ' -f 2
+0x000d4c90: /share/setting
+0x004add4c: cat /proc/mounts | grep -e "/udisk-" | cut -d ' ' -f 2
+0x004addc0: sync
+0x004addc8: rm %s/ProbeMap%d.txt
+0x004af804: sync
+0x004af820: /share

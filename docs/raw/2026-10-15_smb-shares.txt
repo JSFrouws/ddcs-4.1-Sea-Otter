@@ -1,0 +1,103 @@
+# 2026-10-15 .venv/Scripts/python -I tools/smb_browse.py 192.168.1.200 4  (guest, read-only listing)
+## shares
+SYSDISK          type=0 special=False temp=False comment=''
+CNCDISK          type=0 special=False temp=False comment=''
+IPC$             type=3 special=True temp=False comment='IPC Service (Arm Linux Samba Server)'
+
+## walk //192.168.1.200/SYSDISK (depth 4)
+-        860 /.break0-0
+-        888 /.CampusBalk.nc.env
+-         16 /.CampusBalk.nc.msg
+-         60 /.CampusBalk.nc.pos
+-        888 /.CampusBalk_IJAbs.nc.env
+-         60 /.CampusBalk_IJAbs.nc.pos
+-        888 /.CampusBalk_NoG2-3.nc.env
+-         60 /.CampusBalk_NoG2-3.nc.pos
+-      25440 /.CampusBalk_NoG2-3_norG911.nc.env
+-         16 /.CampusBalk_NoG2-3_norG911.nc.msg
+-         60 /.CampusBalk_NoG2-3_norG911.nc.pos
+-        332 /.file
+-         47 /adjush.nc
+-       7495 /adjush.rc
+-      16835 /advstart-array.rc
+-      14668 /advstart-sr.rc
+-          8 /advstart.nc
+-      13528 /advstart.rc
+-         10 /array.nc
+-      19264 /array.rc
+-      16914 /break-array.rc
+-      14733 /break-sr.rc
+-      13586 /break.rc
+-       7191 /center.rc
+-         68 /centerx.nc
+-         68 /centery.nc
+-      27666 /chs
+-        432 /coord1
+-      26902 /custom
+-    4938156 /ddcsv4.out
+-         17 /end.nc
+-      27054 /eng
+-          2 /error.nc
+-        154 /gotoz.nc
+-         11 /gotozxy.nc
+-         61 /home_0.nc
+-         49 /home_1.nc
+-         60 /home_2.nc
+-         60 /home_3.nc
+-         60 /home_3.nc$
+-         59 /home_4.nc
+-         53 /home_ref1.nc
+-         61 /home_ref2.nc
+-         59 /home_ref3.nc
+-         59 /home_ref4.nc
+-      32140 /jp
+-          8 /loadbreak.nc
+-    1843256 /logo.bmp
+-         10 /M3.nc
+-          0 /m30.nc
+-         10 /M4.nc
+-          4 /M5.nc
+-      17547 /M6.rc
+-       1265 /macroMillCylinder.nc
+-      21236 /macroMillCylinder.rc
+-       1142 /macroMillRect.nc
+-      24116 /macroMillRect.rc
+-      14231 /motiondev.ko
+-      16702 /msg-chs
+-      16629 /msg-custom
+-      16751 /msg-eng
+-      19132 /msg-rus
+-          1 /null.nc
+-         95 /pause.nc
+-        142 /probe-fax.nc
+-        142 /probe-fix.nc
+-      19258 /probe-fix.rc
+-         97 /probe-float.nc
+-      13118 /probe-float.rc
+-       7544 /probe-h-1.rc
+-        359 /probe-h.nc
+-      18664 /probe-h.rc
+-        415 /probe-vertex.nc
+-      27707 /probe-vertex.rc
+-          9 /rtnbreak.nc
+-      35342 /rus
+-        202 /safez.nc
+-         35 /selcoord.nc
+-       7527 /selcoord.rc
+-      12000 /setting
+-      12000 /setting-bk
+-         75 /simulate.nc
+-      12179 /simulate.RC
+-      12179 /simulate.rc
+-        710 /slib-g.nc
+-        436 /slib-m.nc
+-       4297 /slib.nc
+-      11478 /template.rc
+-       3200 /uservar
+-         34 /zeroall.nc
+-         16 /zeroxy.nc
+-          7 /zeroz.nc
+-         16 /zeroza.nc
+
+## walk //192.168.1.200/CNCDISK (depth 4)
+-     183852 /CampusBalk.nc

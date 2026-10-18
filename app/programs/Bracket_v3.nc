@@ -1,0 +1,40 @@
+(Bracket_v3 - pocket, profile with arcs, 3 holes)
+(stock 120 x 80 x 6, zero front-left top, 6 mm flat)
+G21 G90 G17 G54
+M6 T3
+M3 S12000
+M8
+G0 Z5
+G0 X20 Y20
+G1 Z-2 F300
+G1 X80 F900
+G1 Y25
+G1 X20
+G1 Y30
+G1 X80
+G1 Y35
+G1 X20
+G1 Y40
+G1 X80
+G0 Z5
+(profile)
+G0 X0 Y8
+G1 Z-6 F300
+G1 Y62 F800
+G2 X8 Y70 I8 J0
+G1 X92
+G2 X100 Y62 I0 J-8
+G1 Y8
+G2 X92 Y0 I-8 J0
+G1 X8
+G2 X0 Y8 I0 J8
+G0 Z5
+(drill)
+G81 X110 Y60 Z-6 R2 F200
+X110 Y35
+X110 Y10
+G80
+G0 Z15
+M9
+M5
+M30

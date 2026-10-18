@@ -1,0 +1,102 @@
+# driver/motiondrv.ko (12232 bytes)
+
+## sections
+  [ 1] .note.gnu.build-id       type=7   size=0x24
+  [ 2] .text                    type=1   size=0x1048
+  [ 3] .rel.text                type=9   size=0x328
+  [ 4] .init.text               type=1   size=0x364
+  [ 5] .rel.init.text           type=9   size=0x190
+  [ 6] .exit.text               type=1   size=0x80
+  [ 7] .rel.exit.text           type=9   size=0x50
+  [ 8] .rodata                  type=1   size=0x148
+  [ 9] .rel.rodata              type=9   size=0x40
+  [10] .rodata.str1.4           type=1   size=0x5e
+  [11] .modinfo                 type=1   size=0xc5
+  [12] __versions               type=1   size=0x0
+  [13] .data                    type=1   size=0x10
+  [14] .rel.data                type=9   size=0x10
+  [15] .gnu.linkonce.this_module type=1   size=0x124
+  [16] .rel.gnu.linkonce.this_module type=9   size=0x10
+  [17] .bss                     type=8   size=0x4b1
+  [18] .comment                 type=1   size=0x84
+  [19] .note.GNU-stack          type=1   size=0x0
+  [20] .ARM.attributes          type=1879048195 size=0x2b
+  [21] .symtab                  type=2   size=0x8c0
+  [22] .strtab                  type=3   size=0x42b
+  [23] .shstrtab                type=3   size=0xdb
+
+## .modinfo
+  license=GPL
+  description=DDCS V4.1 (i.MX28) FPGA motion driver with trace
+  author=Pandora-CNC port for DDCS V4.1
+  depends=
+  vermagic=2.6.35.3-571-gcca29a0 preempt mod_unload modversions ARMv5 
+
+## __versions (0 entries: crc  symbol)
+
+## defined symbols (46)
+  LOCAL  OBJECT __versions     +0x0000 size=0     ____versions
+  LOCAL  OBJECT .bss           +0x0420 size=0     __key.0
+  LOCAL  OBJECT .modinfo       +0x004c size=38    __mod_author484
+  LOCAL  OBJECT .modinfo       +0x000c size=61    __mod_description485
+  LOCAL  OBJECT .modinfo       +0x0000 size=12    __mod_license486
+  LOCAL  OBJECT .modinfo       +0x0080 size=69    __mod_vermagic5
+  LOCAL  OBJECT .modinfo       +0x0074 size=9     __module_depends
+  GLOBAL OBJECT .gnu.linkonce.this_module +0x0000 size=292   __this_module
+  LOCAL  OBJECT .data          +0x0000 size=12    bus_sem
+  LOCAL  OBJECT .bss           +0x0424 size=60    cdev_motion
+  LOCAL  OBJECT .bss           +0x0460 size=60    cdev_trace
+  GLOBAL FUNC   .exit.text     +0x0000 size=128   cleanup_module
+  LOCAL  OBJECT .bss           +0x0420 size=4     cls
+  LOCAL  OBJECT .rodata        +0x00e8 size=96    data_gpios
+  LOCAL  FUNC   .text          +0x04b8 size=100   data_write
+  LOCAL  OBJECT .bss           +0x041c size=4     dev_base
+  LOCAL  OBJECT .bss           +0x04b0 size=1     f_head
+  LOCAL  OBJECT .bss           +0x04a2 size=1     f_len
+  LOCAL  OBJECT .bss           +0x04a1 size=1     f_tail
+  LOCAL  OBJECT .bss           +0x04ac size=4     fifo
+  GLOBAL FUNC   .init.text     +0x0000 size=868   init_module
+  LOCAL  FUNC   .exit.text     +0x0000 size=128   motion_exit
+  LOCAL  FUNC   .text          +0x0350 size=28    motion_fasync
+  LOCAL  OBJECT .rodata        +0x0000 size=104   motion_fops
+  LOCAL  FUNC   .init.text     +0x0000 size=868   motion_init
+  LOCAL  FUNC   .text          +0x064c size=1296  motion_ioctl
+  LOCAL  FUNC   .text          +0x051c size=84    motion_open
+  LOCAL  FUNC   .text          +0x05dc size=112   motion_release
+  GLOBAL FUNC   .text          +0x0b5c size=36    motiondev_lld_init
+  GLOBAL FUNC   .text          +0x0df0 size=600   motiondev_lld_key_poll
+  GLOBAL FUNC   .text          +0x0cb4 size=316   motiondev_lld_led_write
+  GLOBAL FUNC   .text          +0x0c14 size=160   motiondev_lld_read_data
+  GLOBAL FUNC   .text          +0x0b80 size=148   motiondev_lld_write_data
+  LOCAL  OBJECT .bss           +0x0414 size=4     pf_async
+  LOCAL  OBJECT .data          +0x000c size=4     pf_irq_num
+  LOCAL  FUNC   .text          +0x0570 size=108   powerfail_isr
+  LOCAL  OBJECT .bss           +0x04a4 size=5     prev
+  LOCAL  OBJECT .bss           +0x049c size=5     scan
+  LOCAL  OBJECT .bss           +0x0418 size=2     seq.1
+  LOCAL  OBJECT .rodata        +0x00d0 size=24    strobe_gpios
+  LOCAL  OBJECT .bss           +0x0000 size=1044  tr
+  LOCAL  FUNC   .text          +0x0470 size=72    trace_event
+  LOCAL  OBJECT .rodata        +0x0068 size=104   trace_fops
+  LOCAL  FUNC   .text          +0x036c size=260   trace_push.part.0
+  LOCAL  FUNC   .text          +0x0200 size=336   trace_read
+  LOCAL  FUNC   .text          +0x0000 size=512   trace_write
+
+## undefined / imported (32)
+  __class_create __copy_from_user __copy_to_user __gpio_set_value __memzero alloc_chrdev_region cdev_add cdev_del cdev_init class_destroy clk_enable clk_get device_create device_destroy down_write fasync_helper free_irq gpio_direction_input gpio_direction_output gpio_request kill_fasync mxs_request_pin mxs_set_strength mxs_set_voltage preempt_schedule printk request_threaded_irq set_irq_type unregister_chrdev_region up_write vfree vmalloc
+
+## constant search (word-aligned, little-endian)
+  0xf0018000: .text+0xb78, .text+0xc0c, .text+0xca8, .text+0x1040
+  0xf0064000: .text+0xb4c, .init.text+0x344
+  0xf0068000: .text+0xb3c, .init.text+0x34c
+  0xf001c000: .text+0x46c
+  0x001f07ff: .text+0xb7c, .text+0xc10, .text+0xcac
+  0x00f00000: not found
+  0x1c400000: not found
+  0x005a0bb7: .text+0xb54, .init.text+0x354
+  0x005b0bb7: .text+0xb50
+  0x005f0bb7: .text+0xb58
+  0x00001054: .init.text+0x348
+  0x03000014: .init.text+0x334
+  0x03000015: .init.text+0x338
+  0x03000017: .init.text+0x33c
