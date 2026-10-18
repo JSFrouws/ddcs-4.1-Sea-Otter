@@ -1,0 +1,68 @@
+#!/bin/sh
+# Pandora start script for the DDCS V4.1 (installed from a USB stick).
+#
+# The unit's boot script (/etc/init.d/rcS) copies /udisk-sda1/ddcsv4/* to /ddcsv4/ on every
+# boot, then runs `cd /ddcsv4; ./ddcsv4.out &`. This file takes the place of the vendor's
+# ddcsv4.out: it starts SSH, sets up the network (the vendor app used to), then runs Pandora.
+# See docs/usb-install.md.
+cd /ddcsv4 || exit 1
+LOG=/tmp/pandora-boot.log
+echo "pandora start script $(date)" > $LOG
+
+# --- SSH password: ssh-password.txt holds one line, the new root password. It is applied
+#     and deleted at once (remove it from the stick too: it is copied again on every boot) ---
+if [ -f /ddcsv4/ssh-password.txt ]; then
+	PW=$(head -n 1 /ddcsv4/ssh-password.txt | tr -d '\r')
+	if [ -n "$PW" ]; then
+		echo "root:$PW" | chpasswd -m >> $LOG 2>&1 && echo "root password set" >> $LOG
+	fi
+	rm -f /ddcsv4/ssh-password.txt
+	PW=
+fi
+
+# --- SSH server (dropbear, password + key login, port 22) ---
+if [ -x /ddcsv4/dropbearmulti ]; then
+	ln -sf dropbearmulti /ddcsv4/dropbear
+	ln -sf dropbearmulti /ddcsv4/dropbearkey
+	[ -f /ddcsv4/dropbear_rsa_host_key ] || ./dropbearkey -t rsa -f /ddcsv4/dropbear_rsa_host_key >> $LOG 2>&1
+	[ -f /ddcsv4/dropbear_ed25519_host_key ] || ./dropbearkey -t ed25519 -f /ddcsv4/dropbear_ed25519_host_key >> $LOG 2>&1
+	# dropbear refuses logins if /root is not owned by root
+	[ -d /root ] && chown 0:0 /root && chmod 755 /root
+	# an rcS that already starts dropbear itself (a unit set up by hand) keeps doing so
+	if ! grep -q dropbear /etc/init.d/rcS 2>/dev/null; then
+		./dropbear -p 22 -r /ddcsv4/dropbear_rsa_host_key -r /ddcsv4/dropbear_ed25519_host_key >> $LOG 2>&1
+	fi
+fi
+
+# --- the vendor app instead of Pandora: put its original ddcsv4.out on the stick as
+#     ddcsv4.vendor and add an empty file USE_VENDOR (SSH above still starts; the vendor
+#     app sets up the network itself) ---
+if [ -f /ddcsv4/USE_VENDOR ] && [ -x /ddcsv4/ddcsv4.vendor ]; then
+	echo "USE_VENDOR set: starting the vendor app" >> $LOG
+	exec ./ddcsv4.vendor
+fi
+
+# --- network (network.conf; the vendor app did this from its own menu settings) ---
+MODE=static; IP=192.168.1.200; MASK=255.255.255.0; GW=192.168.1.1; MAC=
+[ -f /ddcsv4/network.conf ] && . /ddcsv4/network.conf
+[ -n "$MAC" ] && ifconfig eth0 hw ether "$MAC" >> $LOG 2>&1
+ifconfig eth0 up
+if [ "$MODE" = dhcp ]; then
+	udhcpc -i eth0 -q -n >> $LOG 2>&1 || echo "DHCP failed" >> $LOG
+else
+	ifconfig eth0 "$IP" netmask "$MASK" >> $LOG 2>&1
+	route del default gw 0.0.0.0 dev eth0 2>/dev/null
+	[ -n "$GW" ] && route add default gw "$GW" dev eth0 >> $LOG 2>&1
+fi
+ifconfig eth0 | grep "inet addr" >> $LOG
+
+# --- Pandora (restarted if it ever exits; a crash loop falls back to the vendor app) ---
+n=0
+while [ $n -lt 5 ]; do
+	echo "starting pandora ($n)" >> $LOG
+	./pandora > /tmp/pandora.log 2>&1
+	n=$((n + 1))
+	sleep 2
+done
+echo "pandora exited 5 times" >> $LOG
+[ -x /ddcsv4/ddcsv4.vendor ] && exec ./ddcsv4.vendor

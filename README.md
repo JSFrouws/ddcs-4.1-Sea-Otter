@@ -6,7 +6,10 @@ work offsets, multi-part jobs, resume-from-line, TryCut and Simulate, overrides,
 the panel UI on the 1024x600 LCD with the 18 keys and the MPG pendant, and an Ethernet API.
 It runs on the controller (static ARMv5 binary) and on a PC against an FPGA simulator.
 
-- **Operators:** [docs/user-manual.md](docs/user-manual.md)
+- **Operators:** [docs/user-manual.md](docs/user-manual.md) ([PDF](docs/user-manual.pdf))
+- **Installing:** from a USB stick, [docs/usb-install.md](docs/usb-install.md) ·
+  SSH with a password: [docs/ssh-setup.md](docs/ssh-setup.md)
+- **API:** [docs/api-reference.md](docs/api-reference.md)
 - **How it works:** [docs/app-architecture.md](docs/app-architecture.md),
   [docs/fpga-motion.md](docs/fpga-motion.md), [docs/motion-planner.md](docs/motion-planner.md)
 - **All findings about the hardware:** [docs/README.md](docs/README.md)

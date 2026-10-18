@@ -10,3 +10,5 @@
 /docs/raw/sysdisk-2026-10-15/
 /docs/raw/2026-10-15_lan-sweep.txt
 /docs/raw/2026-10-15_ddcs-scan.txt
+!/.gitattributes
+/app/tools/ssh/out/

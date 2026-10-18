@@ -1,0 +1,4 @@
+# files that run on the controller or in WSL must keep LF line ends
+*.sh text eol=lf
+app/install/usb/** text eol=lf
+app/install/usb/ddcsv4/ddcsv4.out text eol=lf

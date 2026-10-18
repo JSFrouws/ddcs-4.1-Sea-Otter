@@ -3,7 +3,7 @@
 For the person at the machine. Pandora is the replacement controller software for the
 DDCS V4.1 (`app/`). This manual covers daily use. Design background is in
 [operator-procedures.md](operator-procedures.md), the network API in
-[ethernet-api.md](ethernet-api.md).
+[api-reference.md](api-reference.md).
 
 > **Status (2026-10-18):** tested on the real controller with no motors connected:
 > step-exact positions, real CAM programs up to 64 000 lines. **Not yet** run with motors,
@@ -11,6 +11,14 @@ DDCS V4.1 (`app/`). This manual covers daily use. Design background is in
 > unpowered or able to move freely.
 
 ---
+
+## 0. Installing
+
+From a USB stick, no PC tools needed on the controller: [usb-install.md](usb-install.md).
+In short: copy the `ddcsv4` install folder to a FAT32 stick, set the IP address in
+`network.conf`, plug it in, switch on, then take the stick out. The browser panel and the
+API answer at `http://<that IP>:8080/`. To go back to the vendor software, see the same page.
+Remote access with a password: [ssh-setup.md](ssh-setup.md).
 
 ## 1. The screen
 
@@ -125,6 +133,7 @@ switch the machine off.**
 
 ### 4.3 Limit switch
 The banner shows e.g. `X+ LIMIT`. Only that direction is blocked. **Mode** → Jog and:
+
 - **back off** the switch (X− here): the limit clears by itself when the switch releases;
 - or move **sideways** (Y) or **up/down** (Z): never blocked.
 
@@ -177,7 +186,7 @@ network client to start programs) · *Pendant › Reverse wheel direction*.
 ## 8. Network
 The controller serves a browser panel and the API on port 8080
 (`http://<controller-ip>:8080/`). Every panel action is also an API call; see
-[ethernet-api.md](ethernet-api.md). Programs can be uploaded and started remotely. A remote
+[api-reference.md](api-reference.md). Programs can be uploaded and started remotely. A remote
 start always counts down on the panel first, and Reset cancels it.
 
 ## 9. Known limits (2026-10-18)
