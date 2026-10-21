@@ -1,7 +1,7 @@
 /* Pandora - replacement operator app for the DDCS V4.1.
  *
- *   pandora                 on the controller: vendor /dev/motion, TM1638 keys, /dev/fb0
- *   pandora --sim           simulated FPGA + machine (host, or on the unit without moving anything)
+ *   seaotter                on the controller: vendor /dev/motion, TM1638 keys, /dev/fb0
+ *   seaotter --sim          simulated FPGA + machine (host, or on the unit without moving anything)
  * Options: --fb DEV | --no-fb, --port N, --data DIR, --programs DIR, --usb DIR
  * Browse to http://<host>:8080/ for the live panel (and the API under /api/v1/). */
 #include <signal.h>
@@ -151,8 +151,8 @@ int main(int argc, char **argv)
 	else if (stat("/local", &st) != 0) UI_SRC_DIRS[0] = "programs";
 	if (usb) UI_SRC_DIRS[1] = usb;
 	char cfg[300], wd[300];
-	snprintf(cfg, sizeof cfg, "%s/pandora.cfg", data);
-	snprintf(wd, sizeof wd, "%s/pandora-work.cfg", data);
+	snprintf(cfg, sizeof cfg, "%s/seaotter.cfg", data);
+	snprintf(wd, sizeof wd, "%s/seaotter-work.cfg", data);
 
 	/* PANDORA_TRACE=file: log every FPGA register access (diagnostics on the real unit) */
 	static FILE *trace_f;
@@ -168,7 +168,7 @@ int main(int argc, char **argv)
 	api_bind(&dsp, panel);
 	if (!port) port = SET.api_port;
 	if (http_init(port, api_handle) < 0) fprintf(stderr, "HTTP port %d unavailable - API and browser panel off\n", port);
-	else fprintf(stderr, "pandora %s (%s): %s backend, panel at http://localhost:%d/\n", BUILD_ID, BUILD_DATE, sim ? "SIMULATED" : "real", port);
+	else fprintf(stderr, "Sea Otter %s (%s): %s backend, panel at http://localhost:%d/\n", BUILD_ID, BUILD_DATE, sim ? "SIMULATED" : "real", port);
 
 	signal(SIGINT, on_sig); signal(SIGTERM, on_sig); signal(SIGPIPE, SIG_IGN);
 	g_sim = sim;
@@ -227,6 +227,6 @@ int main(int argc, char **argv)
 	fpga_set_outputs(&C.fp, 0);
 	fpga_spindle_pwm(&C.fp, 0);
 	panel->leds(panel, 0);
-	fprintf(stderr, "pandora: saved, outputs off, bye\n");
+	fprintf(stderr, "seaotter: saved, outputs off, bye\n");
 	return 0;
 }

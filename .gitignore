@@ -1,9 +1,11 @@
-# This repo publishes app/ and docs/ only
+# This repo publishes app/, docs/ and connecting/ only
 /*
 !/.gitignore
+!/.gitattributes
 !/README.md
 !/app/
 !/docs/
+!/connecting/
 
 /app/build/
 # vendor firmware files and the local network scans stay private
@@ -12,3 +14,12 @@
 /docs/raw/2026-10-15_ddcs-scan.txt
 !/.gitattributes
 /app/tools/ssh/out/
+
+# connecting/ runtime artifacts (a generated private key, state, backups, venv)
+/connecting/ssh_key
+/connecting/ssh_key.pub
+/connecting/connection.txt
+/connecting/backup/
+/connecting/files/.venv/
+/connecting/files/__pycache__/
+/connecting/files/state.json

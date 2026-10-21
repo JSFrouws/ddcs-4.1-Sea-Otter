@@ -2,3 +2,7 @@
 *.sh text eol=lf
 app/install/usb/** text eol=lf
 app/install/usb/ddcsv4/ddcsv4.out text eol=lf
+*.bat text eol=crlf
+connecting/files/src/*.c text eol=lf
+connecting/DDCS4.1_temporary_app binary
+connecting/files/dropbearmulti binary

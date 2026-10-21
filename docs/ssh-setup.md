@@ -4,7 +4,7 @@ How to get a root shell over the network on a stock DDCS V4.1, with a normal pas
 login (`ssh root@<ip>`, type the password). Key pairs work too, but aren't needed on a
 local network: add them yourself if you want them (end of this page).
 
-**Tested 2026-10-18** on the desk unit: password login on port 22, both with Pandora and
+**Tested 2026-10-18** on the desk unit: password login on port 22, both with Sea Otter and
 with the vendor app running.
 
 ## Why it takes a custom SSH server
@@ -27,7 +27,7 @@ The cross toolchain has no `crypt()` for a static build, so it brings its own
 
 Everything above is done by the USB install package: [usb-install.md](usb-install.md).
 
-- **With Pandora:** install as described there, with `ssh-password.txt` holding your
+- **With Sea Otter:** install as described there, with `ssh-password.txt` holding your
   password.
 - **Keeping the vendor app:** the same package plus `ddcsv4.vendor` (the vendor's original
   `ddcsv4.out`) and an empty `USE_VENDOR` file. See *SSH only* in usb-install.md.
@@ -96,12 +96,12 @@ The script downloads dropbear 2024.86, enables password login, links `md5crypt.c
 The controller has no `scp` / `sftp`. Copy with `cat`:
 
 ```sh
-ssh root@192.168.1.200 "cat > /ddcsv4/pandora.new" < pandora
-ssh root@192.168.1.200 "chmod +x /ddcsv4/pandora.new && mv /ddcsv4/pandora.new /ddcsv4/pandora"
+ssh root@192.168.1.200 "cat > /ddcsv4/seaotter.new" < seaotter
+ssh root@192.168.1.200 "chmod +x /ddcsv4/seaotter.new && mv /ddcsv4/seaotter.new /ddcsv4/seaotter"
 ```
 
 A running program can't be overwritten (`Text file busy`): copy to a new name, then `mv`,
-or stop the program first (`killall pandora`).
+or stop the program first (`killall seaotter`).
 
 ## Optional: key login
 
@@ -115,4 +115,4 @@ ssh -i ~/.ssh/ddcs root@<ip>
 
 This is a **root login on your local network**. It's meant for a workshop LAN, not the
 internet. Choose a real password, don't forward port 22 on your router, and remember that
-the Pandora API on port 8080 has no password at all (it can be switched off on the panel).
+the Sea Otter API on port 8080 has no password at all (it can be switched off on the panel).

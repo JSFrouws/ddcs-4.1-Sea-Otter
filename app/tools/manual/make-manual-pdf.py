@@ -70,7 +70,7 @@ def main():
         shot = '<img src="data:image/png;base64,%s">' % base64.b64encode(open(SHOT, "rb").read()).decode()
     html = f"""<!doctype html><html><head><meta charset="utf-8"><title>Pandora user manual</title>
 <style>{CSS}</style></head><body>
-<section class="cover"><span class="tag">DDCS V4.1 · PANDORA</span>
+<section class="cover"><span class="tag">DDCS V4.1 · SEA OTTER</span>
 <h1>User manual</h1><div class="sub">Replacement controller software for the DDCS V4.1 — daily use at the machine</div>
 {shot}
 <div class="foot">github.com/JSFrouws/ddcs-4.1-Sea-Otter · docs/user-manual.md</div></section>

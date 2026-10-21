@@ -1,13 +1,13 @@
 #!/bin/sh
-# Pandora start script for the DDCS V4.1 (installed from a USB stick).
+# Sea Otter start script for the DDCS V4.1 (installed from a USB stick).
 #
 # The unit's boot script (/etc/init.d/rcS) copies /udisk-sda1/ddcsv4/* to /ddcsv4/ on every
 # boot, then runs `cd /ddcsv4; ./ddcsv4.out &`. This file takes the place of the vendor's
-# ddcsv4.out: it starts SSH, sets up the network (the vendor app used to), then runs Pandora.
+# ddcsv4.out: it starts SSH, sets up the network (the vendor app used to), then runs Sea Otter.
 # See docs/usb-install.md.
 cd /ddcsv4 || exit 1
-LOG=/tmp/pandora-boot.log
-echo "pandora start script $(date)" > $LOG
+LOG=/tmp/seaotter-boot.log
+echo "Sea Otter start script $(date)" > $LOG
 
 # --- SSH password: ssh-password.txt holds one line, the new root password. It is applied
 #     and deleted at once (remove it from the stick too: it is copied again on every boot) ---
@@ -34,7 +34,7 @@ if [ -x /ddcsv4/dropbearmulti ]; then
 	fi
 fi
 
-# --- the vendor app instead of Pandora: put its original ddcsv4.out on the stick as
+# --- the vendor app instead of Sea Otter: put its original ddcsv4.out on the stick as
 #     ddcsv4.vendor and add an empty file USE_VENDOR (SSH above still starts; the vendor
 #     app sets up the network itself) ---
 if [ -f /ddcsv4/USE_VENDOR ] && [ -x /ddcsv4/ddcsv4.vendor ]; then
@@ -56,13 +56,13 @@ else
 fi
 ifconfig eth0 | grep "inet addr" >> $LOG
 
-# --- Pandora (restarted if it ever exits; a crash loop falls back to the vendor app) ---
+# --- Sea Otter (restarted if it ever exits; a crash loop falls back to the vendor app) ---
 n=0
 while [ $n -lt 5 ]; do
-	echo "starting pandora ($n)" >> $LOG
-	./pandora > /tmp/pandora.log 2>&1
+	echo "starting seaotter ($n)" >> $LOG
+	./seaotter > /tmp/seaotter.log 2>&1
 	n=$((n + 1))
 	sleep 2
 done
-echo "pandora exited 5 times" >> $LOG
+echo "seaotter exited 5 times" >> $LOG
 [ -x /ddcsv4/ddcsv4.vendor ] && exec ./ddcsv4.vendor

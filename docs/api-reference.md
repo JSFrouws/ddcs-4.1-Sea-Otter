@@ -1,6 +1,6 @@
-# Pandora API reference
+# Sea Otter API reference
 
-The HTTP API that Pandora (`app/`) actually implements, endpoint by endpoint, as of build
+The HTTP API that Sea Otter (`app/`) actually implements, endpoint by endpoint, as of build
 local-74 (2026-10-18). [ethernet-api.md](ethernet-api.md) is the wider design: it also
 lists endpoints that are planned but not built yet. **This file is the contract:** if an
 endpoint is not here, it doesn't exist yet.

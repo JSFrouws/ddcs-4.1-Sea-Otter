@@ -1,4 +1,4 @@
-# Pandora — replacement operator app for the DDCS V4.1
+# Sea Otter — the DDCS V4.1 controller app
 
 A single C program for the controller (ARMv5, static, ~1.4 MB) that replaces the vendor
 `ddcsv4.out`: G-code, homing, zeroing/touch-off, work and machine coordinates, multi-part
@@ -19,8 +19,8 @@ Needs `gcc`, `make`, `python3`, and for the controller `gcc-arm-linux-gnueabi`
 ```bash
 make test        # 611 checks: FPGA layer vs the vendor's recorded register writes,
                  # G-code, motion vs simulated FPGA, state machine, UI
-make host        # build/host/pandora   (PC, simulator)
-make arm         # build/arm/pandora    (controller, static ARMv5)
+make host        # build/host/seaotter   (PC, simulator)
+make arm         # build/arm/seaotter    (controller, static ARMv5)
 make test-arm    # the same tests, ARM build, under qemu-arm
 ```
 
@@ -30,7 +30,7 @@ CI, otherwise `local-<n>` from a counter in `build/buildno`; the date is the bui
 ## Run on the PC (simulator)
 
 ```bash
-./build/host/pandora --programs programs --data build/run --port 8090
+./build/host/seaotter --programs programs --data build/run --port 8090
 ```
 
 Open `http://localhost:8090/`: the physical panel with the app's real framebuffer in the
@@ -42,18 +42,18 @@ can switch on the **strict done-latch** (the real FPGA's still-unsolved behaviou
 ## Run on the controller
 
 Tested on the unit 2026-10-18 (real FPGA, no motors): see [../docs/fpga-motion.md](../docs/fpga-motion.md).
-The unit has no `scp`: copy with `ssh … "cat > /ddcsv4/pandora" < build/arm/pandora`.
+The unit has no `scp`: copy with `ssh … "cat > /ddcsv4/seaotter" < build/arm/seaotter`.
 A power cycle brings the vendor app back (rcS starts it). Order of first tests over SSH ([../docs/ssh-access.md](../docs/ssh-access.md)):
 
 1. Copy the binary (above).
 2. Stop the vendor app: `killall ddcsv4.out` (a power cycle brings it back — rcS starts it).
-3. **Keys + LCD only, machine simulated**: `/ddcsv4/pandora --sim` — nothing can move;
+3. **Keys + LCD only, machine simulated**: `/ddcsv4/seaotter --sim` — nothing can move;
    checks the TM1638 keys/LEDs, the framebuffer and the browser panel on the real unit.
-4. Real I/O: `/ddcsv4/pandora` (uses the vendor `motiondev.ko` already loaded at boot).
+4. Real I/O: `/ddcsv4/seaotter` (uses the vendor `motiondev.ko` already loaded at boot).
    Inputs, outputs, spindle 0–10 V, pendant and E-stop are on proven registers. **Motion is
    limited by the open FPGA items below** — test with the motors unpowered or free first.
 
-Data files: `/ddcsv4/pandora.cfg` (settings), `/ddcsv4/pandora-work.cfg` (G54–G59,
+Data files: `/ddcsv4/seaotter.cfg` (settings), `/ddcsv4/seaotter-work.cfg` (G54–G59,
 tools), `…work.cfg.pos` (last position). Programs are read from `/local` (the CNCDISK
 share) and `/udisk-sda1`, `/udisk-sda` (USB).
 

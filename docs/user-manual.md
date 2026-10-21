@@ -1,6 +1,6 @@
-# Pandora on the DDCS V4.1 — user manual
+# Sea Otter — DDCS V4.1 user manual
 
-For the person at the machine. Pandora is the replacement controller software for the
+For the person at the machine. Sea Otter is the replacement controller software for the
 DDCS V4.1 (`app/`). This manual covers daily use. Design background is in
 [operator-procedures.md](operator-procedures.md), the network API in
 [api-reference.md](api-reference.md).

@@ -3,7 +3,7 @@
 #   make arm         static ARMv5 build for the controller (real backends, --sim available)
 #   make test        unit/layer tests, native
 #   make test-arm    the same tests cross-built and run under qemu-arm (if installed)
-#   make deploy      copy build/arm/pandora to the unit over SSH (see README)
+#   make deploy      copy build/arm/seaotter to the unit over SSH (see README)
 # Build id shown on the panel: PIPELINE_ID if set (CI), else a local counter.
 
 CC_HOST  ?= gcc
@@ -30,17 +30,17 @@ TESTS := tests/test_main.c tests/test_fpga.c tests/test_gcode.c tests/test_motio
          tests/test_machine.c tests/test_ui.c tests/test_planner.c
 
 .PHONY: host arm test test-arm clean deploy
-host: $(BUILD)/host/pandora
-arm:  $(BUILD)/arm/pandora
+host: $(BUILD)/host/seaotter
+arm:  $(BUILD)/arm/seaotter
 
 src/net/web_panel.c: web/panel.html tools/embed.py
 	python3 tools/embed.py web/panel.html $@ WEB_PANEL
 
-$(BUILD)/host/pandora: $(APP) $(wildcard src/*/*.h src/*.h)
+$(BUILD)/host/seaotter: $(APP) $(wildcard src/*/*.h src/*.h)
 	@mkdir -p $(dir $@)
 	$(CC_HOST) $(CFLAGS) $(DEFS) -o $@ $(APP) -lm
 
-$(BUILD)/arm/pandora: $(APP) $(wildcard src/*/*.h src/*.h)
+$(BUILD)/arm/seaotter: $(APP) $(wildcard src/*/*.h src/*.h)
 	@mkdir -p $(dir $@)
 	$(CC_ARM) $(CFLAGS) -Os -march=armv5te -mtune=arm926ej-s -static $(DEFS) -o $@ $(APP) -lm
 	@ls -l $@
@@ -60,7 +60,7 @@ test-arm: $(BUILD)/arm/tests
 	cd $(BUILD) && qemu-arm ./arm/tests
 
 deploy: arm
-	scp -i ../mockup/dropbear/ddcsv4_id_ed25519 $(BUILD)/arm/pandora root@192.168.1.200:/ddcsv4/pandora
+	scp -i ../mockup/dropbear/ddcsv4_id_ed25519 $(BUILD)/arm/seaotter root@192.168.1.200:/ddcsv4/seaotter
 
 clean:
 	rm -rf $(BUILD)/host $(BUILD)/arm

@@ -1,147 +1,105 @@
-# DDCS V4.1 "Sea Otter" - open replacement software for the DDCS V4.1 CNC controller
+# Sea Otter — open controller software for the DDCS V4.1
 
-**Pandora** ([app/](app/README.md)) is a complete replacement for the controller's vendor
-software: G-code (incl. drilling cycles), lookahead motion planning, homing, touch-off,
-work offsets, multi-part jobs, resume-from-line, TryCut and Simulate, overrides, macros,
-the panel UI on the 1024x600 LCD with the 18 keys and the MPG pendant, and an Ethernet API.
-It runs on the controller (static ARMv5 binary) and on a PC against an FPGA simulator.
+Sea Otter is a complete, from-scratch replacement for the software on the **DDCS V4.1**
+CNC motion controller (the Digital Dream 4-axis stand-alone controller; Freescale i.MX28 /
+ARM926, 1024×600 LCD, 18-key panel, MPG pendant). It does everything the original does and
+more, and installs from a **USB stick** in one step — swap it in, swap the original back
+whenever you like.
 
-- **Operators:** [docs/user-manual.md](docs/user-manual.md) ([PDF](docs/user-manual.pdf))
-- **Installing:** from a USB stick, [docs/usb-install.md](docs/usb-install.md) ·
-  SSH with a password: [docs/ssh-setup.md](docs/ssh-setup.md)
-- **API:** [docs/api-reference.md](docs/api-reference.md)
-- **How it works:** [docs/app-architecture.md](docs/app-architecture.md),
-  [docs/fpga-motion.md](docs/fpga-motion.md), [docs/motion-planner.md](docs/motion-planner.md)
-- **All findings about the hardware:** [docs/README.md](docs/README.md)
+It is one small C program (a static ARMv5 binary, ~1.4 MB) that provides:
 
-Status (2026-10-18): step-exact on the real controller's FPGA with real CAM programs
-(up to 64 000 lines); **not yet tested with motors or real limit/home switches.**
+- **G-code**: G0–G3 in all planes, drilling cycles (G81/G82/G83/G73/G85/G89), work offsets
+  G54–G59, multi-part jobs, tool changes, a full parse-and-check on load.
+- **Motion**: lookahead planning with S-curve acceleration, per-axis limits, a controlled
+  (no-lost-steps) stop on Reset / E-stop / limit.
+- **Setup & safety**: homing, touch-off, soft and hard limits, feed/spindle overrides to
+  300 %, TryCut and Simulate dry runs, resume-from-line.
+- **The panel**: the whole UI on the LCD with the 18 keys, LEDs and the optional MPG
+  pendant, plus a toolpath view with a CPU-saver mode.
+- **Network**: a browser panel and a full HTTP API on port 8080.
 
-This repository holds `app/` and `docs/`. The vendor's firmware files are not included.
+The same binary also runs on a PC against a built-in FPGA **simulator**, with the panel in a
+browser — so you can try the whole system, and develop for it, without the hardware.
 
----
+> **Status (2026-10-21):** step-exact on a real DDCS V4.1 FPGA, verified with real CAM
+> programs up to 64 000 lines (0 lost steps). **Not yet run with motors connected, or with
+> real limit/home switches** — do the first real tests with the motors unpowered or free to
+> move. See [docs/fpga-motion.md](docs/fpga-motion.md).
 
-## Background: the motion driver port
+## Install it (USB stick — nothing else needed)
 
+The controller copies files from a USB stick into place at boot and runs whatever is named
+`ddcsv4.out`. Sea Otter uses exactly that path, so installing is just:
 
-A port of the open-source [Pandora-CNC](https://github.com/Pandora-CNC)
-`motiondev` driver (originally for the DDCSV1.1 / Nuvoton W55FA93) to the
-**DDCS V4.1**, whose main board is a **Freescale i.MX28 (ARM926, ARMv5)**
-running **Linux 2.6.35.3**.
+1. Build the USB package (or download a release) and copy its `ddcsv4` folder to a FAT32
+   stick.
+2. Set the controller's IP address in `network.conf` on the stick.
+3. Power off, plug in, power on. After ~15 s Sea Otter is running; the browser panel and the
+   API answer at `http://<that IP>:8080/`.
+4. Remove the stick.
 
-Everything here was derived by disassembling the vendor firmware package
-`ddcsv4(2025-04-04)` — specifically `motiondev.ko` (driver, GPL, build
-string `20210830`) and `ddcsv4.out` (the application). No vendor source was
-used; the driver is GPL like the original.
+No cabling into the board, no shell, no extra tools — a USB stick is the whole install, and
+the network/API come up on their own. To go back to the original software, drop its
+`ddcsv4.out` on a stick (or set `USE_VENDOR`) and boot once. Full instructions, including
+getting the original firmware back:
 
-> **Status: compiles and is vermagic-compatible with the controller. It has
-> NOT been run on hardware.** Treat it as a reverse-engineering scaffold and
-> a trace tool, not a drop-in replacement yet. See *Unknowns* below.
+**→ [docs/usb-install.md](docs/usb-install.md)**
 
-## What this gives you
+## Read this first
 
-1. **A compatible `/dev/motion`** implementing the vendor ioctl ABI
-   (`0x4620`–`0x4628`), so in principle `ddcsv4.out` can run on top of it.
-2. **A second node `/dev/motion-trace`** with a per-register trace + bypass
-   engine (Pandora's idea, extended to cover the handwheel, keypad, LEDs,
-   spindle PWM and the power-fail interrupt). This is the real point: it lets
-   you **record exactly what the vendor app writes to the FPGA** while you
-   jog and cut, which is the information you need to write your own control
-   software.
-3. **`mtrace`**, a small static ARM tool to drive the trace node and do
-   one-off register reads/writes.
-
-## How the hardware was decoded (evidence)
-
-From `motiondev.ko`:
-
-| Finding | Evidence |
+| You want to… | Go to |
 |---|---|
-| SoC = i.MX28 | Imports `mxs_request_pin/strength/voltage`, `clk_get("pwm")`; register bases `0xF006_4000` (PWM), `0xF006_8000` (TIMROT), pin-mux at `0x..18000` — the mxs/i.MX28 map. The name `w55fa93-motion` is a left-over label from the V1.1 ancestor. |
-| FPGA bus = bit-banged GPIO | `ADDROUT/DATAOUT/DATAIN/WR_DATA/RD_DATA` scatter address/data across GPIO banks 1/2/3 and toggle `gpio 17` (WR) / `gpio 20` (RD). |
-| Bus bit order | The shift/mask constants `0x001F07FF`, `0x00F00000`, `0x1C400000` in `ADDROUT`/`WR_DATA`/`DATAIN`. |
-| Keypad/LED = TM1638 | `TM1638_Read/Write`, `Write_COM`, `Write_Nixie_DATA`, `Read_Nixie_DATA` bit-bang `gpio 49/50/51` (STB/DIO/CLK) with the TM1638 `0x44` / `0xC0+addr` / `0x8F` / `0x42` command set. |
-| ioctl map | `motion_ioctl` jump table: `0x4620` write, `0x4621` read, `0x4622` 18-word block → regs `0x50..0x60` + latch `0x66`, `0x4623/24` beep, `0x4625` power status, `0x4626/28` LED/key, `0x4627` PWM. |
-| Spindle PWM = channel 6 | `WR`-style writes to PWM period `0x005A0BB7 / 0x005B0BB7 / 0x005F0BB7` (off / run / full). |
-| Power-fail IRQ | `motion_open` requests a threaded IRQ on `gpio 85` and `kill_fasync`es the app on the rising edge. |
+| **Use the machine** | [docs/user-manual.md](docs/user-manual.md) · [PDF](docs/user-manual.pdf) |
+| **Install / update / revert** | [docs/usb-install.md](docs/usb-install.md) |
+| **Drive it over the network** | [docs/api-reference.md](docs/api-reference.md) |
+| **Get a Linux login on the controller** (development) | [connecting/](connecting/Readme.md) |
+| **Understand how it works** | [docs/app-architecture.md](docs/app-architecture.md), [docs/motion-planner.md](docs/motion-planner.md), [docs/fpga-motion.md](docs/fpga-motion.md) |
+| **See everything learned about the hardware** | [docs/README.md](docs/README.md) |
 
-The file-by-file register/pin map is in `driver/motiondev_hw.h`.
+## Build it
 
-## Building the driver
-
-You need the **matching kernel source**: Linux **2.6.35.3**, configured
-ARMv5 + `PREEMPT` + `MODVERSIONS` + `MODULE_UNLOAD`, so the vermagic comes
-out as:
-
-```
-2.6.35.3-571-gcca29a0 preempt mod_unload modversions ARMv5
-```
-
-This repo's driver already builds to that exact vermagic. Then:
+In WSL or Linux, with `gcc`, `make`, `python3`, and for the controller
+`gcc-arm-linux-gnueabi` (+ `qemu-user` to run the ARM tests):
 
 ```sh
-make -C driver \
-     KDIR=/path/to/linux-2.6.35 \
-     ARCH=arm CROSS_COMPILE=arm-linux-gnueabi-
+cd app
+make test                             # ~900 checks (G-code, motion vs simulated FPGA, UI, API)
+make arm                              # build/arm/seaotter   (the controller binary)
+make host                             # build/host/seaotter  (PC + simulator)
+sh tools/ssh/build-dropbear.sh        # the SSH server for the USB package (once)
+sh install/make-usb.sh                # assemble the USB stick folder -> build/usb/ddcsv4/
 ```
 
-> **Symbol-version (CRC) caveat.** Module loading on this kernel checks a CRC
-> per imported symbol (`modversions`). Those CRCs come from a *full* kernel
-> build (`Module.symvers` / `vmlinux`), which needs Digital Dream's exact
-> `.config` and the i.MX28 BSP. Until you have that, the `.ko` will have zero
-> CRCs and the controller kernel will reject it unless you load with
-> `insmod -f` / `modprobe --force-modversions`. The cleanest path is to pull
-> the real `Module.symvers` off the device (or the BSP) and rebuild.
+Run it on a PC (no hardware):
 
-## Getting onto the controller (recovery first!)
+```sh
+./build/host/seaotter --programs programs --data build/run --port 8090
+# then open http://localhost:8090/
+```
 
-Before replacing anything, **establish a recovery path so a bad module can't
-brick the box:**
+More in [app/README.md](app/README.md).
 
-- Find the board's **debug UART** (serial console). The i.MX28 ROM and
-  U-Boot print there; it gives you a root shell independent of `ddcsv4.out`.
-- Confirm the **i.MX28 USB recovery (`RECOVERY`/`USB-boot`) mode** via the
-  boot-mode pins. With `mxsldr`/`uuc` you can always reload a known-good
-  kernel+rootfs over USB even if flash is wiped.
-
-With a console you can `cp` the stock `ddcsv4` folder somewhere safe, then
-`rmmod motiondev; insmod motiondrv.ko` and roll back instantly if needed.
-
-## Recommended workflow (what this is actually for)
-
-1. Build + deploy `mtrace` and (optionally) this driver with trace enabled.
-2. `mtrace reset; mtrace on`, then make the stock app jog each axis a known
-   distance, change feed, start/stop spindle, turn the handwheel one detent.
-3. `mtrace dump > capture.txt; mtrace off`.
-4. From the capture, work out the FPGA register meaning: step-rate/velocity
-   words (regs `0x50..0x60` in the block), position read-back, I/O, and the
-   MPG count. That register map is the one missing piece between here and a
-   full from-scratch controller.
-
-## Unknowns / assumptions (verify on hardware)
-
-- **Block word order** inside ioctl `0x4622`. The V1.1 driver reordered the
-  18 words (`pbuf[0,1,4,5,6,7,8,9,2,3,10..15]`) and double-latched; the V4.1
-  binary writes `0x50..0x60` straight through. This port does the
-  straight-through V4.1 form — confirm against a capture.
-- **DIGCTL microsecond counter offset** (`0x0C0`) for trace timestamps.
-- **TIMROT rotary-decoder config word** for the MPG (`0x00001054`): taken
-  from the binary but the exact SELECT fields should be checked.
-- **TM1638 read glitch-filter**: the vendor does a 2-of-3 vote; replicated
-  but not timing-verified.
-- Exact `Module.symvers` CRCs (see caveat above).
-
-## Layout
+## Repository layout
 
 ```
-driver/   motiondev.c        main driver, ioctl ABI + trace engine
-          motiondev_lld.c    i.MX28 FPGA bus + TM1638 bit-bang
-          motiondev_hw.h     all recovered addresses/pins/regs (the map)
-          motiondev.h        trace record + control-op ABI
-          Makefile
-tools/    mtrace.c           trace/one-shot-IO userspace tool
+app/          the controller software (C), its tests, the web panel, and the USB installer
+docs/         user manual, API reference, install guide, and the hardware reverse-engineering notes
+connecting/   one-time helper to get a root SSH login on the controller (development only)
 ```
+
+## How Sea Otter was built
+
+The DDCS V4.1 is a closed device: Sea Otter was written from scratch by observing the
+hardware directly — decoding the FPGA's motion registers, the TM1638 keypad, the MPG
+pendant and the I/O by watching what the original firmware does and measuring the real
+controller. Those findings, and the methods, are written up in [docs/](docs/README.md).
+None of the vendor's code is used or included here.
+
+The idea of an open replacement for these Digital Dream controllers is not new — the
+[Pandora-CNC](https://github.com/Pandora-CNC) project did pioneering work for the older
+**DDCSV1.1** (a different SoC), and was an inspiration for taking on the V4.1. Sea Otter is
+an independent system for the V4.1, not a port of it.
 
 ## License
 
-GPL-2.0, following the vendor `motiondev.ko` (GPL) and Pandora-CNC.
+GPL-2.0.

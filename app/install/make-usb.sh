@@ -6,8 +6,8 @@ cd "$(dirname "$0")/.."
 OUT=build/usb/ddcsv4
 rm -rf build/usb && mkdir -p $OUT
 cp install/usb/ddcsv4/ddcsv4.out install/usb/ddcsv4/network.conf install/usb/ddcsv4/ssh-password.txt.example $OUT/
-cp build/arm/pandora $OUT/pandora
+cp build/arm/seaotter $OUT/seaotter
 if [ -f tools/ssh/out/dropbearmulti ]; then cp tools/ssh/out/dropbearmulti $OUT/; else echo "note: no dropbearmulti (tools/ssh/build-dropbear.sh) - SSH left out"; fi
 sed -i 's/\r$//' $OUT/ddcsv4.out $OUT/network.conf      # the unit's shell needs LF line ends
-chmod +x $OUT/ddcsv4.out $OUT/pandora
+chmod +x $OUT/ddcsv4.out $OUT/seaotter
 ls -l $OUT

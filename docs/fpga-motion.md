@@ -40,7 +40,7 @@ Supersedes the "done latch" open item in [fpga-outputs.md](fpga-outputs.md)._
 6. Reset / E-stop / limit drop every planned-but-unsent step: the machine stops at the end of the burst in flight. **Never `0x04 = 4` mid-move.**
 7. Homing presets the counter; start-up takes the machine position from the counters.
 
-## Results with the final build (pandora running on the unit, real FPGA)
+## Results with the final build (the Sea Otter app running on the unit, real FPGA)
 
 | Test (`app/tools/device_motion_test.sh`, `device_stop_test.sh`) | Counters vs commanded |
 |---|---|
