@@ -55,7 +55,7 @@ jobs:
           sha256sum sea-otter-usb-$PIPELINE_ID.zip > sea-otter-usb-$PIPELINE_ID.zip.sha256
           cat sea-otter-usb-$PIPELINE_ID.zip.sha256
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: sea-otter-usb-${{ env.PIPELINE_ID }}
           path: |
