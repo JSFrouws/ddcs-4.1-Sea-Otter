@@ -5,10 +5,11 @@ DDCS V4.1 (`app/`). This manual covers daily use. Design background is in
 [operator-procedures.md](operator-procedures.md), the network API in
 [api-reference.md](api-reference.md).
 
-> **Status (2026-10-18):** tested on the real controller with no motors connected:
-> step-exact positions, real CAM programs up to 64 000 lines. **Not yet** run with motors,
-> real limit switches or homing switches. Do the first real tests with the motors
-> unpowered or able to move freely.
+> **Not yet tested on a machine with drives connected (2026-10-21).** Tested on a real
+> controller with no drives or motors attached: step-exact positions, real CAM programs up
+> to 64 000 lines, limit inputs and controlled stops through the real input path. Do the
+> first real tests with the motors unpowered or able to move freely, with a hard-wired
+> E-stop that cuts the drives. No warranty, no liability: see the README.
 
 ---
 
@@ -137,7 +138,34 @@ The banner shows e.g. `X+ LIMIT`. Only that direction is blocked. **Mode** → J
 - **back off** the switch (X− here): the limit clears by itself when the switch releases;
 - or move **sideways** (Y) or **up/down** (Z): never blocked.
 
+**Two or three switches at once** (e.g. driving into a corner): each one stops the move and
+blocks its own direction; the banner lists them all (`X+ Y− LIMIT · jog X− Y+ to release`).
+LIMIT only goes away when the **last** switch is released.
+
 A program that was running has stopped with its progress remembered: resume as in 3.6.
+Which input each axis's switch is on: *Settings › Homing & limits › X/Y/Z limit/home switch
+input* (this machine: IN02 / IN03 / IN04; 0 = no switch on that axis).
+
+### 4.3a Soft limits and bench limits
+Two software boxes keep the machine inside its travel, without touching a switch:
+
+| | In force | Set in *Settings › Homing & limits* |
+|---|---|---|
+| **Soft limits** | once the machine is **homed** (before that, positions mean nothing) | *X/Y/Z soft limit − / +*, switch: *Soft limits* |
+| **Bench limits** | **always**, homed or not: a work box, e.g. the part of the table you use, or a safe box on the bench while testing | *X/Y/Z bench limit − / +*, switch: *Bench limits* |
+
+When both are on, the tighter one counts. What they do:
+
+- **A program that would leave the box is refused** at Start, with the axis, the side and
+  how far: e.g. *Program goes past the X+ bench limit on G54: reaches 675.8 mm, limit
+  587.8*. TryCut is checked at its clearance height. Simulate still runs (it moves nothing)
+  and says the program is outside.
+- **A jog towards the edge slows down and stops exactly on it.** A step jog past the edge is
+  shortened to end on the edge; a held (continuous) jog brakes at the axis' acceleration as
+  it gets close. Measured on the controller: from 16 mm/s to a standstill within the last
+  ~0.7 mm, landing on the edge to the step. The next jog that way is refused (*X+ is at its
+  bench limit*); the other way is free.
+- Goto 0, Park and Tool change are refused if their target is outside the box.
 
 ### 4.4 DRIVES OFF
 Only when someone switched the drives off (Jog F3, or over the network). The banner says
@@ -189,9 +217,10 @@ The controller serves a browser panel and the API on port 8080
 [api-reference.md](api-reference.md). Programs can be uploaded and started remotely. A remote
 start always counts down on the panel first, and Reset cancels it.
 
-## 9. Known limits (2026-10-18)
-- Not yet tested with motors, real limit/home switches or a probe (probing is not
-  configured).
+## 9. Known limits (2026-10-21)
+- **Not yet tested with drives or motors connected**, nor with real limit/home switches
+  or a probe (probing is not configured). Limit handling was tested through the real
+  input path with the inputs' level inverted, not with a switch.
 - Loading a very large file (64 000 lines) takes ~4 s, and the panel freezes for that time.
 - G84 tapping and tool length compensation (G43) are not supported.
 - `G28` without axis words sends all axes to machine zero **together**, not Z first, as

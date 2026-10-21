@@ -58,6 +58,8 @@ typedef struct {
 	/* homing */
 	struct { bool on; int k, phase, axis; double travel; } home;
 	bool (*switch_active)(int axis);
+	bool (*range)(int axis, double *lo, double *hi);   /* soft/bench limits for jogs + nudges */
+	int soft_stop;               /* axis+1 when a jog braked to a standstill at its limit */
 	/* events for the controller */
 	mev_t ev; gc_op_t ev_op;
 } motion_t;

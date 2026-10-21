@@ -42,6 +42,7 @@ typedef struct {
 	bool homed;
 	int limit_axis, limit_dir;     /* dir 0 = unknown (switch active since power-up) */
 	bool lim_active[NAXES];
+	int lim_dir[NAXES];            /* per axis: 0 free, +1/-1 tripped moving that way, 2 = active, direction unknown */
 	bool spindle; double rpm; int coolant;
 	int armed, run_mode;
 	program_t prog;
@@ -81,6 +82,7 @@ const char *can(cmd_t c, const arg_t *a, src_t src);   /* NULL = allowed, else w
 bool act(cmd_t c, const arg_t *a, src_t src);
 bool ctl_busy(void);                                   /* RUN HOLD HOMING MOVE PROBING */
 void ctl_toast(bool bad, const char *fmt, ...);
+bool ctl_axis_range(int axis, double *lo, double *hi);   /* soft + bench limits in force; false = none */
 double ctl_trycut_z(void);                             /* TryCut: clearance level above the work plane */
 double ctl_work(int axis);                             /* work position, active WCS */
 void ctl_apply_axis_config(void);                      /* push settings to the FPGA */

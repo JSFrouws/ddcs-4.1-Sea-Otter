@@ -26,6 +26,9 @@ static const char *const DIRS[] = { "Negative", "Positive", NULL };
 	{ "axis." n ".dir_invert", "Axes", n " DIR invert", "", ST_BOOL, A(i, dir_invert), 0, 1, 0, 0, 1, 0 }, \
 	{ "axis." n ".soft_min", "Homing & limits", n " soft limit −", "mm", ST_DBL, A(i, soft_min), -9999, 9999, DEC_POS, 0, 1, 0 }, \
 	{ "axis." n ".soft_max", "Homing & limits", n " soft limit +", "mm", ST_DBL, A(i, soft_max), -9999, 9999, DEC_POS, 0, 1, 0 }, \
+	{ "axis." n ".bench_min", "Homing & limits", n " bench limit −", "mm", ST_DBL, A(i, bench_min), -99999, 99999, DEC_POS, 0, 1, 0 }, \
+	{ "axis." n ".bench_max", "Homing & limits", n " bench limit +", "mm", ST_DBL, A(i, bench_max), -99999, 99999, DEC_POS, 0, 1, 0 }, \
+	{ "axis." n ".limit_port", "Homing & limits", n " limit/home switch input (IN, 0 = none)", "", ST_INT, A(i, home_port), 0, 18, 0, 0, 1, 0 }, \
 	{ "axis." n ".home_dir", "Homing & limits", n " home direction", "", ST_ENUM, A(i, home_dir), 0, 1, 0, DIRS, 1, 0 }, \
 	{ "axis." n ".home_pos", "Homing & limits", n " position at switch", "mm", ST_DBL, A(i, home_pos), -9999, 9999, DEC_POS, 0, 1, 0 }, \
 	{ "axis." n ".home_backoff", "Homing & limits", n " back-off after home", "mm", ST_DBL, A(i, home_backoff), 0, 500, DEC_POS, 0, 1, 0 }
@@ -54,6 +57,7 @@ const setting_desc_t SETTINGS[] = {
 	AXROWS(0, "X"), AXROWS(1, "Y"), AXROWS(2, "Z"), AXROWS(3, "A"),
 	{ "home.order", "Homing & limits", "Home order", "", ST_ENUM, O(home_order), 0, 3, 0, HOME_ORDERS, 1, 0 },
 	{ "limits.soft", "Homing & limits", "Soft limits (when homed)", "", ST_BOOL, O(soft_limits), 0, 1, 0, 0, 1, 0 },
+	{ "limits.bench", "Homing & limits", "Bench limits (work box, also un-homed)", "", ST_BOOL, O(bench_limits), 0, 1, 0, 0, 1, 0 },
 	{ "limits.level_high", "Homing & limits", "Limit/home active when open (NC)", "", ST_BOOL, O(limit_level_high), 0, 1, 0, 0, 1, 0 },
 	{ "estop.port", "Homing & limits", "External E-stop input (0 = none)", "IN", ST_INT, O(estop_port), 0, 18, 0, 0, 1, 0 },
 	{ "estop.level_high", "Homing & limits", "E-stop active when open (NC)", "", ST_BOOL, O(estop_level_high), 0, 1, 0, 0, 1, 0 },
@@ -87,6 +91,7 @@ void settings_defaults(settings_t *s)
 		a->steps_per_mm = 2000; a->max_vel = 1200; a->accel = 300;   /* 1200 = vendor #91-94 = FPGA cap */
 		a->jerk = 10000; a->corner_jump = 300;   /* jerk: 30 ms acceleration ramp; 3000 cost ~20 % on the rosette */
 		a->soft_min = smin[i]; a->soft_max = smax[i];
+		a->bench_min = smin[i]; a->bench_max = smax[i];       /* starts as the soft box: narrow it to the bench */
 		a->home_search = i == AX_A ? 700 : 1000; a->home_locate = 50; a->home_pos = 0;
 		a->home_backoff = back[i]; a->home_dir = hdir[i];
 		a->dir_invert = i == AX_X; a->pulse_high = true; a->enabled = true;

@@ -11,6 +11,7 @@ typedef struct {
 	double jerk;                                 /* mm/s³: how fast acceleration may change (S-curve) */
 	double corner_jump;                          /* mm/min: speed change allowed instantly at a corner */
 	double soft_min, soft_max;
+	double bench_min, bench_max;                 /* bench limits: a work box, active even un-homed */
 	double home_search, home_locate, home_pos, home_backoff;
 	int home_dir;                                /* 0 = negative, 1 = positive */
 	bool dir_invert, pulse_high, enabled;
@@ -21,6 +22,7 @@ typedef struct {
 	axis_set_t ax[NAXES];
 	int home_order;            /* index into HOME_ORDERS */
 	bool soft_limits;
+	bool bench_limits;         /* the bench box (axis.*.bench_min/max) is enforced, homed or not */
 	bool limit_level_high;     /* vendor "active electric level High" = active when open */
 	int estop_port; bool estop_level_high;
 	bool pendant_estop;

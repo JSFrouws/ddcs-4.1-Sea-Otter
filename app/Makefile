@@ -1,4 +1,4 @@
-# Pandora DDCS V4.1 replacement app.
+# Sea Otter - DDCS V4.1 controller app.
 #   make host        native build (WSL/Linux) - simulator backend + browser panel at :8080
 #   make arm         static ARMv5 build for the controller (real backends, --sim available)
 #   make test        unit/layer tests, native

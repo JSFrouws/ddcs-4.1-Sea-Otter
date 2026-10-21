@@ -136,14 +136,14 @@ static void set_num(double v, int ctx)
 {
 	setting_set(&SETTINGS[ctx], v);
 	settings_save(C.cfg_path);
-	if (!strncmp(SETTINGS[ctx].key, "axis.", 5) && !ctl_busy()) ctl_apply_axis_config();
+	if (!strncmp(SETTINGS[ctx].key, "axis.", 5) && !ctl_busy() && motion_idle(&C.mo)) ctl_apply_axis_config();
 }
 
 static void changed(const setting_desc_t *d)
 {
 	settings_save(C.cfg_path);
 	if (!strcmp(d->key, "display.view")) { U.view.iso = SET.view_iso == 1; U.view.saver = SET.view_iso == 2; }
-	if (!strncmp(d->key, "axis.", 5) && !ctl_busy()) ctl_apply_axis_config();
+	if (!strncmp(d->key, "axis.", 5) && !ctl_busy() && motion_idle(&C.mo)) ctl_apply_axis_config();
 	if (!strcmp(d->key, "api.remote_start"))
 		ctl_toast(false, SET.remote_start ? "Remote START allowed - the panel counts down %d s first, Reset cancels" : "Remote START off - only the panel starts programs", SET.start_delay);
 }

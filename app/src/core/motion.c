@@ -220,6 +220,10 @@ void motion_stop(motion_t *m, bool immediate)
 		for (int a = 0; a < NAXES; a++) m->pos[a] = (double)m->steps[a] / SET.ax[a].steps_per_mm;
 		immediate = true;
 	}
+	/* Simulate: always stop dead. Found on the unit 2026-10-21: a "braking" simulated move left
+	 * active here kept running after the simulation ended and real output was back on - the
+	 * next slice put the position back on the simulated path and the FPGA was sent there. */
+	if (m->dry) immediate = true;
 	if (immediate || !m->active || m->v < 1e-6) { m->active = false; m->v = 0; m->a = 0; m->stopping = false; m->hold = false; }
 	else m->stopping = true;
 	memcpy(m->plan_end, m->pos, sizeof m->plan_end);
@@ -362,16 +366,45 @@ void motion_jog_cont(motion_t *m, int a, int dir)
 	m->jog_axis = a; m->jog_dir = dir; m->last_dir[a] = dir;
 }
 
+/* distance left before axis a reaches its soft/bench limit going in direction dir
+ * (huge when no limit is in force) */
+static double room(const motion_t *m, int a, int dir)
+{
+	double lo, hi;
+	if (!m->range || !m->range(a, &lo, &hi)) return 1e18;
+	double d = dir > 0 ? hi - m->pos[a] : m->pos[a] - lo;
+	return d > 0 ? d : 0;
+}
+
 static void run_simple(motion_t *m, double dt)
 {
 	/* continuous jog and pendant nudges: constant speed (jog feed), no ramp needed at
-	 * these speeds for steppers; stops dead when released */
+	 * these speeds for steppers; stops dead when released. Near a soft/bench limit the
+	 * speed is capped at sqrt(2 a d), so the axis brakes at its own acceleration and comes
+	 * to a standstill exactly on the limit instead of being cut off at speed. */
 	double v = SET.jog_feed / 60.0;
-	if (m->jog_dir) m->pos[m->jog_axis] += m->jog_dir * v * dt;
+	if (m->jog_dir) {
+		int a = m->jog_axis;
+		double d = room(m, a, m->jog_dir);
+		if (d < 0.0005) {                                  /* arrived (half a micron is a step) */
+			if (d < 1e17) m->soft_stop = a + 1;
+			m->jog_dir = 0;
+		} else {
+			double vs = fmin(v, sqrt(2 * SET.ax[a].accel * d));
+			double step = fmin(vs * dt, d);
+			if (step < 1e-5) step = d;                     /* the last crawl: just land on it */
+			m->pos[a] += m->jog_dir * step;
+		}
+	}
 	for (int a = 0; a < NAXES; a++) {
 		double n = m->nudge[a];
 		if (fabs(n) < 1e-9) { m->nudge[a] = 0; continue; }
-		double step = fmin(fabs(n), fmin(SET.ax[a].max_vel / 60.0, FPGA_MAX_SPS / SET.ax[a].steps_per_mm) * dt);
+		double d = room(m, a, n > 0 ? 1 : -1);
+		if (d < 0.0005) { m->nudge[a] = 0; if (d < 1e17) m->soft_stop = a + 1; continue; }   /* at the limit: drop the rest */
+		double vmax = fmin(SET.ax[a].max_vel / 60.0, FPGA_MAX_SPS / SET.ax[a].steps_per_mm);
+		vmax = fmin(vmax, sqrt(2 * SET.ax[a].accel * d));
+		double step = fmin(fmin(fabs(n), vmax * dt), d);
+		if (step < 1e-5) step = fmin(fabs(n), d);
 		m->pos[a] += n > 0 ? step : -step;
 		m->nudge[a] -= n > 0 ? step : -step;
 	}

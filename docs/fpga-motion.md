@@ -57,6 +57,36 @@ Supersedes the "done latch" open item in [fpga-outputs.md](fpga-outputs.md)._
 | propellor_bolkop.nc (Fusion 3D, 4 928 lines), real run, 300 % feed | 1 671 lines / ~10 min, **0 ms lost, counters exact** |
 | propellor_8mm_en_bolkop.nc (Fusion, 64 396 lines, G83 drilling), real run | 1 299 lines / 761 s motion, **0 ms lost, counters exact** |
 
+### 2026-10-21: limit switches, bench limits, Simulate (local-80…83, real FPGA, no motors)
+
+The limit inputs are unconnected (they read open). Switching *Limit/home active when open*
+on during a jog makes every axis that has a switch input see it go active at that moment,
+through the real path (FPGA input register → controller). Which axes trip was chosen by
+assigning or clearing `axis.<X|Y|Z>.limit_port`. Controlled stop on (default):
+
+| Case | Result |
+|---|---|
+| X+ jog, X switch | LIMIT, X+ blocked, Y and X− free, released → IDLE, run-on 0.8–1.2 mm at 15 mm/s |
+| Y− jog, Y switch | same, run-on ~1.0 mm |
+| Z+ jog, Z switch | same, run-on ~1.2 mm |
+| X jog, X **and** Y switch at once | both recorded and blocked; Y released alone → still LIMIT; X released → IDLE; run-on 1.2–1.5 mm |
+| Z jog, X, Y **and** Z at once | all three recorded, released → IDLE |
+| Every case | **0 lost steps** (FPGA counters = commanded), 0 position faults |
+| Jog X+20 into a bench edge 6 mm away | stopped **on** the edge (error 0.0000 mm), braking 16 → 6 mm/s in the last ~0.6 mm; next X+ refused |
+| Program reaching X 675.8 with the bench edge at 587.8 | Start refused with that message; Simulate still allowed |
+
+Not covered: the FPGA's **own** limit-input function (it sets `0x1E–0x20` = `0x0030` when
+IN02–04 close, see [io-map.md](io-map.md)) never saw an active input, because the inversion
+is in software. Whether the FPGA itself halts an axis on its limit input is still open: test
+it with a wire from IN02 to COM− during a jog.
+
+**Bug found and fixed:** Reset during **Simulate** drove the real machine. A simulated move
+that was braking stayed active after the simulation ended; once real output was back on,
+the next slice put the position back on the simulated path and the FPGA was sent there
+(measured: 68.5 mm in X, 13.5 mm in Y). Fix: a stop in Simulate is always immediate, and
+ending a simulation brings all motion to rest while still dry. Re-tested on the unit: 0
+steps moved, before and after the stop. Regression test in `tests/test_machine.c`.
+
 ### 2026-10-18: the planned-but-unsent backlog
 
 Before local-66 a stop overshot 2.0 mm (abrupt) and 3.1–3.5 mm (controlled). Cause (found

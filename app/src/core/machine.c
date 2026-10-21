@@ -26,7 +26,7 @@ static const uint32_t ALLOW[M__N] = {
 	[M_PROBING] = B(C_PAUSE) | B(C_STOP) | B(C_ESTOP_IN) | B(C_DONE),
 	[M_RUN]     = B(C_PAUSE) | B(C_STOP) | B(C_OVERRIDE) | B(C_ESTOP_IN) | B(C_LIMIT_HIT) | B(C_DONE),
 	[M_HOLD]    = B(C_START) | B(C_STOP) | B(C_OVERRIDE) | B(C_ESTOP_IN),
-	[M_LIMIT]   = B(C_JOG) | B(C_HOME) | B(C_STOP) | B(C_DRIVES_OFF) | B(C_ESTOP_IN) | B(C_LIMIT_CLEAR) |
+	[M_LIMIT]   = B(C_JOG) | B(C_HOME) | B(C_STOP) | B(C_DRIVES_OFF) | B(C_ESTOP_IN) | B(C_LIMIT_CLEAR) | B(C_LIMIT_HIT) |
 	              B(C_EDIT_TABLE) | B(C_EDIT_SETTING) | B(C_OVERRIDE) | B(C_LOAD),
 };
 
@@ -61,12 +61,76 @@ int ctl_cur_line(void)
 	return C.work_done >= 0 ? C.work_done : 0;
 }
 
-static bool soft_blocked(const arg_t *a)
+/* The box an axis may move in: soft limits (only once homed - before that the machine
+ * position means nothing) and the bench limits (a work box, enforced homed or not).
+ * Returns false when neither is in force for that axis. */
+bool ctl_axis_range(int a, double *lo, double *hi)
 {
-	if (!C.homed || !SET.soft_limits || a->axis >= AX_A) return false;
-	const axis_set_t *s = &SET.ax[a->axis];
-	double t = C.mo.pos[a->axis] + a->dir * (a->cont ? 0.001 : a->dist);
-	return (a->dir > 0 && t > s->soft_max + 1e-9) || (a->dir < 0 && t < s->soft_min - 1e-9);
+	if (a < 0 || a >= AX_A) return false;
+	const axis_set_t *s = &SET.ax[a];
+	bool on = false;
+	*lo = -1e18; *hi = 1e18;
+	if (C.homed && SET.soft_limits) { *lo = s->soft_min; *hi = s->soft_max; on = true; }
+	if (SET.bench_limits) { *lo = fmax(*lo, s->bench_min); *hi = fmin(*hi, s->bench_max); on = true; }
+	return on;
+}
+
+/* which of the two limits is the binding one for axis a, on the + (up) or - side */
+static const char *range_name_for(int a, bool up)
+{
+	bool soft = C.homed && SET.soft_limits, bench = SET.bench_limits;
+	if (!soft) return "bench";
+	if (!bench) return "soft";
+	const axis_set_t *s = &SET.ax[a];
+	return (up ? s->bench_max <= s->soft_max : s->bench_min >= s->soft_min) ? "bench" : "soft";
+}
+
+/* already at (or past) the limit in that direction: nothing to jog */
+static bool at_limit(int a, int dir)
+{
+	double lo, hi;
+	if (!ctl_axis_range(a, &lo, &hi)) return false;
+	return (dir > 0 && C.mo.pos[a] >= hi - 1e-6) || (dir < 0 && C.mo.pos[a] <= lo + 1e-6);
+}
+
+/* a target (machine coordinates) outside the box: why, or NULL */
+static const char *target_outside(const double t[NAXES])
+{
+	static char why[128];
+	for (int a = 0; a < AX_A; a++) {
+		double lo, hi;
+		if (!ctl_axis_range(a, &lo, &hi)) continue;
+		if (t[a] > hi + 1e-6 || t[a] < lo - 1e-6) {
+			snprintf(why, sizeof why, "%c would go to %.3f mm, outside the %s limits %.3f ... %.3f", AXIS_CH[a], t[a], range_name_for(a, t[a] > hi), lo, hi);
+			return why;
+		}
+	}
+	return NULL;
+}
+
+/* the loaded program, placed on every work offset it will run on, inside the box? */
+static const char *program_outside(void)
+{
+	static char why[160];
+	int ws[NWCS], n = 0;
+	for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) ws[n++] = i;
+	if (n < 2) { ws[0] = WD.active; n = 1; }
+	for (int k = 0; k < n; k++) {
+		const double *off = WD.wcs[ws[k]].off;
+		for (int a = 0; a < AX_A; a++) {
+			double lo, hi;
+			if (!ctl_axis_range(a, &lo, &hi)) continue;
+			double plo = C.prog.lo[a] + off[a], phi = C.prog.hi[a] + off[a];
+			if (C.armed == ARM_TRYCUT && a == AX_Z) plo = phi = off[AX_Z] + SET.safe_z;   /* TryCut flies at one Z */
+			if (phi > hi + 1e-6 || plo < lo - 1e-6) {
+				bool up = phi > hi + 1e-6;
+				snprintf(why, sizeof why, "Program goes past the %c%c %s limit on G%d: reaches %.3f mm, limit %.3f",
+					AXIS_CH[a], up ? '+' : '-', range_name_for(a, up), 54 + ws[k], up ? phi : plo, up ? hi : lo);
+				return why;
+			}
+		}
+	}
+	return NULL;
 }
 
 const char *can(cmd_t c, const arg_t *a, src_t src)
@@ -81,22 +145,43 @@ const char *can(cmd_t c, const arg_t *a, src_t src)
 		if (src == SRC_API && !SET.remote_start) return "remote START is disabled on the panel (403)";
 		if (C.m == M_IDLE && !C.prog.loaded) return "No program loaded - Files > Load";
 		if (C.m == M_IDLE && !motion_idle(&C.mo)) return "Wait for the jog to finish";
+		if (C.m == M_IDLE && C.armed != ARM_SIM) { const char *w = program_outside(); if (w) return w; }
+		if (C.m == M_HOLD) for (int k = 0; k < NAXES; k++) if (C.lim_dir[k]) return "A limit switch is active - Reset, then jog off it";
 		break;
-	case C_JOG:
-		if (C.m == M_LIMIT && a->axis == C.limit_axis && C.limit_dir && a->dir == C.limit_dir) {
+	case C_JOG: {
+		int ld = a->axis >= 0 && a->axis < NAXES ? C.lim_dir[a->axis] : 0;
+		if ((ld == 1 || ld == -1) && a->dir == ld) {
 			snprintf(why, sizeof why, "%c%c blocked by its limit switch - %c%c and the other axes are free",
 				AXIS_CH[a->axis], a->dir > 0 ? '+' : '-', AXIS_CH[a->axis], a->dir > 0 ? '-' : '+');
 			return why;
 		}
-		if (soft_blocked(a)) { snprintf(why, sizeof why, "%c stops at the soft limit", AXIS_CH[a->axis]); return why; }
+		if (at_limit(a->axis, a->dir)) { snprintf(why, sizeof why, "%c%c is at its %s limit", AXIS_CH[a->axis], a->dir > 0 ? '+' : '-', range_name_for(a->axis, a->dir > 0)); return why; }
 		break;
+	}
 	case C_PROBE: return "No probe input is configured on this machine";
-	case C_GOTOZERO: if (!motion_idle(&C.mo)) return "Wait for the jog to finish"; break;
+	case C_GOTOZERO: {
+		if (!motion_idle(&C.mo)) return "Wait for the jog to finish";
+		double t[NAXES];
+		memcpy(t, C.mo.pos, sizeof t);
+		const double *o = WD.wcs[WD.active].off;
+		t[AX_Z] = fmax(t[AX_Z], o[AX_Z] + SET.safe_z); t[AX_X] = o[AX_X]; t[AX_Y] = o[AX_Y];
+		const char *w = target_outside(t);
+		if (w) return w;
+		break;
+	}
 	case C_MACRO:
 		if (a->kind < 0 || a->kind >= MAC__N) return "Unknown macro";
 		if (!motion_idle(&C.mo)) return "Wait for the jog to finish";
 		if ((a->kind == MAC_PARK || a->kind == MAC_TOOLCHANGE) && !C.homed)
 			return "Home first - park and tool-change positions are machine coordinates";
+		if (a->kind == MAC_PARK || a->kind == MAC_TOOLCHANGE) {
+			const double *p = a->kind == MAC_PARK ? SET.park : SET.tc;
+			double t[NAXES];
+			memcpy(t, C.mo.pos, sizeof t);
+			t[AX_X] = p[0]; t[AX_Y] = p[1]; t[AX_Z] = p[2];
+			const char *w = target_outside(t);
+			if (w) return w;
+		}
 		break;
 	default: break;
 	}
@@ -139,6 +224,7 @@ static void start_program(src_t src)
 		C.gc.force_wcs = C.job_idx;
 	}
 	C.mo.dry = C.armed == ARM_SIM;
+	if (C.armed == ARM_SIM) { const char *w = program_outside(); if (w) ctl_toast(true, "Simulating anyway - %s", w); }
 	if (C.mo.dry) memcpy(sim_saved_pos, C.mo.pos, sizeof sim_saved_pos);
 	C.feeding = true;
 	if (C.resume_line > 0) {                          /* rebuild modal state, then approach */
@@ -181,6 +267,8 @@ double ctl_trycut_z(void)
 static void finish_sim(void)
 {
 	if (!C.mo.dry) return;
+	motion_stop(&C.mo, true);            /* nothing of the simulation may still be moving when */
+	C.mo.ev = MEV_NONE;                  /* real output comes back on */
 	C.mo.dry = false;
 	for (int a = 0; a < NAXES; a++) motion_set_pos(&C.mo, a, sim_saved_pos[a]);
 }
@@ -193,9 +281,13 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		if (a->cont) motion_jog_cont(&C.mo, a->axis, a->dir);
 		else if (a->kind == 1) motion_nudge(&C.mo, a->axis, a->dir * a->dist);
 		else {
-			double t[NAXES];
+			double t[NAXES], lo, hi;
 			motion_queued_end(&C.mo, t);                /* chain after jogs still queued */
 			t[a->axis] += a->dir * a->dist;
+			if (ctl_axis_range(a->axis, &lo, &hi) && (t[a->axis] > hi || t[a->axis] < lo)) {
+				t[a->axis] = CLAMP(t[a->axis], lo, hi);  /* stop AT the limit, decelerating into it */
+				ctl_toast(false, "%c stops at the %s limit (%.3f)", AXIS_CH[a->axis], range_name_for(a->axis, a->dir > 0), t[a->axis]);
+			}
 			motion_move_to(&C.mo, t, SET.jog_feed, false);
 		}
 		C.touch_axis = -1;
@@ -311,9 +403,19 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		if (from == M_RUN) C.work_done = C.mo.line;
 		C.feeding = false; all_off(); finish_sim();
 		C.limit_axis = a->axis; C.limit_dir = a->dir;
-		ctl_toast(true, "%c%s limit - only that direction is blocked", AXIS_CH[a->axis], a->dir > 0 ? "+" : a->dir < 0 ? "-" : "");
+		C.lim_dir[a->axis] = a->dir ? a->dir : 2;
+		{
+			char also[48] = "";
+			for (int k = 0; k < NAXES; k++)
+				if (k != a->axis && C.lim_dir[k]) {
+					size_t l = strlen(also);
+					snprintf(also + l, sizeof also - l, "%s%c%s", l ? ", " : " (also ", AXIS_CH[k], C.lim_dir[k] == 1 ? "+" : C.lim_dir[k] == -1 ? "-" : "");
+				}
+			if (also[0]) strncat(also, ")", sizeof also - strlen(also) - 1);
+			ctl_toast(true, "%c%s limit%s - only those directions are blocked", AXIS_CH[a->axis], a->dir > 0 ? "+" : a->dir < 0 ? "-" : "", also);
+		}
 		break;
-	case C_LIMIT_CLEAR: ctl_toast(false, "%c off the switch - limit cleared", AXIS_CH[C.limit_axis]); C.limit_dir = 0; break;
+	case C_LIMIT_CLEAR: ctl_toast(false, "Off the switches - limits cleared"); C.limit_dir = 0; C.limit_axis = -1; break;
 	case C_DONE:
 		if (from == M_HOMING) {
 			C.homed = a->dir == 1;

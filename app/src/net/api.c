@@ -84,14 +84,14 @@ static void status(http_resp_t *r)
 		"{\"state\":\"%s\",\"homed\":%s,\"machine\":{\"x\":%s,\"y\":%s,\"z\":%s,\"a\":%s},"
 		"\"work\":{\"x\":%s,\"y\":%s,\"z\":%s,\"a\":%s},\"wcs\":\"G%d\",\"program\":{\"name\":\"%s\",\"loaded\":%s,\"lines\":%d,\"line\":%d},"
 		"\"overrides\":{\"feed\":%d,\"rapid\":%d,\"spindle\":%d,\"feedApplied\":%.1f},\"spindle\":{\"on\":%s,\"rpm\":%.0f},\"coolant\":%d,"
-		"\"limit\":{\"axis\":\"%c\",\"dir\":%d},\"armed\":\"%s\",\"remoteStart\":%s,\"countdown\":%d,\"screen\":%d,\"leds\":%u,"
+		"\"limit\":{\"axis\":\"%c\",\"dir\":%d},\"limits\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"armed\":\"%s\",\"remoteStart\":%s,\"countdown\":%d,\"screen\":%d,\"leds\":%u,"
 		"\"fpga\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"steps\":{\"x\":%lld,\"y\":%lld,\"z\":%lld,\"a\":%lld},"
 		"\"posChecks\":%u,\"posFaults\":%u,\"posErr\":[%d,%d,%d,%d],\"faultLine\":%d,\"busErrors\":%u,\"busRetries\":%u,\"busErrno\":%d,\"reversalsWaited\":%u,\"bursts\":%u,"
 		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u},\"message\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
 		STATE_NAMES[C.m], C.homed ? "true" : "false", pos[0], pos[1], pos[2], pos[3], wp[0], wp[1], wp[2], wp[3], 54 + WD.active,
 		nm, C.prog.loaded ? "true" : "false", C.prog.nlines, ctl_cur_line() + 1,
 		C.mo.feed_ov, rapid_override(C.mo.feed_ov), C.mo.spin_ov, C.mo.applied_pct, C.spindle ? "true" : "false", C.rpm, C.coolant,
-		C.limit_axis >= 0 ? AXIS_CH[C.limit_axis] : '-', C.limit_dir, (const char *[]){ "run", "tryCut", "simulate" }[C.armed],
+		C.limit_axis >= 0 ? AXIS_CH[C.limit_axis] : '-', C.limit_dir, C.lim_dir[0], C.lim_dir[1], C.lim_dir[2], C.lim_dir[3], (const char *[]){ "run", "tryCut", "simulate" }[C.armed],
 		SET.remote_start ? "true" : "false", C.countdown, U.screen, (unsigned)ui_leds(),
 		C.fpos[0], C.fpos[1], C.fpos[2], C.fpos[3], (long long)C.mo.steps[0], (long long)C.mo.steps[1], (long long)C.mo.steps[2], (long long)C.mo.steps[3],
 		C.pos_checks, C.pos_faults, C.pos_err[0], C.pos_err[1], C.pos_err[2], C.pos_err[3], C.fault_line, bus_errors, bus_retries, bus_last_errno, C.mo.deferred, C.fp.bursts, PERF.loops, PERF.tick_us_avg, PERF.tick_us_max, PERF.render_us_avg, PERF.render_us_max, PERF.draw_us_avg, PERF.present_us_avg, PERF.gap_ms_max,
@@ -113,6 +113,7 @@ static void put_settings(const char *body, http_resp_t *r)
 {
 	if (ctl_busy()) { refuse(r, C_EDIT_SETTING, NULL); return; }
 	int changed = 0;
+	bool axis = false;
 	for (int i = 0; i < NSETTINGS; i++) {
 		double v; bool bv;
 		const setting_desc_t *d = &SETTINGS[i];
@@ -120,10 +121,15 @@ static void put_settings(const char *body, http_resp_t *r)
 		if (!has && jbool(body, d->key, &bv)) { v = bv; has = true; }
 		if (!has) continue;
 		if (d->api_ro && strcmp(d->key, "api.agent_msgs")) { resp_text(r, 403, "application/json", "{\"error\":\"read_only\",\"detail\":\"%s can only be changed on the panel\"}", d->key); return; }
+		if (!strncmp(d->key, "axis.", 5)) {
+			/* axis settings re-initialise the FPGA: never in the middle of a jog */
+			if (!motion_idle(&C.mo)) { resp_text(r, 409, "application/json", "{\"error\":\"state\",\"detail\":\"wait for the jog to finish before changing %s\"}", d->key); return; }
+			axis = true;
+		}
 		setting_set(d, v); changed++;
 	}
 	settings_save(C.cfg_path);
-	ctl_apply_axis_config();
+	if (axis) ctl_apply_axis_config();
 	resp_text(r, 200, "application/json", "{\"ok\":true,\"changed\":%d}", changed);
 }
 

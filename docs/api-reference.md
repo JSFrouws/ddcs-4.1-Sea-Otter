@@ -1,7 +1,7 @@
 # Sea Otter API reference
 
 The HTTP API that Sea Otter (`app/`) actually implements, endpoint by endpoint, as of build
-local-74 (2026-10-18). [ethernet-api.md](ethernet-api.md) is the wider design: it also
+local-83 (2026-10-21). [ethernet-api.md](ethernet-api.md) is the wider design: it also
 lists endpoints that are planned but not built yet. **This file is the contract:** if an
 endpoint is not here, it doesn't exist yet.
 
@@ -56,6 +56,7 @@ Everything in one snapshot. Poll it (e.g. every 0.5–1 s).
   "overrides": {"feed": 100, "rapid": 100, "spindle": 100, "feedApplied": 87.5},
   "spindle": {"on": true, "rpm": 12000}, "coolant": 1,
   "limit": {"axis": "-", "dir": 0},
+  "limits": {"x": 0, "y": 0, "z": 0, "a": 0},
   "armed": "run", "remoteStart": true, "countdown": 0,
   "screen": 0, "leds": 5,
   "fpga":  {"x": 928414, "y": 503986, "z": -182402, "a": -2000},
@@ -75,7 +76,8 @@ Everything in one snapshot. Poll it (e.g. every 0.5–1 s).
 | `program.line` | Current line (1-based) while running; the last line done otherwise |
 | `overrides.feed` / `spindle` | Override in %, 0–300. `rapid` = min(feed, 100). `feedApplied` = speed actually run right now as % of the programmed feed (corners, braking), −1 when not cutting |
 | `coolant` | 0 off, 1 flood (M8), 2 mist (M7), bits combined; 4 = aux (M10) |
-| `limit` | Tripped limit: axis letter or `-`, and direction −1 / +1 (0 = unknown) |
+| `limit` | The limit switch that tripped last: axis letter or `-`, and direction −1 / +1 (0 = unknown) |
+| `limits` | Every axis' switch: 0 free, +1 / −1 tripped while moving that way (that direction is blocked), 2 active with the direction unknown (e.g. active at power-up). LIMIT clears when all are 0 |
 | `armed` | What Start will do: `run`, `tryCut`, `simulate` |
 | `remoteStart` / `countdown` | Whether API starts are allowed; seconds left of a panel countdown |
 | `screen` | Panel screen: 0 Run, 1 Jog, 2 Files, 3 Work, 4 Tools, 5 Settings, 6 Macros |
@@ -104,7 +106,7 @@ listed in [Settings keys](#settings-keys) below.
 
 | Method | Path | Body | Does |
 |---|---|---|---|
-| POST | `jog` | `{"axis":"X","dist":-0.5}` | Relative jog in mm (negative = minus direction), at the jog feed. Refused while running, at a soft limit, or into a tripped limit switch |
+| POST | `jog` | `{"axis":"X","dist":-0.5}` | Relative jog in mm (negative = minus direction), at the jog feed. A jog past a soft/bench limit is shortened to end exactly on it (decelerating into it). Refused while running, when already at the limit that way, or into a tripped limit switch |
 | POST | `move/gotozero` | – | Z up to safe height, then X Y to the active work zero |
 | POST | `move/macro` | `{"macro":"safez"}` | Run a macro: `safez`, `workzero`, `park`, `toolchange` (machine positions from `macro.*`, need a homed machine), `warmup` (spindle at `macro.warm_rpm` for `macro.warm_s`). Also by number 0–4 |
 
@@ -132,7 +134,7 @@ curl -X POST --data-binary @part.nc "http://192.168.1.200:8080/api/v1/program/up
 
 | Method | Path | Body | Does |
 |---|---|---|---|
-| POST | `run/start` | `{"mode":"run"}` · `"tryCut"` · `"simulate"` (optional) | Start the loaded program. From IDLE: **202**, the panel counts down `api.start_delay` s first (Reset on the panel cancels). From HOLD: resumes at once. **403** if remote START is off on the panel |
+| POST | `run/start` | `{"mode":"run"}` · `"tryCut"` · `"simulate"` (optional) | Start the loaded program. From IDLE: **202**, the panel counts down `api.start_delay` s first (Reset on the panel cancels). From HOLD: resumes at once. **403** if remote START is off on the panel. **409** if the program leaves the soft/bench limits on any work offset it would run on (`detail` names axis, side and distance; Simulate is allowed) |
 | POST | `run/pause` | – | Feed hold (RUN → HOLD) |
 | POST | `run/stop` | – | Stop the program (409 when nothing runs; `machine/stop` always works) |
 | POST | `run/resume-from` | `{"line":846,"mode":"run"}` | Restore the modal state of that line (1-based) and continue from it: Z up, XY across, down. Same countdown / 403 rules as `run/start` |
@@ -173,6 +175,8 @@ steps are ticked by the operator on the panel. Up to 8 steps.
 
 `PUT settings` (or POST) with `{"key": value, …}` changes any subset, e.g.
 `{"jog.feed": 1500, "motion.graceful_stop": true}`. Refused (409) while the machine is busy.
+`axis.*` keys re-initialise the FPGA and are also refused (409) while a jog is still
+moving.
 Keys marked *panel only* answer 403: they decide who may control the machine, so they can
 only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 
@@ -198,19 +202,23 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `api.remote_start` | Network & API | Allow remote START (agents, scripts) *(panel only, read-only over the API)* |  | on/off |  |
 | `api.start_delay` | Network & API | Remote start countdown *(panel only, read-only over the API)* | s | whole number, 0 to 30 |  |
 | `api.agent_msgs` | Network & API | Show agent instructions on panel |  | on/off |  |
-| `axis.<X|Y|Z|A>..steps` | Axes | steps/mm |  | number, 1 to 100000 | yes |
-| `axis.<X|Y|Z|A>..max_vel` | Axes | max speed | mm/min | number, 1 to 30000 | yes |
-| `axis.<X|Y|Z|A>..accel` | Axes | acceleration | mm/s² | number, 1 to 10000 | yes |
-| `axis.<X|Y|Z|A>..jerk` | Axes | jerk (S-curve) | mm/s³ | number, 10 to 1000000 | yes |
-| `axis.<X|Y|Z|A>..corner_jump` | Axes | corner speed jump | mm/min | number, 0 to 6000 | yes |
-| `axis.<X|Y|Z|A>..dir_invert` | Axes | DIR invert |  | on/off | yes |
-| `axis.<X|Y|Z|A>..soft_min` | Homing & limits | soft limit − | mm | number, -9999 to 9999 | yes |
-| `axis.<X|Y|Z|A>..soft_max` | Homing & limits | soft limit + | mm | number, -9999 to 9999 | yes |
-| `axis.<X|Y|Z|A>..home_dir` | Homing & limits | home direction |  | choice index 0 to 1 | yes |
-| `axis.<X|Y|Z|A>..home_pos` | Homing & limits | position at switch | mm | number, -9999 to 9999 | yes |
-| `axis.<X|Y|Z|A>..home_backoff` | Homing & limits | back-off after home | mm | number, 0 to 500 | yes |
+| `axis.<X|Y|Z|A>.steps` | Axes | steps/mm |  | number, 1 to 100000 | yes |
+| `axis.<X|Y|Z|A>.max_vel` | Axes | max speed | mm/min | number, 1 to 30000 | yes |
+| `axis.<X|Y|Z|A>.accel` | Axes | acceleration | mm/s² | number, 1 to 10000 | yes |
+| `axis.<X|Y|Z|A>.jerk` | Axes | jerk (S-curve) | mm/s³ | number, 10 to 1000000 | yes |
+| `axis.<X|Y|Z|A>.corner_jump` | Axes | corner speed jump | mm/min | number, 0 to 6000 | yes |
+| `axis.<X|Y|Z|A>.dir_invert` | Axes | DIR invert |  | on/off | yes |
+| `axis.<X|Y|Z|A>.soft_min` | Homing & limits | soft limit − | mm | number, -9999 to 9999 | yes |
+| `axis.<X|Y|Z|A>.soft_max` | Homing & limits | soft limit + | mm | number, -9999 to 9999 | yes |
+| `axis.<X|Y|Z|A>.bench_min` | Homing & limits | bench limit − | mm | number, -99999 to 99999 | yes |
+| `axis.<X|Y|Z|A>.bench_max` | Homing & limits | bench limit + | mm | number, -99999 to 99999 | yes |
+| `axis.<X|Y|Z|A>.limit_port` | Homing & limits | limit/home switch input (IN, 0 = none) |  | whole number, 0 to 18 | yes |
+| `axis.<X|Y|Z|A>.home_dir` | Homing & limits | home direction |  | choice index 0 to 1 | yes |
+| `axis.<X|Y|Z|A>.home_pos` | Homing & limits | position at switch | mm | number, -9999 to 9999 | yes |
+| `axis.<X|Y|Z|A>.home_backoff` | Homing & limits | back-off after home | mm | number, 0 to 500 | yes |
 | `home.order` | Homing & limits | Home order |  | choice index 0 to 3 | yes |
 | `limits.soft` | Homing & limits | Soft limits (when homed) |  | on/off | yes |
+| `limits.bench` | Homing & limits | Bench limits (work box, also un-homed) |  | on/off | yes |
 | `limits.level_high` | Homing & limits | Limit/home active when open (NC) |  | on/off | yes |
 | `estop.port` | Homing & limits | External E-stop input (0 = none) | IN | whole number, 0 to 18 | yes |
 | `estop.level_high` | Homing & limits | E-stop active when open (NC) |  | on/off | yes |

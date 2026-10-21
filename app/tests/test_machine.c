@@ -98,11 +98,16 @@ void test_machine(void)
 		CHECK_NEAR(C.mo.pos[AX_X], back[AX_X], 1e-6);
 	}
 
-	/* --- soft limits after homing --- */
+	/* --- soft limits after homing: a jog past the limit stops exactly AT it (the planner
+	 * brakes into the endpoint), the next one that way is refused --- */
 	arg_t sj = J(AX_X, -1, 45);
-	CHECK(can(C_JOG, &sj, SRC_PANEL) != NULL);      /* 50 - 45 = 5 < soft min 10 */
-	sj.dist = 30;
+	CHECK(can(C_JOG, &sj, SRC_PANEL) == NULL);      /* 50 - 45 = 5 < soft min 10: clamped, not refused */
 	CHECK(act(C_JOG, &sj, SRC_PANEL));
+	fx_until_idle(20000);
+	CHECK_NEAR(C.mo.pos[AX_X], SET.ax[AX_X].soft_min, 1e-6);
+	CHECK(can(C_JOG, &sj, SRC_PANEL) != NULL);      /* at the limit: nothing more that way */
+	arg_t back10 = J(AX_X, 1, 10);
+	CHECK(act(C_JOG, &back10, SRC_PANEL));
 	fx_until_idle(20000);
 	CHECK_NEAR(C.mo.pos[AX_X], 20, 1e-6);
 
@@ -160,6 +165,87 @@ void test_machine(void)
 	CHECK(C.m == M_IDLE);
 	SIM.switch_at[AX_Y] = 0;
 
+	/* --- each axis into its own switch: X-, Y-, Z+ (the switch sides of this machine).
+	 * Controlled stop, only that direction blocked, sideways / back / up-down free,
+	 * jogging back off clears it, and no step lost --- */
+	{
+		bool sl = SET.soft_limits; SET.soft_limits = false;
+		const int dir[3] = { -1, -1, +1 };
+		for (int ax = 0; ax < 3; ax++) {
+			int d = dir[ax];
+			SIM.switch_at[ax] = SIM.pos[ax] + d * 3000;                /* the switch 1.5 mm away */
+			arg_t in = J(ax, d, 4);
+			CHECK(act(C_JOG, &in, SRC_PANEL));
+			fx_until_idle(8000);
+			CHECK(C.m == M_LIMIT && C.lim_dir[ax] == d);
+			CHECK(can(C_JOG, &in, SRC_PANEL) != NULL);               /* further in: blocked */
+			for (int o = 0; o < 3; o++) if (o != ax) {                 /* the other axes, both ways */
+				arg_t s1 = J(o, 1, 0.5), s2 = J(o, -1, 0.5);
+				CHECK(can(C_JOG, &s1, SRC_PANEL) == NULL && can(C_JOG, &s2, SRC_PANEL) == NULL);
+			}
+			arg_t off = J(ax, -d, 3);
+			CHECK(act(C_JOG, &off, SRC_PANEL));
+			fx_until_idle(8000);
+			CHECK(C.m == M_IDLE && C.lim_dir[ax] == 0);
+			SIM.switch_at[ax] = 0;
+		}
+		fx_run(100);
+		CHECK(C.pos_faults == 0);
+		for (int k = 0; k < NAXES; k++) CHECK(C.fpos[k] == (int32_t)C.mo.steps[k]);
+
+		/* two switches at the same moment: both stop the move and both block their way;
+		 * releasing one leaves LIMIT on until the second is released too */
+		arg_t yj = J(AX_Y, -1, 4);
+		CHECK(act(C_JOG, &yj, SRC_PANEL));
+		fx_run(150);
+		SIM.switch_at[AX_X] = SIM.pos[AX_X] + 1;                        /* X- and Y- trip together */
+		SIM.switch_at[AX_Y] = SIM.pos[AX_Y] + 1;
+		fx_until_idle(8000);
+		CHECK(C.m == M_LIMIT && C.lim_dir[AX_X] != 0 && C.lim_dir[AX_Y] == -1);
+		SIM.switch_at[AX_Y] = 0; fx_run(30);                            /* Y released, X still on */
+		CHECK(C.m == M_LIMIT && C.lim_dir[AX_Y] == 0 && C.lim_dir[AX_X] != 0);
+		SIM.switch_at[AX_X] = 0; fx_run(30);
+		CHECK(C.m == M_IDLE);
+		SET.soft_limits = sl;
+	}
+
+	/* --- bench limits: a work box enforced even un-homed. A continuous jog slows down on
+	 * the way in (v <= sqrt(2 a d)) and comes to a standstill exactly on the edge --- */
+	{
+		SET.bench_limits = true;
+		for (int a = 0; a < 3; a++) { SET.ax[a].bench_min = C.mo.pos[a] - 50; SET.ax[a].bench_max = C.mo.pos[a] + 50; }
+		SET.ax[AX_X].bench_max = C.mo.pos[AX_X] + 3;
+		arg_t cj = { .axis = AX_X, .dir = 1, .cont = true };
+		CHECK(act(C_JOG, &cj, SRC_PANEL));
+		double last = C.mo.pos[AX_X], vprev = 1e9, vin = 0;
+		bool slowing = true;
+		for (int i = 0; i < 400 && C.mo.jog_dir; i++) {
+			fx_run(10);
+			double v = (C.mo.pos[AX_X] - last) / 0.01; last = C.mo.pos[AX_X];
+			if (SET.ax[AX_X].bench_max - C.mo.pos[AX_X] < 0.5) { if (v > vprev + 1e-6) slowing = false; if (!vin) vin = v; }
+			vprev = v;
+		}
+		CHECK(!C.mo.jog_dir);                                           /* it stopped by itself */
+		CHECK_NEAR(C.mo.pos[AX_X], SET.ax[AX_X].bench_max, 0.001);
+		CHECK(slowing);                                                 /* never sped up in the last 0.5 mm */
+		printf("  bench edge: arrived within %.4f mm, last-0.5mm speed %.1f mm/s (jog %.1f)\n",
+			fabs(C.mo.pos[AX_X] - SET.ax[AX_X].bench_max), vin, SET.jog_feed / 60);
+		CHECK(can(C_JOG, &cj, SRC_PANEL) != NULL);                     /* at the edge: refused */
+		fx_until_idle(5000); fx_run(100);
+		CHECK(C.pos_faults == 0);
+
+		/* a program that leaves the box is refused (Run, TryCut); Simulate still runs */
+		load("G21 G90 G54\nG0 X0 Y0 Z1\nG1 X500 F1000\nM30\n");
+		const char *why = can(C_START, NULL, SRC_PANEL);
+		CHECK(why && strstr(why, "Program goes past the X+"));
+		if (why) printf("  refused: %s\n", why);
+		C.armed = ARM_SIM;
+		CHECK(can(C_START, NULL, SRC_PANEL) == NULL);
+		C.armed = ARM_RUN;
+		SET.bench_limits = false;
+		load(PROG);
+	}
+
 	/* --- E-stop from the pendant: everything stops, release -> IDLE, drives stay on --- */
 	act(C_SPINDLE, NULL, SRC_PANEL);
 	SIM.pendant_estop = true; fx_run(20);
@@ -212,6 +298,29 @@ void test_machine(void)
 	act(C_START, NULL, SRC_PANEL);
 	fx_until_idle(60000);
 	CHECK(SIM.bursts == b0 && C.mo.pos[AX_X] == xs && C.m == M_IDLE);
+
+	/* --- Simulate, then Reset in the middle of a move: still nothing may move, before or
+	 * after the stop (found on the unit 2026-10-21: the braking simulated move kept going
+	 * once real output was back on and drove the FPGA to the simulated position) --- */
+	{
+		load("G21 G90 G54\nG0 X0 Y0 Z5\nG1 X200 F3000\nM30\n");
+		int64_t p0[NAXES];
+		for (int k = 0; k < NAXES; k++) p0[k] = SIM.pos[k];
+		uint32_t b1 = SIM.bursts;
+		double keep[NAXES];
+		memcpy(keep, C.mo.pos, sizeof keep);
+		C.armed = ARM_SIM;
+		CHECK(act(C_START, NULL, SRC_PANEL));
+		fx_run(1500);                                        /* mid-move, at speed */
+		CHECK(C.m == M_RUN && fabs(C.mo.pos[AX_X] - keep[AX_X]) > 1);
+		CHECK(act(C_STOP, NULL, SRC_PANEL));
+		fx_run(2000);                                        /* long after the stop */
+		CHECK(SIM.bursts == b1);
+		for (int k = 0; k < NAXES; k++) CHECK(SIM.pos[k] == p0[k]);
+		for (int k = 0; k < NAXES; k++) CHECK_NEAR(C.mo.pos[k], keep[k], 1e-9);
+		CHECK(C.m == M_IDLE && !C.mo.dry && motion_idle(&C.mo));
+		load(PROG);
+	}
 	C.armed = ARM_RUN;
 
 	/* --- stop mid-program, resume from a line --- */

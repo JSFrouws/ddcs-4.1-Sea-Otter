@@ -21,18 +21,23 @@ It is one small C program (a static ARMv5 binary, ~1.4 MB) that provides:
 The same binary also runs on a PC against a built-in FPGA **simulator**, with the panel in a
 browser — so you can try the whole system, and develop for it, without the hardware.
 
-> **Status (2026-10-21):** step-exact on a real DDCS V4.1 FPGA, verified with real CAM
-> programs up to 64 000 lines (0 lost steps). **Not yet run with motors connected, or with
-> real limit/home switches** — do the first real tests with the motors unpowered or free to
-> move. See [docs/fpga-motion.md](docs/fpga-motion.md).
+> [!WARNING]
+> **Not yet tested on a machine with drives connected.** Sea Otter has been run on a real
+> DDCS V4.1 controller — step-exact on its FPGA with real CAM programs up to 64 000 lines,
+> 0 lost steps, limit inputs and controlled stops exercised through the real input path —
+> but **never with stepper/servo drives, motors or real limit/home switches attached.**
+> Do the first tests with the motors unpowered or free to move, keep a hand on the E-stop,
+> and see the disclaimer at the end. Details: [docs/fpga-motion.md](docs/fpga-motion.md).
 
 ## Install it (USB stick — nothing else needed)
 
 The controller copies files from a USB stick into place at boot and runs whatever is named
 `ddcsv4.out`. Sea Otter uses exactly that path, so installing is just:
 
-1. Build the USB package (or download a release) and copy its `ddcsv4` folder to a FAT32
-   stick.
+1. Download the USB package from the
+   [Releases](https://github.com/JSFrouws/ddcs-4.1-Sea-Otter/releases) page (built and tested
+   by GitHub Actions from this repository, with a SHA-256 checksum), or build it yourself,
+   and copy its `ddcsv4` folder to a FAT32 stick.
 2. Set the controller's IP address in `network.conf` on the stick.
 3. Power off, plug in, power on. After ~15 s Sea Otter is running; the browser panel and the
    API answer at `http://<that IP>:8080/`.
@@ -77,7 +82,10 @@ Run it on a PC (no hardware):
 # then open http://localhost:8090/
 ```
 
-More in [app/README.md](app/README.md).
+More in [app/README.md](app/README.md). Every push runs the same steps on GitHub Actions
+([.github/workflows/build.yml](.github/workflows/build.yml)): native and ARM tests, the
+binary and the USB package (kept as a workflow artifact). Pushing a tag `v*` publishes that
+package as a Release.
 
 ## Repository layout
 
@@ -102,4 +110,23 @@ an independent system for the V4.1, not a port of it.
 
 ## License
 
-GPL-2.0.
+Sea Otter is released under the **MIT License** — free to use, copy, modify and
+distribute, including commercially, as long as the copyright notice is kept. See
+[LICENSE](LICENSE).
+
+Included third-party parts keep their own licenses: dropbear (SSH server, MIT-style),
+the Barlow, JetBrains Mono and DejaVu fonts (SIL OFL / DejaVu license, see
+`app/tools/fonts/`).
+
+## Disclaimer — no liability
+
+A CNC machine can cause serious injury and damage. This software controls motion,
+spindles and outputs and **is provided "as is", without warranty of any kind**. It is
+experimental, not certified for any safety function, and has not been tested on a machine
+with drives connected (see the notice at the top). You use it entirely at your own risk:
+the authors and contributors accept **no liability** for any injury, damage, loss of data,
+broken tools, scrapped work or any other consequence of using it, or of installing it on
+your controller. Keep a working, hard-wired E-stop that cuts the drives independently of
+this software, and keep the original firmware so you can always go back.
+
+This project is not affiliated with or endorsed by the maker of the DDCS controllers.

@@ -1,11 +1,13 @@
-# This repo publishes app/, docs/ and connecting/ only
+# This repo publishes app/, docs/, connecting/ and the CI workflow only
 /*
 !/.gitignore
 !/.gitattributes
 !/README.md
+!/LICENSE
 !/app/
 !/docs/
 !/connecting/
+!/.github/
 
 /app/build/
 # vendor firmware files and the local network scans stay private

@@ -19,7 +19,8 @@ void ctl_apply_axis_config(void)
 	fpga_axis_cfg_t cfg[NAXES];
 	for (int a = 0; a < NAXES; a++) {
 		const axis_set_t *s = &SET.ax[a];
-		cfg[a] = (fpga_axis_cfg_t){ .limit_port_pos = (uint8_t)s->limit_port, .limit_port_neg = (uint8_t)s->limit_port,
+		/* this machine shares one switch per axis for limit and home (axis.*.limit_port) */
+		cfg[a] = (fpga_axis_cfg_t){ .limit_port_pos = (uint8_t)s->home_port, .limit_port_neg = (uint8_t)s->home_port,
 			.home_port = (uint8_t)s->home_port, .alarm_port = (uint8_t)s->alarm_port,
 			.dir_invert = s->dir_invert, .pulse_high = s->pulse_high };
 	}
@@ -72,12 +73,14 @@ void ctl_init(bus_t *bus, bool sim, const char *cfg_path, const char *wd_path)
 	}
 	motion_init(&C.mo, &C.fp, p);
 	C.mo.switch_active = switch_active;
+	C.mo.range = ctl_axis_range;
 	C.resume_line = C.work_done = -1; C.touch_axis = -1; C.limit_axis = -1; C.macro = -1;
 	C.rpm = SET.spindle_default;
 	C.m = M_IDLE;
 	C.inputs = fpga_inputs(&C.fp);
 	for (int a = 0; a < NAXES; a++) {
 		C.lim_active[a] = switch_active(a);
+		C.lim_dir[a] = C.lim_active[a] ? 2 : 0;
 		if (C.lim_active[a] && C.m == M_IDLE) {          /* active since power-up: direction unknown */
 			C.m = M_LIMIT; C.limit_axis = a; C.limit_dir = 0;
 			ctl_toast(true, "%c limit input active at start-up - check the switch, or its level in Settings", AXIS_CH[a]);
@@ -168,14 +171,22 @@ static void inputs(void)
 		act(C_ESTOP_IN, NULL, SRC_MACHINE);
 	}
 	if (!es && C.m == M_ESTOP) act(C_ESTOP_OUT, NULL, SRC_MACHINE);
+	/* every axis on its own: two switches at once both stop and both block their direction;
+	 * LIMIT only clears when the last one is released */
 	for (int a = 0; a < NAXES; a++) {
 		bool on = switch_active(a);
 		if (C.m != M_HOMING) {
-			if (on && !C.lim_active[a] && (C.m == M_IDLE || C.m == M_MOVE || C.m == M_RUN)) {
+			if (on && !C.lim_active[a]) {
 				arg_t x = { .axis = a, .dir = C.mo.last_dir[a] };
-				act(C_LIMIT_HIT, &x, SRC_MACHINE);
+				if (C.m == M_IDLE || C.m == M_MOVE || C.m == M_RUN || C.m == M_LIMIT) act(C_LIMIT_HIT, &x, SRC_MACHINE);
+				else C.lim_dir[a] = x.dir ? x.dir : 2;          /* HOLD / E-stop / off: remember it */
 			}
-			if (!on && C.m == M_LIMIT && C.limit_axis == a) act(C_LIMIT_CLEAR, NULL, SRC_MACHINE);
+			if (!on && C.lim_active[a]) {
+				C.lim_dir[a] = 0;
+				bool any = false;
+				for (int k = 0; k < NAXES; k++) any |= C.lim_dir[k] != 0;
+				if (!any && C.m == M_LIMIT) act(C_LIMIT_CLEAR, NULL, SRC_MACHINE);
+			}
 		}
 		C.lim_active[a] = on;
 	}
@@ -214,11 +225,11 @@ void ctl_tick(double dt)
 {
 	static uint64_t hb;
 	inputs();
-	if (C.mo.jog_dir && C.homed && SET.soft_limits && C.mo.jog_axis < AX_A) {   /* continuous jog stops at soft limits */
-		const axis_set_t *s = &SET.ax[C.mo.jog_axis];
-		double p = C.mo.pos[C.mo.jog_axis];
-		if ((C.mo.jog_dir > 0 && p >= s->soft_max) || (C.mo.jog_dir < 0 && p <= s->soft_min)) motion_jog_cont(&C.mo, 0, 0);
+	if (C.mo.soft_stop) {                               /* a jog braked to a standstill at its limit */
+		ctl_toast(false, "%c stopped at its limit", AXIS_CH[C.mo.soft_stop - 1]);
+		C.mo.soft_stop = 0;
 	}
+
 	if (C.m == M_RUN) feed_program();
 	if ((C.m != M_ESTOP && C.m != M_OFF) || C.mo.stopping) motion_tick(&C.mo, dt);   /* a controlled stop brakes on in E-stop */
 	motion_events();

@@ -39,6 +39,12 @@ phase). IDs are stable references for later design docs and tickets.
   flag a job whose bounding box exceeds them at load, with a clear message —
   not a silent clamp — and a one-press "run anyway" (the operator decides).
   Jogging stops at the soft limit of that axis only.
+- **REQ-A10 (M) Soft and bench limits** (user, 2026-10-21). Soft limits once homed; a
+  separate **bench box** that is enforced homed or not. A program that would leave the box
+  is refused at Start (axis, side, distance). Jogs towards an edge slow down at the axis'
+  acceleration and come to a standstill exactly on it, instead of being cut off at speed.
+- **REQ-A11 (M) Several limit switches at once** (user, 2026-10-21): each tripped switch
+  stops the move and blocks its own direction; LIMIT clears only when all are released.
 - **REQ-A6 (M)** Per-axis, per-direction hard-limit handling: a tripped limit
   stops motion and blocks only motion *into* that limit on that axis. All other
   axes and the way off the switch stay usable; the alarm clears automatically

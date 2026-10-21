@@ -12,7 +12,7 @@
  * run_me_after_reboot.bat uses that shell once to install the SSH server and put the
  * vendor app back. Static ARMv5 build: see build.sh.
  *
- * SPDX-License-Identifier: GPL-2.0
+ * SPDX-License-Identifier: MIT
  */
 #include <arpa/inet.h>
 #include <net/if.h>

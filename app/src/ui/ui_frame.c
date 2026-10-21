@@ -74,10 +74,20 @@ static void banner(fb_t *fb)
 	uint16_t c0 = COL_RED, tc = COL_TXT;
 	if (C.m == M_ESTOP) snprintf(b, sizeof b, "E-STOP  ·  held by %s  ·  motion stopped, drives stay on  ·  release it to continue",
 		C.stop_cause[0] ? C.stop_cause : "an E-stop input");
-	else if (C.m == M_LIMIT && C.limit_dir)
-		snprintf(b, sizeof b, "%c%s LIMIT   only %c%s blocked  ·  jog %c%s to release  ·  other axes free", AXIS_CH[C.limit_axis],
-			C.limit_dir > 0 ? "+" : "−", AXIS_CH[C.limit_axis], C.limit_dir > 0 ? "+" : "−", AXIS_CH[C.limit_axis], C.limit_dir > 0 ? "−" : "+");
-	else if (C.m == M_LIMIT) snprintf(b, sizeof b, "%c LIMIT INPUT ACTIVE   direction unknown, both ways allowed  ·  Home, or check the switch level in Settings", AXIS_CH[C.limit_axis]);
+	else if (C.m == M_LIMIT) {
+		/* every tripped switch: "X+ Y− LIMIT · jog X− Y+ to release · other axes free" */
+		char on[48] = "", off[48] = "";
+		bool unknown = false;
+		for (int a = 0; a < NAXES; a++) {
+			int d = C.lim_dir[a];
+			if (!d) continue;
+			if (d == 2) { unknown = true; snprintf(on + strlen(on), sizeof on - strlen(on), "%c ", AXIS_CH[a]); continue; }
+			snprintf(on + strlen(on), sizeof on - strlen(on), "%c%s ", AXIS_CH[a], d > 0 ? "+" : "−");
+			snprintf(off + strlen(off), sizeof off - strlen(off), "%c%s ", AXIS_CH[a], d > 0 ? "−" : "+");
+		}
+		if (unknown && !off[0]) snprintf(b, sizeof b, "%sLIMIT INPUT ACTIVE   direction unknown, both ways allowed  ·  Home, or check the switch level in Settings", on);
+		else snprintf(b, sizeof b, "%sLIMIT   only those directions blocked  ·  jog %sto release  ·  other axes free", on, off);
+	}
 	else if (C.m == M_OFF) { c0 = COL_AMBER; tc = COL_BLACK; snprintf(b, sizeof b, "DRIVES OFF  ·  %s  ·  press RESET to switch the drives on",
 		C.stop_cause[0] ? C.stop_cause : "switched off"); }
 	else if (C.countdown) { c0 = RGB(0x1c, 0x6f, 0xd0); snprintf(b, sizeof b, "REMOTE START in %d s   requested over the API  ·  Reset cancels", C.countdown); }

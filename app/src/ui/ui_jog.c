@@ -49,7 +49,7 @@ void jog_render(fb_t *fb)
 				continue;
 			}
 			arg_t j = { .axis = a, .dir = d, .dist = 0.001 };
-			bool lim = C.m == M_LIMIT && C.limit_axis == a && C.limit_dir == d;
+			bool lim = C.lim_dir[a] == d;
 			if (lim) snprintf(t, sizeof t, "%c%s LIMIT", AXIS_CH[a], d > 0 ? "+" : "−");
 			chip(fb, cx, y + 14 + (d > 0 ? 0 : 22), t, can(C_JOG, &j, SRC_PANEL) ? COL_RED : COL_GREEN);
 		}
