@@ -36,8 +36,9 @@ The controller copies files from a USB stick into place at boot and runs whateve
 
 1. Download the USB package from the
    [Releases](https://github.com/JSFrouws/ddcs-4.1-Sea-Otter/releases) page (built and tested
-   by GitHub Actions from this repository, with a SHA-256 checksum), or build it yourself,
-   and copy its `ddcsv4` folder to a FAT32 stick.
+   by GitHub Actions from this repository, with a SHA-256 checksum), or build it yourself.
+   It is laid out like the vendor's own update package: unzip it and copy the inner
+   **`ddcsv4`** folder to the root of an empty FAT32 stick.
 2. Set the controller's IP address in `network.conf` on the stick.
 3. Power off, plug in, power on. After ~15 s Sea Otter is running; the browser panel and the
    API answer at `http://<that IP>:8080/`.
@@ -133,7 +134,10 @@ distribute, including commercially, as long as the copyright notice is kept. See
 
 Included third-party parts keep their own licenses: dropbear (SSH server, MIT-style),
 the Barlow, JetBrains Mono and DejaVu fonts (SIL OFL / DejaVu license, see
-`app/tools/fonts/`).
+`app/tools/fonts/`), and `motiondev.ko`, Digital Dream's FPGA driver from their public
+DDCS V4.1 2025-04-04 software release, included unmodified so Sea Otter always runs on the
+driver it was tested with. The module declares itself GPL; its source has not been published
+by its maker, so it is not available from this project either.
 
 ## Disclaimer — no liability
 

@@ -15,5 +15,9 @@ typedef struct {
 int display_open(display_t *d, const char *fbdev);   /* fbdev NULL = RAM only; returns 0 */
 void display_present(display_t *d);
 void display_present_rows(display_t *d, int y0, int n);   /* part of a frame (no frame_no bump) */
+/* Boot logo: a 1024 x 600 24-bit uncompressed BMP (the vendor's logo.bmp format), shown at
+ * once. Ordered dithering keeps dark gradients from banding on the 16-bit panel.
+ * Returns false (screen untouched) if the file is missing or not in that format. */
+bool display_logo(display_t *d, const char *path);
 
 #endif

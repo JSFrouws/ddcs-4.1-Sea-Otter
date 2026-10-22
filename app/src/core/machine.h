@@ -59,6 +59,7 @@ typedef struct {
 	uint32_t inputs;
 	int macro;                      /* MAC_* running in M_MOVE, -1 none */
 	char stop_cause[96];            /* why the drives are off / E-stop is active, shown on the panel */
+	char driver_warn[200];          /* set at start-up when motiondev.ko is not the tested one */
 	int32_t fpos[NAXES];            /* FPGA position counters (latched every 20 ms) */
 	int32_t pos_err[NAXES];         /* counter - commanded steps, checked when at rest */
 	uint32_t pos_checks, pos_faults;

@@ -80,6 +80,8 @@ static void status(http_resp_t *r)
 	for (int a = 0; a < NAXES; a++) { snprintf(pos[a], 48, "%.4f", C.mo.pos[a]); snprintf(wp[a], 48, "%.4f", ctl_work(a)); }
 	json_escape(nm, sizeof nm, C.prog.name);
 	json_escape(msg, sizeof msg, C.msg);
+	char dw[200];
+	json_escape(dw, sizeof dw, C.driver_warn);
 	resp_text(r, 200, "application/json",
 		"{\"state\":\"%s\",\"homed\":%s,\"machine\":{\"x\":%s,\"y\":%s,\"z\":%s,\"a\":%s},"
 		"\"work\":{\"x\":%s,\"y\":%s,\"z\":%s,\"a\":%s},\"wcs\":\"G%d\",\"program\":{\"name\":\"%s\",\"loaded\":%s,\"lines\":%d,\"line\":%d},"
@@ -87,7 +89,7 @@ static void status(http_resp_t *r)
 		"\"limit\":{\"axis\":\"%c\",\"dir\":%d},\"limits\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"armed\":\"%s\",\"remoteStart\":%s,\"countdown\":%d,\"screen\":%d,\"leds\":%u,"
 		"\"fpga\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"steps\":{\"x\":%lld,\"y\":%lld,\"z\":%lld,\"a\":%lld},"
 		"\"posChecks\":%u,\"posFaults\":%u,\"posErr\":[%d,%d,%d,%d],\"faultLine\":%d,\"busErrors\":%u,\"busRetries\":%u,\"busErrno\":%d,\"reversalsWaited\":%u,\"bursts\":%u,"
-		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u},\"message\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
+		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u},\"message\":\"%s\",\"driverWarning\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
 		STATE_NAMES[C.m], C.homed ? "true" : "false", pos[0], pos[1], pos[2], pos[3], wp[0], wp[1], wp[2], wp[3], 54 + WD.active,
 		nm, C.prog.loaded ? "true" : "false", C.prog.nlines, ctl_cur_line() + 1,
 		C.mo.feed_ov, rapid_override(C.mo.feed_ov), C.mo.spin_ov, C.mo.applied_pct, C.spindle ? "true" : "false", C.rpm, C.coolant,
@@ -95,7 +97,7 @@ static void status(http_resp_t *r)
 		SET.remote_start ? "true" : "false", C.countdown, U.screen, (unsigned)ui_leds(),
 		C.fpos[0], C.fpos[1], C.fpos[2], C.fpos[3], (long long)C.mo.steps[0], (long long)C.mo.steps[1], (long long)C.mo.steps[2], (long long)C.mo.steps[3],
 		C.pos_checks, C.pos_faults, C.pos_err[0], C.pos_err[1], C.pos_err[2], C.pos_err[3], C.fault_line, bus_errors, bus_retries, bus_last_errno, C.mo.deferred, C.fp.bursts, PERF.loops, PERF.tick_us_avg, PERF.tick_us_max, PERF.render_us_avg, PERF.render_us_max, PERF.draw_us_avg, PERF.present_us_avg, PERF.gap_ms_max,
-		(unsigned long long)PERF.motion_ms, (unsigned long long)PERF.lost_ms, C.mo.replan_iters, msg, C.sim ? "sim" : "real", DSP ? DSP->frame_no : 0);
+		(unsigned long long)PERF.motion_ms, (unsigned long long)PERF.lost_ms, C.mo.replan_iters, msg, dw, C.sim ? "sim" : "real", DSP ? DSP->frame_no : 0);
 }
 
 static void settings_json(http_resp_t *r)

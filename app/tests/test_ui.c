@@ -6,6 +6,7 @@
 #include "t.h"
 #include "ui/ui.h"
 #include "sim/fpga_sim.h"
+#include "hal/display.h"
 
 static fb_t fb;
 
@@ -30,6 +31,24 @@ static void keys(const pkey_t *k, int n) { for (int i = 0; i < n; i++) ui_key(k[
 
 void test_ui(void)
 {
+	/* the boot logo: the committed placeholder loads (1024 x 600, 24-bit BMP, the vendor's
+	 * format), anything else is refused and leaves the screen alone */
+	{
+		display_t d;
+		display_open(&d, NULL);
+		CHECK(display_logo(&d, "../install/usb/ddcsv4/logo.bmp"));
+		uint16_t px = d.front[300 * SCR_W + 20];                 /* dark sea, left margin */
+		CHECK(((px >> 11) & 31) < 8 && (px & 31) > 2);           /* dark, and blue above red */
+		CHECK(d.frame_no == 1);
+		FILE *f = fopen("not_a_logo.bmp", "wb");
+		if (f) { fputs("BM this is not a 1024x600 bitmap", f); fclose(f); }
+		CHECK(!display_logo(&d, "not_a_logo.bmp"));
+		CHECK(!display_logo(&d, "missing.bmp"));
+		CHECK(d.frame_no == 1);
+		remove("not_a_logo.bmp");
+		free(d.back.px); free(d.front);
+	}
+
 	SUITE("ui");
 	fx_reset();
 	SET.spindle_delay = 0;

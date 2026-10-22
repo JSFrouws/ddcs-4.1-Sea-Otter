@@ -6,3 +6,7 @@ app/install/usb/ddcsv4/ddcsv4.out text eol=lf
 connecting/files/src/*.c text eol=lf
 connecting/DDCS4.1_temporary_app binary
 connecting/files/dropbearmulti binary
+# binaries in the USB package: never touch their bytes (overrides the text rule above)
+app/install/usb/ddcsv4/*.ko binary
+app/install/usb/ddcsv4/*.bmp binary
+*.png binary

@@ -1,11 +1,12 @@
 # Build, test and package Sea Otter on GitHub's hosted runners (free for public repositories).
 #
 #   every push / pull request   tests (native + ARM under qemu), the ARM binary, the USB package
-#                               -> kept as a workflow artifact ("sea-otter-usb-<run>")
+#                               -> kept as a workflow artifact ("seaotter(gh-<run>)")
 #   a tag v*  (git tag v0.1.0 && git push --tags)
 #                               -> the same, published as a GitHub Release with the zip attached
 #
-# The release zip is the ddcsv4/ folder for a FAT32 USB stick (see docs/usb-install.md).
+# The release zip has the vendor's update-package layout: seaotter(<version>)/ddcsv4/... -
+# the inner ddcsv4/ folder goes on a FAT32 USB stick (see docs/usb-install.md).
 name: build
 
 on:
@@ -32,7 +33,7 @@ jobs:
       - name: Toolchain
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q gcc-arm-linux-gnueabi libc6-dev-armel-cross qemu-user make python3 curl bzip2 zip
+          sudo apt-get install -y -q gcc-arm-linux-gnueabi libc6-dev-armel-cross qemu-user make python3 curl bzip2 unzip
 
       - name: Tests (native)
         run: make test PIPELINE_ID=$PIPELINE_ID
@@ -47,20 +48,20 @@ jobs:
         run: sh tools/ssh/build-dropbear.sh
 
       - name: USB package
+        # same layout as the vendor's update package: seaotter(<version>)/ddcsv4/...
         run: |
-          sh install/make-usb.sh
-          cd build/usb
-          zip -r ../../sea-otter-usb-$PIPELINE_ID.zip ddcsv4
-          cd ../..
-          sha256sum sea-otter-usb-$PIPELINE_ID.zip > sea-otter-usb-$PIPELINE_ID.zip.sha256
-          cat sea-otter-usb-$PIPELINE_ID.zip.sha256
+          VER=$PIPELINE_ID
+          case "$GITHUB_REF" in refs/tags/v*) VER=$GITHUB_REF_NAME;; esac
+          echo "PKG=seaotter($VER)" >> $GITHUB_ENV
+          sh install/make-usb.sh "$VER"
+          unzip -l "build/seaotter($VER).zip"
 
       - uses: actions/upload-artifact@v6
         with:
-          name: sea-otter-usb-${{ env.PIPELINE_ID }}
+          name: ${{ env.PKG }}
           path: |
-            app/sea-otter-usb-*.zip
-            app/sea-otter-usb-*.zip.sha256
+            app/build/seaotter*.zip
+            app/build/seaotter*.zip.sha256
           retention-days: 90
 
       - name: Release (tags only)
@@ -68,6 +69,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" sea-otter-usb-*.zip sea-otter-usb-*.zip.sha256 \
+          gh release create "$GITHUB_REF_NAME" "build/$PKG.zip" "build/$PKG.zip.sha256" \
             --title "Sea Otter $GITHUB_REF_NAME" \
-            --notes "USB install package for the DDCS V4.1 (build $PIPELINE_ID). Unzip, copy the ddcsv4 folder to a FAT32 stick, set network.conf, boot. See docs/usb-install.md. Not yet tested on a machine with drives connected - see the README."
+            --notes "USB update package for the DDCS V4.1 (build $PIPELINE_ID), in the same layout as the vendor's update package. Unzip, copy the inner **ddcsv4** folder to the root of an empty FAT32 stick, set the IP in ddcsv4/network.conf, power off 10 s, insert, power on, remove the stick afterwards. Contains the start script (ddcsv4.out), the app, the FPGA driver it was tested with (motiondev.ko, vendor release 2025-04-04) and the boot logo. Back to the original software: see the README. **Not yet tested on a machine with drives connected** - see the README."

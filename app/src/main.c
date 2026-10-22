@@ -162,8 +162,23 @@ int main(int argc, char **argv)
 	}
 	display_t dsp;
 	display_open(&dsp, nofb || (sim && stat(fbdev, &st) != 0) ? NULL : fbdev);
+	/* boot logo (data dir/logo.bmp, as the vendor app does): shown while starting, at least
+	 * 2 s, a key press ends it early */
+	char logo[300];
+	snprintf(logo, sizeof logo, "%s/logo.bmp", data);
+	uint64_t splash_until = display_logo(&dsp, logo) ? now_ms() + 2000 : 0;
 	ctl_init(bus, sim, cfg, wd);
 	ui_init();
+	{                                                   /* written by the start script at boot */
+		FILE *f = fopen("/tmp/seaotter-driver.txt", "r");
+		char b[200] = "";
+		if (f) { if (!fgets(b, sizeof b, f)) b[0] = 0; fclose(f); }
+		b[strcspn(b, "\r\n")] = 0;
+		if (!strncmp(b, "WARNING", 7)) {                 /* a permanent banner, not a toast */
+			snprintf(C.driver_warn, sizeof C.driver_warn, "%.190s", b + 8);
+			ctl_toast(true, "%s", b + 8);
+		}
+	}
 	if (bench_prog) return bench_render(&dsp, bench_prog);
 	api_bind(&dsp, panel);
 	if (!port) port = SET.api_port;
@@ -200,7 +215,8 @@ int main(int argc, char **argv)
 			uint64_t s = signature();
 			bool mv = C.m == M_RUN || C.mo.active;
 			uint64_t gap = !mv ? 60 : U.view.saver && !U.dirty ? 1000 : 200;   /* <= 5 fps moving; CPU saver 1 fps unless a key was pressed */
-			if ((U.dirty || s != sig) && t - last_render >= gap) {
+			if (splash_until && (t >= splash_until || keys_prev)) { splash_until = 0; U.dirty = true; }
+			if (!splash_until && (U.dirty || s != sig) && t - last_render >= gap) {
 				uint64_t r_us = now_us();
 				ui_render(&dsp.back);
 				slice_if_due();                                   /* a frame is ~60 ms here: keep motion */

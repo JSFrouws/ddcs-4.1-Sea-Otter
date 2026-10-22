@@ -9,6 +9,7 @@ material (boot logs, scans, dumps, captures) in its native format under `raw/`.
 | [usb-install.md](usb-install.md) | **Install Sea Otter from a USB stick** (start script, network, SSH, switching back to the vendor app) |
 | [ssh-setup.md](ssh-setup.md) | **SSH with a user name + password**: USB route, manual route, building dropbear with password login |
 | [api-reference.md](api-reference.md) | **The implemented HTTP API**, endpoint by endpoint, incl. all settings keys |
+| [boot-logo.md](boot-logo.md) | **The boot logo**: format (1024 x 600 24-bit BMP), how to replace it, image-generator prompts in several colour styles |
 | [io-map.md](io-map.md) | **Start here for I/O**: every connector pin and panel control → SoC GPIO / FPGA register, with status |
 | [hardware-setup.md](hardware-setup.md) | How the unit is wired on the desk for tests |
 | [network.md](network.md) | Ethernet access: IP settings, port scan results, login attempts |

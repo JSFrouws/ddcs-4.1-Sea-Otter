@@ -64,13 +64,13 @@ static void topbar(fb_t *fb)
 
 int ui_banner_h(void)
 {
-	return (C.m == M_ESTOP || C.m == M_LIMIT || C.m == M_OFF || C.countdown || (C.m == M_HOLD && C.pause_msg[0])) ? 30 : 0;
+	return (C.m == M_ESTOP || C.m == M_LIMIT || C.m == M_OFF || C.countdown || (C.m == M_HOLD && C.pause_msg[0]) || C.driver_warn[0]) ? 30 : 0;
 }
 
 static void banner(fb_t *fb)
 {
 	if (!ui_banner_h()) return;
-	char b[200];
+	char b[256];
 	uint16_t c0 = COL_RED, tc = COL_TXT;
 	if (C.m == M_ESTOP) snprintf(b, sizeof b, "E-STOP  ·  held by %s  ·  motion stopped, drives stay on  ·  release it to continue",
 		C.stop_cause[0] ? C.stop_cause : "an E-stop input");
@@ -91,7 +91,8 @@ static void banner(fb_t *fb)
 	else if (C.m == M_OFF) { c0 = COL_AMBER; tc = COL_BLACK; snprintf(b, sizeof b, "DRIVES OFF  ·  %s  ·  press RESET to switch the drives on",
 		C.stop_cause[0] ? C.stop_cause : "switched off"); }
 	else if (C.countdown) { c0 = RGB(0x1c, 0x6f, 0xd0); snprintf(b, sizeof b, "REMOTE START in %d s   requested over the API  ·  Reset cancels", C.countdown); }
-	else { c0 = COL_AMBER; tc = COL_BLACK; snprintf(b, sizeof b, "%s", C.pause_msg); }
+	else if (C.m == M_HOLD && C.pause_msg[0]) { c0 = COL_AMBER; tc = COL_BLACK; snprintf(b, sizeof b, "%s", C.pause_msg); }
+	else snprintf(b, sizeof b, "UNTESTED FPGA DRIVER  ·  %.150s  ·  reinstall the Sea Otter package", C.driver_warn);   /* stays */
 	gfx_hgrad(fb, 0, BODY_Y, CONTENT_W, 30, c0, gfx_mix(COL_BG1, c0, 6));
 	gfx_text_fit(fb, &font_16, 12, BODY_Y + 5, CONTENT_W - 24, tc, b);
 }

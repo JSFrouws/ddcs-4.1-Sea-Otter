@@ -43,9 +43,12 @@ vendor program. At boot it:
 1. sets the root password if you put one on the stick (`ssh-password.txt`, then deletes it),
 2. starts the SSH server (`dropbear`, password and key login, port 22),
 3. starts the vendor app instead, if you asked for that (`USE_VENDOR`, see below), or
-4. sets up the network from `network.conf` (the vendor app used to do this), and
-5. runs Sea Otter. If Sea Otter exits it restarts it; after 5 failed starts it falls back to
-   the vendor app, if `ddcsv4.vendor` is there.
+4. sets up the network from `network.conf` (the vendor app used to do this),
+5. checks the FPGA driver the boot script just loaded (`motiondev.ko`) against the one Sea
+   Otter was tested with, and
+6. runs Sea Otter, which shows `logo.bmp` while it starts. If Sea Otter exits it restarts
+   it; after 5 exits in a row it falls back to the vendor app, if `ddcsv4.vendor` is there
+   (tested on the unit).
 
 **Does the API work after a USB install?** Yes. Sea Otter serves the panel and the API on
 port 8080 as soon as it runs, and the start script brings the network up first. SSH is
@@ -54,16 +57,34 @@ only needed for development; for normal use the USB stick is enough.
 ## What you need
 
 - A USB stick formatted **FAT32**.
-- The install package: the `ddcsv4` folder built with `app/install/make-usb.sh` (below), or
-  a released copy. It contains:
+- The install package `seaotter(<version>).zip` from the
+  [Releases](https://github.com/JSFrouws/ddcs-4.1-Sea-Otter/releases) page, or built with
+  `app/install/make-usb.sh` (below). It has the **same layout as the vendor's update package**
+  (`ddcsv4(2025-04-04).rar` → `ddcsv4(2025-04-04)/ddcsv4/…`):
 
-| File | What |
-|---|---|
-| `ddcsv4.out` | The start script (replaces the vendor's `ddcsv4.out` on the controller) |
-| `seaotter` | The Sea Otter program (static ARM binary) |
-| `dropbearmulti` | SSH server with password login ([ssh-setup.md](ssh-setup.md)) |
-| `network.conf` | IP address settings: **edit before installing** |
-| `ssh-password.txt.example` | Rename to `ssh-password.txt` and put your root password in it to set one |
+```
+seaotter(v0.2.0).zip
+└── seaotter(v0.2.0)/
+    └── ddcsv4/             <- this folder goes to the root of the USB stick
+        ├── ddcsv4.out      the start script (takes the place of the vendor's ddcsv4.out)
+        ├── seaotter        the Sea Otter program (static ARM binary)
+        ├── motiondev.ko    the FPGA driver Sea Otter was tested with (see below)
+        ├── logo.bmp        boot logo, 1024 x 600 24-bit BMP (replaceable, see boot-logo.md)
+        ├── dropbearmulti   SSH server with password login (ssh-setup.md)
+        ├── network.conf    IP address settings: edit before installing
+        └── ssh-password.txt.example   rename to ssh-password.txt to set a root password
+```
+
+**Why the driver is in the package.** The controller's boot script loads `/ddcsv4/motiondev.ko`
+(the vendor's FPGA driver) before it starts `ddcsv4.out`, and it copies the stick first — so
+the driver on the stick is the one that gets loaded. Sea Otter talks to the FPGA through that
+driver and has only been tested with one version of it: the one in the vendor's 2025-04-04
+release (MD5 `136136bd4404b8a82114ba051c7023d3`). Shipping exactly that file means a later
+vendor release with a different driver can never leave Sea Otter running on a driver it was
+not tested with. The start script also checks it on every boot; if it differs, Sea Otter
+shows a permanent red **UNTESTED FPGA DRIVER** banner and reports it as `driverWarning` in the
+API status. (The packaging script refuses to build a package with any other `motiondev.ko`.)
+Going back to the vendor software puts the vendor's own driver back, from its package.
 
 - **The vendor's original software**, to be able to go back: download it from the maker
   (see [Restoring the original software](#restoring-the-original-software)) or copy it off
@@ -73,15 +94,16 @@ only needed for development; for normal use the USB stick is enough.
 
 ## Installing
 
-1. Copy the `ddcsv4` folder to the root of the stick, so you have `E:\ddcsv4\seaotter` etc.
+1. Unzip the package and copy the inner **`ddcsv4`** folder to the root of an empty FAT32
+   stick, so you have `E:\ddcsv4\seaotter` etc. (not `E:\seaotter(v…)\ddcsv4\…`).
 2. Edit `ddcsv4\network.conf` on the stick: the IP address, mask and gateway for your
    network (or `MODE=dhcp`). Sea Otter doesn't read the vendor app's network menu.
 3. Recommended: copy the vendor's original `ddcsv4.out` into the same folder **renamed to
    `ddcsv4.vendor`**.
 4. Optional, for SSH: rename `ssh-password.txt.example` to `ssh-password.txt` and replace the
    text with your password (one line).
-5. Switch the controller off, plug the stick in, switch on. After ~15 s Sea Otter's screen
-   appears.
+5. Switch the controller off for 10 s, plug the stick in, switch on. The boot logo shows,
+   and after ~15 s Sea Otter's screen appears.
 6. **Take the stick out**, or at least delete `ssh-password.txt` from it: the stick is copied
    again on every boot while it's in.
 7. Check from a PC: `http://<the IP from network.conf>:8080/` shows the panel in the browser.
@@ -92,8 +114,10 @@ come from a USB stick.
 
 ## Updating Sea Otter
 
-Put the new `seaotter` file (alone is fine) in `ddcsv4\` on a stick, boot with it, take it
-out. Settings and offsets are kept.
+Install the new package the same way (its `ddcsv4` folder on a stick, boot, remove the stick).
+Settings and offsets are kept: they live in `seaotter.cfg` / `seaotter-work.cfg`, which the
+package doesn't contain. A single new file (e.g. just `seaotter`, or your own `logo.bmp`) in
+`ddcsv4\` on a stick works too.
 
 ## Restoring the original software
 
@@ -148,13 +172,20 @@ In WSL / Linux, from `app/`:
 ```sh
 make arm                              # build/arm/seaotter
 sh tools/ssh/build-dropbear.sh        # tools/ssh/out/dropbearmulti (once)
-sh install/make-usb.sh                # -> build/usb/ddcsv4/
+sh install/make-usb.sh v0.2.0         # -> build/seaotter(v0.2.0).zip (+ .sha256)
 ```
+
+The package sources are in `app/install/usb/ddcsv4/` (start script, `network.conf`,
+`logo.bmp`, `motiondev.ko`). GitHub Actions runs the same script on every push and attaches
+the zip to a Release for tags `v*`.
 
 ## If something goes wrong
 
 - **No network / no panel in the browser:** check `network.conf`. The start script logs to
   `/tmp/seaotter-boot.log` and Sea Otter to `/tmp/seaotter.log` (readable over SSH).
+- **Red "UNTESTED FPGA DRIVER" banner:** `/ddcsv4/motiondev.ko` is not the driver Sea Otter
+  was tested with (e.g. a vendor update ran in between). Install the Sea Otter package again;
+  it brings the tested driver.
 - **Black screen:** after 5 failed starts the start script runs `ddcsv4.vendor` if it's
   there. Otherwise restore the vendor software from a stick (see
   [Restoring the original software](#restoring-the-original-software)).

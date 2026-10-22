@@ -56,6 +56,18 @@ else
 fi
 ifconfig eth0 | grep "inet addr" >> $LOG
 
+# --- the FPGA driver: rcS loaded /ddcsv4/motiondev.ko before starting this script. Sea Otter
+#     was tested with exactly this file (the one in its package, = vendor release 2025-04-04);
+#     a different one is reported on the screen (/tmp/seaotter-driver.txt) ---
+KO_TESTED=136136bd4404b8a82114ba051c7023d3
+KO=$(md5sum /ddcsv4/motiondev.ko 2>/dev/null | cut -d ' ' -f 1)
+if [ "$KO" = "$KO_TESTED" ]; then
+	echo "motiondev.ko: the tested driver" > /tmp/seaotter-driver.txt
+else
+	echo "WARNING motiondev.ko md5 ${KO:-missing}, tested: $KO_TESTED" > /tmp/seaotter-driver.txt
+fi
+cat /tmp/seaotter-driver.txt >> $LOG
+
 # --- Sea Otter (restarted if it ever exits; a crash loop falls back to the vendor app) ---
 n=0
 while [ $n -lt 5 ]; do

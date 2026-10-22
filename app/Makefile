@@ -45,13 +45,13 @@ $(BUILD)/arm/seaotter: $(APP) $(wildcard src/*/*.h src/*.h)
 	$(CC_ARM) $(CFLAGS) -Os -march=armv5te -mtune=arm926ej-s -static $(DEFS) -o $@ $(APP) -lm
 	@ls -l $@
 
-$(BUILD)/host/tests: $(CORE) $(UI) $(TESTS) $(wildcard src/*/*.h tests/*.h)
+$(BUILD)/host/tests: $(CORE) $(UI) src/hal/display.c $(TESTS) $(wildcard src/*/*.h tests/*.h)
 	@mkdir -p $(dir $@)
-	$(CC_HOST) $(CFLAGS) $(DEFS) -Isrc -o $@ $(CORE) $(UI) $(TESTS) -lm
+	$(CC_HOST) $(CFLAGS) $(DEFS) -Isrc -o $@ $(CORE) $(UI) src/hal/display.c $(TESTS) -lm
 
 $(BUILD)/arm/tests: $(CORE) $(UI) $(TESTS)
 	@mkdir -p $(dir $@)
-	$(CC_ARM) $(CFLAGS) -march=armv5te -static $(DEFS) -Isrc -o $@ $(CORE) $(UI) $(TESTS) -lm
+	$(CC_ARM) $(CFLAGS) -march=armv5te -static $(DEFS) -Isrc -o $@ $(CORE) $(UI) src/hal/display.c $(TESTS) -lm
 
 test: $(BUILD)/host/tests
 	cd $(BUILD) && ./host/tests
