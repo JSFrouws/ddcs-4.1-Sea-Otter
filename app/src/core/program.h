@@ -5,6 +5,7 @@
 #include "../common.h"
 
 #define PREVIEW_MAX 120000
+#define PROG_MAX_TC 64           /* tool changes remembered (multi-part jobs cut per tool) */
 
 typedef struct { float x, y, z; int32_t line; uint8_t rapid; } pv_t;
 
@@ -17,6 +18,9 @@ typedef struct {
 	float lo[3], hi[3];          /* work-coordinate bounding box of cutting moves (view) */
 	float mlo[3], mhi[3];        /* ... of every move, rapids included (soft/bench limit check) */
 	double est_s;                /* time estimate at 100 % */
+	/* tool changes: the M6 lines split the program into tool segments; segment 0 is before the
+	 * first M6, segment i starts at tc_line[i-1] (the M6 line itself) */
+	int ntc; int tc_line[PROG_MAX_TC]; int tc_tool[PROG_MAX_TC];
 	char err[128]; int err_line;
 	char warn[128];
 	bool loaded;

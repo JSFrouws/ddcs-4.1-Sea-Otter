@@ -8,11 +8,11 @@
 
 ctl_t C;
 
-const char *const STATE_NAMES[M__N] = { "ESTOP", "OFF", "IDLE", "MOVE", "HOMING", "PROBING", "RUN", "HOLD", "LIMIT" };
+const char *const STATE_NAMES[M__N] = { "ESTOP", "OFF", "IDLE", "MOVE", "HOMING", "PROBING", "RUN", "HOLD", "LIMIT", "TOOL" };
 const char *const CMD_NAMES[C__N] = {
 	"jog", "touchoff", "gotozero", "home", "probe", "start", "pause", "stop", "spindle",
 	"drives_on", "drives_off", "load", "edit_table", "edit_setting", "override",
-	"estop_in", "estop_out", "limit_hit", "limit_clear", "done", "macro" };
+	"estop_in", "estop_out", "limit_hit", "limit_clear", "done", "macro", "coolant", "tool_ready" };
 
 #define B(c) (1u << (c))
 /* Which commands each state accepts. Everything else is refused with WHY[state]. */
@@ -21,14 +21,16 @@ static const uint32_t ALLOW[M__N] = {
 	[M_OFF]     = B(C_DRIVES_ON) | B(C_ESTOP_IN) | B(C_EDIT_TABLE) | B(C_EDIT_SETTING) | B(C_LOAD),
 	[M_IDLE]    = B(C_JOG) | B(C_TOUCHOFF) | B(C_GOTOZERO) | B(C_HOME) | B(C_PROBE) | B(C_START) |
 	              B(C_SPINDLE) | B(C_DRIVES_OFF) | B(C_LOAD) | B(C_EDIT_TABLE) | B(C_EDIT_SETTING) |
-	              B(C_OVERRIDE) | B(C_ESTOP_IN) | B(C_LIMIT_HIT) | B(C_STOP) | B(C_MACRO),
+	              B(C_OVERRIDE) | B(C_ESTOP_IN) | B(C_LIMIT_HIT) | B(C_STOP) | B(C_MACRO) | B(C_COOLANT),
 	[M_MOVE]    = B(C_PAUSE) | B(C_STOP) | B(C_ESTOP_IN) | B(C_LIMIT_HIT) | B(C_DONE) | B(C_OVERRIDE),
 	[M_HOMING]  = B(C_PAUSE) | B(C_STOP) | B(C_ESTOP_IN) | B(C_DONE),
 	[M_PROBING] = B(C_PAUSE) | B(C_STOP) | B(C_ESTOP_IN) | B(C_DONE),
-	[M_RUN]     = B(C_PAUSE) | B(C_STOP) | B(C_OVERRIDE) | B(C_ESTOP_IN) | B(C_LIMIT_HIT) | B(C_DONE),
-	[M_HOLD]    = B(C_START) | B(C_STOP) | B(C_OVERRIDE) | B(C_ESTOP_IN),
+	[M_RUN]     = B(C_PAUSE) | B(C_STOP) | B(C_OVERRIDE) | B(C_ESTOP_IN) | B(C_LIMIT_HIT) | B(C_DONE) | B(C_COOLANT) | B(C_TOOL_READY),
+	[M_HOLD]    = B(C_START) | B(C_STOP) | B(C_OVERRIDE) | B(C_ESTOP_IN) | B(C_COOLANT),
 	[M_LIMIT]   = B(C_JOG) | B(C_HOME) | B(C_STOP) | B(C_DRIVES_OFF) | B(C_ESTOP_IN) | B(C_LIMIT_CLEAR) | B(C_LIMIT_HIT) |
 	              B(C_EDIT_TABLE) | B(C_EDIT_SETTING) | B(C_OVERRIDE) | B(C_LOAD),
+	[M_TOOL]    = B(C_JOG) | B(C_TOUCHOFF) | B(C_START) | B(C_PAUSE) | B(C_STOP) | B(C_ESTOP_IN) | B(C_LIMIT_HIT) |
+	              B(C_EDIT_TABLE) | B(C_OVERRIDE) | B(C_COOLANT),
 };
 
 static const char *const WHY[M__N] = {
@@ -41,6 +43,7 @@ static const char *const WHY[M__N] = {
 	[M_RUN] = "Program running - directional controls are locked (Pause, Reset, overrides)",
 	[M_HOLD] = "Program on hold - Start resumes, Reset stops; jogging stays locked",
 	[M_LIMIT] = "Limit switch active - jog off it first (other axes are free)",
+	[M_TOOL] = "Tool change - jog / touch off, Start goes back to the program, Reset stops it",
 };
 
 bool ctl_busy(void) { return C.m == M_RUN || C.m == M_HOLD || C.m == M_HOMING || C.m == M_MOVE || C.m == M_PROBING; }
@@ -149,6 +152,14 @@ const char *can(cmd_t c, const arg_t *a, src_t src)
 		if (C.m == M_IDLE && !motion_idle(&C.mo)) return "Wait for the jog to finish";
 		if (C.m == M_IDLE && C.armed != ARM_SIM) { const char *w = program_outside(); if (w) return w; }
 		if (C.m == M_HOLD) for (int k = 0; k < NAXES; k++) if (C.lim_dir[k]) return "A limit switch is active - Reset, then jog off it";
+		if (C.m == M_TOOL) {
+			if (!motion_idle(&C.mo)) return "Wait for the jog to finish";
+			double t[NAXES], via;
+			ctl_tc_target(t, &via);
+			t[AX_Z] = fmax(t[AX_Z], via);
+			const char *w = target_outside(t);
+			if (w) return w;
+		}
 		break;
 	case C_JOG: {
 		int ld = a->axis >= 0 && a->axis < NAXES ? C.lim_dir[a->axis] : 0;
@@ -160,13 +171,20 @@ const char *can(cmd_t c, const arg_t *a, src_t src)
 		if (at_limit(a->axis, a->dir)) { snprintf(why, sizeof why, "%c%c is at its %s limit", AXIS_CH[a->axis], a->dir > 0 ? '+' : '-', range_name_for(a->axis, a->dir > 0)); return why; }
 		break;
 	}
+	case C_TOUCHOFF:
+		if (!motion_idle(&C.mo)) return "Wait for the jog to finish - touch-off needs the axis standing still";
+		break;
+	case C_PAUSE:
+		if (C.m == M_TOOL && motion_idle(&C.mo)) return "Nothing to pause";
+		break;
 	case C_PROBE: return "No probe input is configured on this machine";
 	case C_GOTOZERO: {
 		if (!motion_idle(&C.mo)) return "Wait for the jog to finish";
 		double t[NAXES];
 		memcpy(t, C.mo.pos, sizeof t);
 		const double *o = WD.wcs[WD.active].off;
-		t[AX_Z] = fmax(t[AX_Z], o[AX_Z] + SET.safe_z); t[AX_X] = o[AX_X]; t[AX_Y] = o[AX_Y];
+		t[AX_Z] = fmax(t[AX_Z], o[AX_Z] + SET.safe_z);
+		if (a->kind != 1) { t[AX_X] = o[AX_X]; t[AX_Y] = o[AX_Y]; }
 		const char *w = target_outside(t);
 		if (w) return w;
 		break;
@@ -194,7 +212,8 @@ static mstate_t next_state(cmd_t c, mstate_t f)
 	case C_PROBE: return M_PROBING;
 	case C_GOTOZERO: return M_MOVE;
 	case C_START: return M_RUN;
-	case C_PAUSE: return f == M_RUN ? M_HOLD : M_IDLE;
+	case C_PAUSE: return f == M_RUN ? M_HOLD : f == M_TOOL ? M_TOOL : M_IDLE;
+	case C_TOOL_READY: return M_TOOL;
 	case C_STOP: return f == M_LIMIT ? M_LIMIT : M_IDLE;
 	case C_LIMIT_HIT: return M_LIMIT;
 	case C_LIMIT_CLEAR: case C_DONE: return M_IDLE;
@@ -206,16 +225,80 @@ static double sim_saved_pos[NAXES];
 
 static void all_off(void) { C.spindle = false; C.coolant = 0; }
 
+/* no tool change in progress any more (program started, stopped, finished, E-stop, limit) */
+static void tc_clear(void)
+{
+	C.tc_state = TC_NONE; C.tc_confirm = false; C.feed_wait = false;
+	free(C.tc_text); C.tc_text = NULL;
+}
+
+int ctl_prog_wcs(void) { return C.gc.force_wcs >= 0 ? C.gc.force_wcs : C.gc.wcs; }
+
+/* The program position the change returns to: where the program is (C.gc.pos - the feeder
+ * waits at the M6, so it is exactly that line), moved by any work offset change made during
+ * the change (a Z touch-off with the new tool), so the WORK position is the same. */
+double ctl_tc_target(double t[NAXES], double *via_z)
+{
+	int w = ctl_prog_wcs();
+	for (int a = 0; a < NAXES; a++) t[a] = C.gc.pos[a] + WD.wcs[w].off[a] - C.tc_off[w][a];
+	if (C.run_mode == ARM_TRYCUT) t[AX_Z] = ctl_trycut_z();
+	*via_z = fmax(t[AX_Z], WD.wcs[w].off[AX_Z] + SET.safe_z);
+	double v = SET.ax[AX_X].max_vel;
+	for (int a = 1; a < 3; a++) v = fmin(v, SET.ax[a].max_vel);
+	return v * SET.tc_return_pct / 100.0;
+}
+
+/* Start (confirmed) in M_TOOL: the new tool is in - back to the program and on */
+static void tc_resume(void)
+{
+	int w = ctl_prog_wcs();
+	if (C.tc_tool >= 1 && C.tc_tool <= NTOOLS) WD.loaded_tool = C.tc_tool;
+	/* a Z touch-off during the change is the new tool's length: the other parts of a
+	 * multi-part job get the same shift (unless they were touched off themselves) */
+	int src = -1;
+	for (int k = 0; k < NWCS && src < 0; k++)
+		if ((k == w || (C.job_idx >= 0 && WD.wcs[k].job)) && fabs(WD.wcs[k].off[AX_Z] - C.tc_off[k][AX_Z]) > 1e-9) src = k;
+	int shifted = 0;
+	if (src >= 0 && C.job_idx >= 0) {
+		double dz = WD.wcs[src].off[AX_Z] - C.tc_off[src][AX_Z];
+		for (int k = 0; k < NWCS; k++)
+			if (WD.wcs[k].job && fabs(WD.wcs[k].off[AX_Z] - C.tc_off[k][AX_Z]) < 1e-9) { WD.wcs[k].off[AX_Z] += dz; shifted++; }
+		if (shifted) ctl_toast(false, "New tool length: Z %+.3f mm applied to the %d other part%s of the job too", dz, shifted, shifted > 1 ? "s" : "");
+	}
+	workdata_save(C.wd_path);
+	double t[NAXES], via;
+	double v = ctl_tc_target(t, &via);
+	memcpy(C.gc.pos, t, sizeof t);                      /* same work position, new offsets */
+	for (int k = 0; k < NWCS; k++) memcpy(C.gc.wcs_off[k], WD.wcs[k].off, sizeof C.gc.wcs_off[k]);
+	if (C.gc.spindle && C.run_mode == ARM_RUN) {        /* spindle back on before going back */
+		gc_op_t s = { .kind = OP_SPINDLE, .ival = C.gc.spindle, .value = C.gc.rpm, .line = C.mo.line };
+		motion_push(&C.mo, &s);
+	}
+	if (C.gc.coolant && C.run_mode != ARM_SIM) { gc_op_t s = { .kind = OP_COOLANT, .ival = C.gc.coolant }; motion_push(&C.mo, &s); }
+	double p[NAXES];
+	memcpy(p, t, sizeof p);
+	p[AX_Z] = via;
+	motion_move_to(&C.mo, p, v, false);                 /* user: in a straight line, at the return speed */
+	if (via > t[AX_Z] + 1e-9) motion_move_to(&C.mo, t, v, false);
+	C.tc_state = TC_NONE; C.tc_confirm = false; C.feed_wait = false;
+	C.pause_msg[0] = 0;
+	if (!shifted) ctl_toast(false, "T%d in - back to the program", C.tc_tool);
+}
+
 static void start_program(src_t src)
 {
 	gc_begin(&C.gc, C.prog.text, C.prog.len, C.mo.pos);
 	C.gc.apply_g10 = C.armed != ARM_SIM;
 	C.run_mode = C.armed;
-	C.job_idx = -1;
-	int jobs = 0;
+	int jobs = 0, keep = C.job_idx;
 	for (int i = 0; i < NWCS; i++) jobs += WD.wcs[i].job;
+	C.job_idx = -1; C.job_seg = 0;
+	tc_clear();
 	if (jobs > 1) {                                   /* multi-part job: first JOB fixture */
 		for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) { C.job_idx = i; break; }
+		/* resuming: on the part that was being cut, in the tool segment of the resume line */
+		if (C.resume_line > 0 && keep >= 0 && keep < NWCS && WD.wcs[keep].job) C.job_idx = keep;
+		if (C.resume_line > 0) while (C.job_seg < C.prog.ntc && C.prog.tc_line[C.job_seg] <= C.resume_line) C.job_seg++;
 		C.gc.force_wcs = C.job_idx;
 	}
 	C.mo.dry = C.armed == ARM_SIM;
@@ -309,6 +392,7 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 	wcs_t *w = &WD.wcs[WD.active];
 	switch (c) {
 	case C_JOG:
+		C.tc_confirm = false;                           /* the return move shown is out of date */
 		if (a->cont) motion_jog_cont(&C.mo, a->axis, a->dir);
 		else if (a->kind == 1) motion_nudge(&C.mo, a->axis, a->dir * a->dist);
 		else {
@@ -341,6 +425,7 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		memcpy(p, C.mo.pos, sizeof p);
 		p[AX_Z] = fmax(p[AX_Z], w->off[AX_Z] + SET.safe_z);
 		motion_move_to(&C.mo, p, 0, true);
+		if (a->kind == 1) { ctl_toast(false, "Z up to the safe height (G%d Z%+.1f)", 54 + WD.active, SET.safe_z); break; }
 		p[AX_X] = w->off[AX_X]; p[AX_Y] = w->off[AX_Y];
 		motion_move_to(&C.mo, p, 0, true);
 		ctl_toast(false, "G%d: Z up to safe height, then XY to 0", 54 + WD.active);
@@ -365,9 +450,19 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 	}
 	case C_HOME: C.homed = false; motion_home(&C.mo); ctl_toast(false, "Homing %s", HOME_ORDERS[SET.home_order]); break;
 	case C_START:
-		if (from == M_HOLD) { motion_hold(&C.mo, false); C.pause_msg[0] = 0; ctl_toast(false, "Resumed"); }
+		if (from == M_TOOL) tc_resume();
+		else if (from == M_HOLD) { motion_hold(&C.mo, false); C.pause_msg[0] = 0; ctl_toast(false, "Resumed"); }
 		else start_program(src);
 		C.countdown = 0;
+		break;
+	case C_TOOL_READY:
+		snprintf(C.pause_msg, sizeof C.pause_msg, "TOOL CHANGE  ·  put in T%d", C.tc_tool);
+		ctl_toast(false, "Change to T%d - jog and touch off as needed, then Start", C.tc_tool);
+		break;
+	case C_COOLANT:
+		if (!SET.out_flood) { ctl_toast(true, "No coolant output set (Settings > Spindle & outputs > M8 output)"); break; }
+		C.coolant ^= 1;
+		ctl_toast(false, C.coolant & 1 ? "Coolant ON" : "Coolant OFF");
 		break;
 	case C_PAUSE:
 		if (from == M_RUN) { motion_hold(&C.mo, true); if (src != SRC_MACHINE) ctl_toast(false, "Feed hold - Start resumes, Reset stops"); }
@@ -375,7 +470,8 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		break;
 	case C_STOP:
 		motion_stop(&C.mo, false);
-		if (from == M_RUN || from == M_HOLD) {
+		tc_clear();
+		if (from == M_RUN || from == M_HOLD || from == M_TOOL) {
 			C.work_done = C.mo.line;
 			ctl_toast(false, "Stopped at line %d - work done is remembered; Program > Select resumes", C.work_done + 1);
 		} else if (from == M_LIMIT) ctl_toast(false, "Program cleared - limit still active, jog off the switch");
@@ -409,8 +505,8 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		else C.mo.spin_ov = CLAMP(C.mo.spin_ov + a->delta, 0, 300);
 		break;
 	case C_ESTOP_IN:
-		motion_stop(&C.mo, !SET.graceful_stop); C.feeding = false; all_off(); finish_sim();
-		if (from == M_RUN || from == M_HOLD) C.work_done = C.mo.line;
+		motion_stop(&C.mo, !SET.graceful_stop); C.feeding = false; all_off(); finish_sim(); tc_clear();
+		if (from == M_RUN || from == M_HOLD || from == M_TOOL) C.work_done = C.mo.line;
 		macro_end();
 		ctl_toast(true, "E-STOP: %s", C.stop_cause[0] ? C.stop_cause : "E-stop input");
 		break;
@@ -423,8 +519,8 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 	}
 	case C_LIMIT_HIT:
 		motion_stop(&C.mo, !SET.graceful_stop);   /* brakes past the switch: the overshoot is v^2/2a */
-		if (from == M_RUN) C.work_done = C.mo.line;
-		C.feeding = false; all_off(); finish_sim();
+		if (from == M_RUN || from == M_TOOL) C.work_done = C.mo.line;
+		C.feeding = false; all_off(); finish_sim(); tc_clear();
 		macro_end();
 		C.limit_axis = a->axis; C.limit_dir = a->dir;
 		C.lim_dir[a->axis] = a->dir ? a->dir : 2;
@@ -445,7 +541,7 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 			C.homed = a->dir == 1;
 			ctl_toast(!C.homed, C.homed ? "Homed - soft limits active" : "Homing failed: switch not found within travel");
 		} else if (from == M_RUN) {
-			C.work_done = C.prog.nlines - 1; all_off(); finish_sim();
+			C.work_done = C.prog.nlines - 1; all_off(); finish_sim(); tc_clear();
 			if (C.macro_on) { ctl_toast(false, "Macro %s done", C.macro_name); macro_end(); }
 			else ctl_toast(false, "Program finished");
 		} else if (from == M_MOVE) ctl_toast(false, "Done");
@@ -461,6 +557,15 @@ bool act(cmd_t c, const arg_t *a, src_t src)
 	if (c == C_START && C.m == M_IDLE && C.macro_on && !macro_refresh()) return false;
 	const char *why = can(c, a, src);
 	if (why) { if (src != SRC_MACHINE) ctl_toast(true, "%s", why); return false; }
+	if (c == C_START && C.m == M_TOOL && !C.tc_confirm) {   /* user: Start asks first, then goes */
+		double t[NAXES], via;
+		double v = ctl_tc_target(t, &via);
+		const double *o = WD.wcs[ctl_prog_wcs()].off;
+		C.tc_confirm = true;
+		ctl_toast(false, "Start again: straight to X%.3f Y%.3f Z%.3f at %.0f mm/min, then T%d continues",
+			t[AX_X] - o[AX_X], t[AX_Y] - o[AX_Y], via - o[AX_Z], v, C.tc_tool);
+		return true;
+	}
 	mstate_t from = C.m;
 	effect(c, a, from, src);
 	C.m = next_state(c, from);

@@ -105,21 +105,30 @@ void test_ui(void)
 	snap("04_run_running");
 	ui_key(K_MODE);
 	CHECK(U.screen == SCR_RUN);                      /* jog locked while running */
-	ui_key(K_F7);                                    /* pages still browsable */
-	CHECK(U.screen == SCR_FILES);
+	ui_key(K_F7);                                    /* the screen menu: still usable while running */
+	CHECK(U.pagesel && U.screen == SCR_RUN);
+	snap("04b_page_menu_running");
+	ui_key(K_F4);                                    /* Files sits above View */
+	CHECK(U.screen == SCR_FILES && !U.pagesel);
 	ui_key(K_YP);                                    /* nothing directional happens */
 	CHECK(C.m == M_RUN);
-	ui_key(K_F2);                                    /* F2 = Pause on every screen while moving */
-	CHECK(C.m == M_HOLD);
+	ui_key(K_F7); ui_key(K_F2);                      /* F2 = Pause on every screen while moving, menu or not */
+	CHECK(C.m == M_HOLD && U.screen == SCR_FILES);
 	ui_key(K_F3);
 	CHECK(C.m == M_IDLE);
 	fx_until_idle(5000);                             /* Reset decelerates before it flushes */
 	snap("05_files");
 
-	/* page rotation + ISO view clamped at the side views */
-	ui_key(K_F7); CHECK(U.screen == SCR_WORK); snap("06_work");
-	ui_key(K_F7); CHECK(U.screen == SCR_TOOLS); snap("07_tools");
-	ui_key(K_F7); CHECK(U.screen == SCR_MACROS); snap("07b_macros");
+	/* the screen menu: F1 Run, F2 Macros, F3 Tools, F4 Files, F5 Work, F6 Settings */
+	ui_key(K_F7); CHECK(U.pagesel);
+	snap("05b_page_menu");
+	ui_key(K_F7); CHECK(!U.pagesel && U.screen == SCR_FILES);       /* Page R again closes it */
+	ui_key(K_F7); ui_key(K_YP); CHECK(!U.pagesel && U.screen == SCR_FILES);   /* any key closes it */
+	ui_key(K_F7); ui_key(K_F5); CHECK(U.screen == SCR_WORK); snap("06_work");
+	ui_key(K_F7); ui_key(K_F3); CHECK(U.screen == SCR_TOOLS); snap("07_tools");
+	ui_key(K_SHIFT); ui_key(K_F7); CHECK(U.screen == SCR_WORK);     /* Shift + Page R = last screen */
+	ui_key(K_SHIFT); ui_key(K_F7); CHECK(U.screen == SCR_TOOLS);
+	ui_key(K_F7); ui_key(K_F2); CHECK(U.screen == SCR_MACROS); snap("07b_macros");
 	{                                                 /* Enter arms the macro and goes to Run */
 		char keep[128]; snprintf(keep, sizeof keep, "%s", C.prog.name);
 		U.macro = 0; ui_key(K_ENTER);
@@ -129,9 +138,16 @@ void test_ui(void)
 		CHECK(!C.macro_on && !strcmp(C.prog.name, keep));
 		U.screen = SCR_MACROS;
 	}
-	ui_key(K_F7); CHECK(U.screen == SCR_SETTINGS); snap("08_settings");
-	ui_key(K_SHIFT); ui_key(K_F7); CHECK(U.screen == SCR_MACROS);  /* ALT + Page R = back */
-	ui_key(K_F7); ui_key(K_F7); CHECK(U.screen == SCR_RUN);
+	ui_key(K_F7); ui_key(K_F6); CHECK(U.screen == SCR_SETTINGS); snap("08_settings");
+	ui_key(K_F7); ui_key(K_F1); CHECK(U.screen == SCR_RUN);
+	/* Shift: second functions on F1-F6 (Run) */
+	ui_key(K_SHIFT); snap("08c_run_shift");
+	{
+		arg_t d = { .kind = 0, .delta = -30 }; act(C_OVERRIDE, &d, SRC_PANEL);
+		ui_key(K_F2); CHECK(C.mo.feed_ov == 100 && C.mo.spin_ov == 100 && !U.shift);
+		int arm = C.armed; ui_key(K_SHIFT); ui_key(K_F5); CHECK(C.armed == (arm + 2) % 3); C.armed = arm;
+		U.view.zoom = 3; ui_key(K_SHIFT); ui_key(K_F4); CHECK(U.view.zoom == 1);
+	}
 	U.view.iso = U.view.saver = false;
 	ui_key(K_F4);
 	CHECK(U.view.iso && !U.view.saver);
@@ -210,6 +226,36 @@ void test_ui(void)
 	pd.held = false; pd.axis = -1;
 	ui_pendant(&pd, 0);
 
+	/* jog screen, step "continuous": the wheel never presses a jog key (it once started a Y
+	 * jog that never stopped), the axis switch picks the pane, the picked axis gets a diamond */
+	{
+		U.screen = SCR_JOG; U.pane[SCR_JOG] = 0; U.step = NJOG_STEPS - 1;   /* continuous */
+		double p0[NAXES]; memcpy(p0, C.mo.pos, sizeof p0);
+		pendant_t q = { .axis = -1, .mult = 1 };
+		ui_pendant(&q, -8);                              /* not held: nothing moves */
+		q.held = true; ui_pendant(&q, 0);
+		CHECK(ui_pane() == 1);                           /* held, switch OFF: the setup pane */
+		ui_pendant(&q, -8); ui_pendant(&q, 8);           /* changes setup fields, never jogs */
+		U.pane[SCR_JOG] = 0;
+		ui_pendant(&q, -8); ui_pendant(&q, 8);           /* even on the jog pane: nothing */
+		fx_run(300);
+		CHECK(!C.mo.jog_dir && motion_idle(&C.mo));
+		for (int a = 0; a < NAXES; a++) CHECK_NEAR(C.mo.pos[a], p0[a], 1e-9);
+		q.axis = AX_Y; ui_pendant(&q, 0);                /* Y picked: jog pane, diamond */
+		CHECK(ui_pane() == 0);
+		C.pend = q; snap("12a_jog_pendant_axis"); C.pend = (pendant_t){ .axis = -1 };
+		q.held = false; q.axis = -1; ui_pendant(&q, 0);
+		/* a continuous jog stops on any other key, and touch-off waits for a standstill */
+		ui_key(K_YP); fx_run(100);
+		CHECK(C.mo.jog_dir == 1);
+		ui_key(K_SHIFT); ui_key(K_XM);
+		CHECK(!C.mo.jog_dir);
+		fx_run(20);
+		CHECK(can(C_TOUCHOFF, &(arg_t){ .axis = AX_X, .dir = -1 }, SRC_PANEL) != NULL || motion_idle(&C.mo));
+		fx_until_idle(5000);
+		U.shift = false; U.step = 2; U.screen = SCR_RUN;
+	}
+
 	/* clockwise jogs the selected axis positive (it was reversed, as in the vendor app) */
 	double xj = C.mo.pos[AX_X];
 	pd.held = true; pd.axis = AX_X; pd.mult = 100;
@@ -232,5 +278,25 @@ void test_ui(void)
 	SIM.ext_estop = true; fx_run(30); snap("11_estop"); SIM.ext_estop = false; fx_run(30);
 	act(C_DRIVES_ON, NULL, SRC_PANEL);
 	CHECK(C.m == M_IDLE);
+
+	/* tool change by hand: the banner, Mode -> Jog allowed, F1 asks, Enter goes */
+	{
+		const char *tp = "G21 G90 G54\nG0 X5 Y5\nG1 Z-1 F600\nG0 Z3\nT4 M6\nG0 X20\nM30\n";
+		arg_t ld = { .path = "two-tools.nc", .text = tp, .len = strlen(tp) };
+		act(C_LOAD, &ld, SRC_PANEL);
+		WD.loaded_tool = 1; WD.tool[3].dia = 6;
+		U.screen = SCR_RUN;
+		ui_key(K_F1);
+		for (int i = 0; i < 6000 && C.m == M_RUN; i++) fx_run(10);
+		CHECK(C.m == M_TOOL);
+		snap("13_tool_change");
+		ui_key(K_MODE); CHECK(U.screen == SCR_JOG);
+		ui_key(K_MODE);
+		ui_key(K_F1); CHECK(C.tc_confirm && C.m == M_TOOL);
+		snap("13b_tool_back_prompt");
+		ui_key(K_ENTER); CHECK(C.m == M_RUN && WD.loaded_tool == 4);
+		fx_until_idle(30000);
+		CHECK(C.m == M_IDLE);
+	}
 	free(fb.px);
 }

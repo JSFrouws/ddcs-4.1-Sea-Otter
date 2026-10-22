@@ -40,9 +40,10 @@ Remote access with a password: [ssh-setup.md](ssh-setup.md).
 ```
 
 - **Top right**: active work offset (G54…), `Homed ✓/—`, and the machine **state**
-  (READY, RUN, HOLD, E-STOP, LIMIT, DRIVES OFF, SIMULATE…).
+  (READY, RUN, HOLD, TOOL CHANGE, E-STOP, LIMIT, DRIVES OFF, SIMULATE…).
 - **Soft keys F1–F7** along the bottom: their labels change per screen. **F7 is always
-  Page R** (next screen); **Shift then F7** goes back.
+  Page R**: it opens the **screen menu** (below). With **Shift** lit the labels turn amber
+  and show the second functions.
 - **Right strip**: what **Tab**, **Shift** and **Mode** do right now.
 - **Toasts** (white box near the bottom): the result of what you just did, or why a key
   was refused. Nothing is refused silently.
@@ -51,16 +52,36 @@ Remote access with a password: [ssh-setup.md](ssh-setup.md).
 
 | Key | Does |
 |---|---|
-| **Mode** | Run ↔ Jog. Jog is locked while a program runs or holds. |
-| **F7 Page R** | Run → Files → Work → Tools → Macros → Settings → Run |
+| **Mode** | Run ↔ Jog. Jog is locked while a program runs or holds (not during a tool change). |
+| **F7 Page R** | Opens the **screen menu**: the soft keys become the screens, press one to go there (see below). Page R again or Cancel closes it |
+| **Shift + F7** | Back to the last screen |
 | **Tab** | Next pane on the screen (e.g. Toolpath ↔ Program) |
-| **Shift** | ALT layer for the next key (lit while active): touch-off, Page R back, … |
+| **Shift** | ALT layer for the next key (lit while active): touch-off, second functions (below) |
 | **Y± / X±** | Move in lists and tables; jog in Jog |
 | **Enter / Select / Modify** | Open / accept / edit the focused item |
 | **Cancel** | Back / discard |
 | **F1 Start** | Start or resume the program |
 | **F2 Pause** | Feed hold on **every** screen while something moves |
 | **F3 Reset** | Stop on **every** screen. Also switches the drives on after DRIVES OFF |
+
+**The screen menu** (Page R, then):
+
+| F1 | F2 | F3 | F4 | F5 | F6 | F7 |
+|---|---|---|---|---|---|---|
+| Run | Macros | Tools | Files | Work | Settings | close |
+
+Jog isn't in the menu: **Mode** goes there directly. While something moves, F2 and F3 stay
+**Pause** and **Reset**, menu or not. The menu closes after any key, or by itself after 8 s.
+
+**Second functions (Shift, then the key)**:
+
+| Screen | F1 | F2 | F3 | F4 | F5 | F6 |
+|---|---|---|---|---|---|---|
+| Run | Start from the line picked in the listing | Feed + spindle back to 100 % | Rewind (next Start = line 1) | View: fit / reset | Arm the previous mode | Coolant on/off |
+| Jog | Home | **Safe Z** (Z up only) | Drives | Step size back | WCS back | Coolant on/off |
+| Work | | | | **Job: none** (clears every JOB mark) | | |
+
+A running program still pauses with F2 and resets with F3, Shift or not.
 
 ## 3. Daily procedure
 
@@ -86,8 +107,11 @@ Remote access with a password: [ssh-setup.md](ssh-setup.md).
    to set 0 instead.
 3. Z: touch the top, **Shift + Z−** → Z = 0.
 4. Check with **Goto 0** (Jog F2): Z up to safe height, then XY to 0.
-5. Several parts: **Jog F5 WCS** picks G55, G56…; on **Work** mark them **F4 In job** and
-   Start runs the program on each one in turn.
+5. Several parts: **Jog F5 WCS** picks G55, G56…; on **Work** mark them **F4 In job**.
+   Start then cuts **per tool**: everything the first tool does, on every JOB part in turn,
+   then **one** tool change, then the second tool on every part, and so on. So 4 parts
+   with 3 tools means 3 tool changes, not 12. Between parts Z goes up to the safe height.
+   **Shift + F4** on Work clears the job.
 
 ### 3.4 Check, then run
 **F5 TryCut** on Run cycles what Start will do:
@@ -112,8 +136,8 @@ Remote access with a password: [ssh-setup.md](ssh-setup.md).
 - **F4 View** cycles **2D → ISO → CPU saver**. CPU saver hides the toolpath and redraws once
   a second, leaving more time for motion. After an E-stop or limit the view switches to
   ISO by itself.
-- **M6 / M0**: the machine holds with a message ("change to T3, then Start"). Do the
-  change, **F1 Start** continues.
+- **M0 / M1**: the machine holds with a message; **F1 Start** continues.
+- **M6** (tool change): see § 3.7.
 - **F2 Pause** = feed hold (F1 resumes). **F3 Reset** stops; the lines done so far are
   remembered.
 
@@ -121,6 +145,47 @@ Remote access with a password: [ssh-setup.md](ssh-setup.md).
 Run → **Tab** → Program. Pick the line (**Y±** one line, **X±** ten), **Select**. The bar
 shows what Start will restore (WCS, F, S, tool, coolant) and how it approaches: Z up, XY
 across, then down. **F1 Start**.
+
+### 3.7 Tool change (M6)
+*Settings › Tool change › On M6* chooses what an `M6 T…` in the program does:
+
+**Pause: change by hand** (default):
+1. The spindle stops, Z goes up to the **safe height** (or, with *Change the tool at ›
+   Tool-change position*, to that position in machine coordinates; needs a homed machine).
+2. The state becomes **TOOL CHANGE** and the amber banner says which tool to put in.
+3. **Jogging is allowed**: **Mode** → Jog, jog, change the tool, and touch off Z with the new
+   tool (**Shift + Z−**) if its length differs. In a multi-part job, a Z touch-off on one part
+   is applied to the other parts too: it's the same tool.
+4. **F1 Start** shows **"Back to the program?"**: a straight line to the position the
+   program stopped at (at least the safe height, then straight down if lower), the speed,
+   and the tool. **F1 Start or Enter** goes, **Cancel** stays. Jogging after the question
+   cancels it: Start asks again with the new route.
+5. The return speed is *Settings › Tool change › Return at* (% of rapid, default 50 %). The
+   spindle and coolant come back on as the program had them before the return move starts.
+
+**F3 Reset** during a tool change stops the program. Its progress is remembered, as with any stop.
+If the tool asked for is already in, nothing happens. Simulate never stops for a tool.
+
+**Run a tool-change macro**: Sea Otter runs a G-code file instead of stopping, then goes
+back to the program (Z up first, then across, then down). It looks in the macro folders
+(`/local/macros` first, then `/ddcsv4`) for:
+- `toolchange-T3.nc`: **one file per tool** (copy one and adjust it per tool), or else
+- `toolchange.nc`: **one file for all tools**, using `{tool}` for the tool number.
+
+Besides the macro placeholders (§ 5), a tool-change macro can use `{tool}` (the new tool),
+`{tool.prev}` (the one in now), `{tool.dia}` and `{tool.len}` (from the Tools table). Example:
+```
+(name: Tool change)
+(info: to the rack, slot = tool number)
+(needs: homed)
+G90
+G53 G0 Z{macro.tc_z}
+G53 G0 X{macro.tc_x} Y{macro.tc_y}
+M0 (put in T{tool}, then Start)
+```
+Without either file, it falls back to changing by hand.
+
+**Ignore M6**: the tool number is noted and the program runs on.
 
 ## 4. When the machine stops on its own
 
@@ -246,7 +311,8 @@ the pendant alone can do everything.
 Useful ones: *Display › Default toolpath view* (2D / ISO / CPU saver) ·
 *Jog & touch-off › Safe Z* · *Homing & limits › Controlled stop* ·
 *Network & API › Allow remote START* (on by default; switch off if you don't want a
-network client to start programs) · *Pendant › Reverse wheel direction*.
+network client to start programs) · *Pendant › Reverse wheel direction* ·
+*Tool change* (§ 3.7: by hand / macro / ignore, where, return speed).
 
 ## 7. The pendant (optional)
 
@@ -256,6 +322,12 @@ network client to start programs) · *Pendant › Reverse wheel direction*.
 | Wheel, dead-man held, switch OFF | **Changes** the focused value; while running: overrides |
 | Wheel, dead-man held, switch X/Y/Z/4 | **Jogs** that axis 0.001 / 0.01 / 0.1 mm per count (refused while running) |
 | Quick press of the dead-man (switch OFF) | **Enter** on the focused item |
+| **Jog screen**: dead-man held, switch X/Y/Z/4 | That axis gets an amber **diamond** and the jog pane is focused: only then does the wheel jog |
+| **Jog screen**: dead-man held, switch OFF | The **Jog setup** pane is focused: the wheel changes the setup (step, WCS, …), never jogs |
+
+The wheel never acts as a jog key. Before this fix, turning it on the Jog screen with the
+switch on OFF and the step on *continuous* started a Y jog that kept going. Also: any key
+press ends a continuous jog, and touch-off waits until the axis stands still.
 | Pendant E-stop | Same as the panel E-stop (§ 4.2) |
 
 ## 8. Network

@@ -86,6 +86,12 @@ void run_render(fb_t *fb)
 	gfx_text(fb, &font_14, x + 12, y + 20, COL_DIM, "S"); gfx_text_r(fb, &font_14, x + w - 12, y + 20, COL_TXT, b);
 	char d[24]; fmt_tool(d, sizeof d, WD.loaded_tool ? WD.tool[WD.loaded_tool - 1].dia : 0);
 	snprintf(b, sizeof b, "T%d  ·  Ø%s", WD.loaded_tool, d);
+	if (C.prog.ntc) {                                      /* tools in this program */
+		char tl[48] = "";
+		for (int i = 0; i < C.prog.ntc && i < 6; i++) snprintf(tl + strlen(tl), sizeof tl - strlen(tl), "%sT%d", i ? " " : "", C.prog.tc_tool[i]);
+		gfx_text(fb, &font_12, x + 12, y + 60, COL_DIM2, "Program tools");
+		gfx_text_r(fb, &font_12, x + w - 12, y + 60, COL_DIM, tl);
+	}
 	gfx_text(fb, &font_14, x + 12, y + 40, COL_DIM, "Tool"); gfx_text_r(fb, &font_14, x + w - 12, y + 40, COL_TXT, b);
 
 	/* toolpath view */
@@ -129,8 +135,20 @@ void run_render(fb_t *fb)
 
 void run_sk(sk_t sk[7])
 {
+	if (U.shift) {                                       /* ALT: the second functions (amber) */
+		static char a1[24];
+		snprintf(a1, sizeof a1, "from line %d", U.prog_line + 1);
+		sk[0] = (sk_t){ "Start", a1 };
+		sk[1] = (sk_t){ "100 %", "feed + spindle" };
+		sk[2] = (sk_t){ "Rewind", "to line 1" };
+		sk[3] = (sk_t){ "View", "fit / reset" };
+		sk[4] = (sk_t){ "TryCut", C.armed == ARM_RUN ? "← Simulate" : C.armed == ARM_TRYCUT ? "← Run" : "← TryCut" };
+		sk[5] = (sk_t){ "Coolant", C.coolant & 1 ? "on" : "off" };
+		return;
+	}
 	static char s1[24], s5[24];
 	if (C.m == M_HOLD) snprintf(s1, sizeof s1, "resume");
+	else if (C.m == M_TOOL) snprintf(s1, sizeof s1, C.tc_confirm ? "go back" : "back (asks)");
 	else if (C.resume_line >= 0) snprintf(s1, sizeof s1, "from %d", C.resume_line + 1);
 	else if (C.macro_on) snprintf(s1, sizeof s1, "macro");
 	else snprintf(s1, sizeof s1, "%s", C.armed == ARM_RUN ? "run" : C.armed == ARM_TRYCUT ? "dry run" : "simulate");
@@ -141,11 +159,38 @@ void run_sk(sk_t sk[7])
 	sk[3] = (sk_t){ "View", U.view.saver ? "→ 2D" : U.view.iso ? "→ CPU saver" : "→ ISO" };
 	sk[4] = (sk_t){ "TryCut", s5 };
 	sk[5] = (sk_t){ "Spindle", C.spindle ? "on" : "off" };
-	sk[6] = (sk_t){ "Page R", U.shift ? "previous" : "Files" };
 }
 
 void run_key(pkey_t k, bool sh)
 {
+	if (sh && k >= K_F1 && k <= K_F6) {                    /* ALT: the second functions */
+		switch (k) {
+		case K_F1:                                         /* Start from the line picked in the listing */
+			if (C.m == M_IDLE && C.prog.loaded) C.resume_line = U.prog_line > 0 ? U.prog_line : -1;
+			act(C_START, NULL, SRC_PANEL);
+			break;
+		case K_F2: {
+			arg_t f = { .kind = 0, .delta = 100 - C.mo.feed_ov }, s = { .kind = 1, .delta = 100 - C.mo.spin_ov };
+			act(C_OVERRIDE, &f, SRC_PANEL); act(C_OVERRIDE, &s, SRC_PANEL);
+			ctl_toast(false, "Feed and spindle back to 100 %%");
+			break;
+		}
+		case K_F3:
+			if (ctl_busy()) break;
+			C.resume_line = -1; C.work_done = -1; U.prog_line = 0;
+			ctl_toast(false, "Rewound: Start begins at line 1");
+			break;
+		case K_F4: U.view.yaw = -30; U.view.pitch = 32; U.view.zoom = 1; U.view.panx = U.view.pany = 0; break;
+		case K_F5:
+			if (ctl_busy() || C.m == M_TOOL) { ctl_toast(true, "Arming can only change while idle"); break; }
+			C.armed = (C.armed + 2) % 3;
+			ctl_toast(false, "Armed: %s", C.armed == ARM_RUN ? "Run" : C.armed == ARM_TRYCUT ? "TryCut" : "Simulate");
+			break;
+		case K_F6: act(C_COOLANT, NULL, SRC_PANEL); break;
+		default: break;
+		}
+		return;
+	}
 	if (sh) {                                              /* ALT: the second printed word */
 		if (k == K_XM) { act(C_GOTOZERO, NULL, SRC_PANEL); return; }
 		if (k == K_ENTER) { act(C_HOME, NULL, SRC_PANEL); return; }
@@ -169,7 +214,7 @@ void run_key(pkey_t k, bool sh)
 		else U.view.iso = true;
 		return;
 	case K_F5:
-		if (ctl_busy()) { ctl_toast(true, "Arming can only change while idle"); return; }
+		if (ctl_busy() || C.m == M_TOOL) { ctl_toast(true, "Arming can only change while idle"); return; }
 		C.armed = (C.armed + 1) % 3;
 		ctl_toast(false, "Armed: %s", C.armed == ARM_RUN ? "Run" : C.armed == ARM_TRYCUT ? "TryCut (spindle off, Z at safe height)" : "Simulate (no motion)");
 		return;

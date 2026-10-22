@@ -36,7 +36,9 @@ Also served on the same port (not under `/api/v1/`):
 ## Machine states
 
 `state` is one of: `ESTOP`, `OFF` (drives off), `IDLE`, `MOVE` (goto / macro), `HOMING`,
-`PROBING`, `RUN`, `HOLD`, `LIMIT`. What each state accepts is in
+`PROBING`, `RUN`, `HOLD`, `LIMIT`, `TOOL` (a program waits at an M6 for a tool change by
+hand: jog and touch-off allowed; `run/start` twice goes back and continues, `run/stop`
+stops the program). What each state accepts is in
 [operator-procedures.md](operator-procedures.md) § state machine.
 
 ---
@@ -88,6 +90,8 @@ Everything in one snapshot. Poll it (e.g. every 0.5–1 s).
 | `message` | The last panel message (toast) |
 | `driverWarning` | Not empty when the FPGA driver is not the one Sea Otter was tested with |
 | `macro` | The macro armed or running (empty: none; `program` is then the macro) |
+| `tool` | `{"loaded":3,"changeTo":4,"confirm":false}`: the tool in, the tool an M6 asks for (0 = no change going on), and whether the first `run/start` of a tool change was given (the return move is shown on the panel; the next `run/start` goes) |
+| `jobPart` | Multi-part job: the work offset the feeder is on (`"G55"`), empty otherwise |
 | `backend` | `real` (the unit's FPGA) or `sim` (simulator) |
 
 ### GET `settings`
@@ -137,7 +141,7 @@ curl -X POST --data-binary @part.nc "http://192.168.1.200:8080/api/v1/program/up
 
 | Method | Path | Body | Does |
 |---|---|---|---|
-| POST | `run/start` | `{"mode":"run"}` · `"tryCut"` · `"simulate"` (optional) | Start the loaded program. From IDLE: **202**, the panel counts down `api.start_delay` s first (Reset on the panel cancels). From HOLD: resumes at once. **403** if remote START is off on the panel. **409** if the program leaves the soft/bench limits on any work offset it would run on (`detail` names axis, side and distance; Simulate is allowed) |
+| POST | `run/start` | `{"mode":"run"}` · `"tryCut"` · `"simulate"` (optional) | Start the loaded program. From IDLE: **202**, the panel counts down `api.start_delay` s first (Reset on the panel cancels). From HOLD: resumes at once. From TOOL (a tool change): the first call only shows the return move on the panel (`tool.confirm` becomes true), the second goes back in a straight line at `tool.return_pct` of rapid and continues. **403** if remote START is off on the panel. **409** if the program leaves the soft/bench limits on any work offset it would run on (`detail` names axis, side and distance; Simulate is allowed) |
 | POST | `run/pause` | – | Feed hold (RUN → HOLD) |
 | POST | `run/stop` | – | Stop the program (409 when nothing runs; `machine/stop` always works) |
 | POST | `run/resume-from` | `{"line":846,"mode":"run"}` | Restore the modal state of that line (1-based) and continue from it: Z up, XY across, down. Same countdown / 403 rules as `run/start` |
@@ -234,9 +238,12 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `macro.park_x` | Macros | Park X (machine) | mm | number, -9999 to 9999 | yes |
 | `macro.park_y` | Macros | Park Y (machine) | mm | number, -9999 to 9999 | yes |
 | `macro.park_z` | Macros | Park Z (machine) | mm | number, -9999 to 9999 | yes |
-| `macro.tc_x` | Macros | Tool change X (machine) | mm | number, -9999 to 9999 | yes |
-| `macro.tc_y` | Macros | Tool change Y (machine) | mm | number, -9999 to 9999 | yes |
-| `macro.tc_z` | Macros | Tool change Z (machine) | mm | number, -9999 to 9999 | yes |
+| `tool.mode` | Tool change | On M6 |  | 0 Pause: change by hand · 1 Run a tool-change macro · 2 Ignore M6 | yes |
+| `tool.where` | Tool change | Change the tool at |  | 0 Z up to safe height, stay here · 1 Tool-change position (homed) | yes |
+| `tool.return_pct` | Tool change | Return to the program at (% of rapid) | % | number, 5 to 100 | yes |
+| `macro.tc_x` | Tool change | Tool change X (machine) | mm | number, -9999 to 9999 | yes |
+| `macro.tc_y` | Tool change | Tool change Y (machine) | mm | number, -9999 to 9999 | yes |
+| `macro.tc_z` | Tool change | Tool change Z (machine) | mm | number, -9999 to 9999 | yes |
 | `macro.warm_rpm` | Macros | Warm-up spindle speed | rpm | number, 0 to 60000 | yes |
 | `macro.warm_s` | Macros | Warm-up time | s | number, 1 to 3600 | yes |
 

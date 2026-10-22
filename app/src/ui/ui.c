@@ -13,7 +13,10 @@ const int NJOG_STEPS = 5;
 const char *UI_SRC_DIRS[3] = { "/local", "/udisk-sda1", "/udisk-sda" };
 const char *const UI_SRC_NAMES[3] = { "Local", "USB", "USB (2)" };
 
-static const scr_t PAGES[] = { SCR_RUN, SCR_FILES, SCR_WORK, SCR_TOOLS, SCR_MACROS, SCR_SETTINGS };
+/* user 2026-10-22: Page R turns F1-F6 into the screens; Files sits above View (F4). Jog is not
+ * in the menu - Mode goes there directly. F2 / F3 stay Pause / Reset while anything moves. */
+const scr_t PAGE_KEYS[6] = { SCR_RUN, SCR_MACROS, SCR_TOOLS, SCR_FILES, SCR_WORK, SCR_SETTINGS };
+const char *const SCR_SHORT[SCR__N] = { "Run", "Jog", "Files", "Work", "Tools", "Settings", "Macros" };
 static const char *const PANES[SCR__N][2] = {
 	{ "Toolpath", "Program" }, { "Jog keys", "Jog setup" }, { "File list", "Preview" },
 	{ "Offsets", "Probe" }, { "Tool table", NULL }, { "Groups", "Values" }, { "Macros", NULL } };
@@ -68,21 +71,16 @@ void ui_scan_files(void)
 	if (U.files_idx >= U.nfiles) U.files_idx = 0;
 }
 
-static void page(int d)
+void ui_goto(scr_t s)
 {
-	int i = 0, n = (int)ARRAY_LEN(PAGES);
-	for (int k = 0; k < n; k++) if (PAGES[k] == U.screen) i = k;
-	U.screen = PAGES[(i + d + n) % n];
+	if (s == SCR_JOG && ctl_busy()) { ctl_toast(true, "Jog is locked while %s - Pause / Reset first", STATE_NAMES[C.m]); return; }
+	if (s != U.screen) U.last_screen = U.screen;
+	U.screen = s;
 	if (U.screen == SCR_FILES) ui_scan_files();
 	if (U.screen == SCR_MACROS) { extern void macros_scan(void); macros_scan(); }
 }
 
-static void toggle_mode(void)
-{
-	if (U.screen == SCR_JOG) { U.screen = SCR_RUN; return; }
-	if (ctl_busy()) { ctl_toast(true, "Jog is locked while %s - Pause / Reset first", STATE_NAMES[C.m]); return; }
-	U.screen = SCR_JOG;
-}
+static void toggle_mode(void) { ui_goto(U.screen == SCR_JOG ? SCR_RUN : SCR_JOG); }
 
 void ui_key(pkey_t k)
 {
@@ -95,14 +93,25 @@ void ui_key(pkey_t k)
 	}
 	if (k == K_SHIFT) { U.shift = !U.shift; C.touch_axis = -1; return; }
 	U.shift = false;
+	if (C.mo.jog_dir) motion_jog_cont(&C.mo, 0, 0);   /* safety: any other key ends a continuous jog */
 	if (!(sh && U.screen == SCR_JOG)) C.touch_axis = -1;
-	bool busy = ctl_busy() || (!motion_idle(&C.mo) && C.m == M_IDLE);   /* a jog in progress counts */
+	bool ps = U.pagesel;
+	U.pagesel = false;                                 /* the screen menu closes on any key */
+	if (C.m == M_TOOL && C.tc_confirm) {               /* "back to the program?" is showing */
+		if (k == K_ENTER || k == K_F1) { act(C_START, NULL, SRC_PANEL); return; }
+		C.tc_confirm = false;
+		if (k == K_CANCEL) { ctl_toast(false, "Staying at the tool change"); return; }
+	}
+	bool busy = ctl_busy() || (!motion_idle(&C.mo) && (C.m == M_IDLE || C.m == M_TOOL));   /* a jog in progress counts */
 	if (k == K_F3 && C.m == M_OFF) act(C_DRIVES_ON, NULL, SRC_PANEL);          /* any screen */
 	else if (k == K_F3 && C.m == M_ESTOP) ctl_toast(true, "Release the E-stop first (%s)", C.stop_cause[0] ? C.stop_cause : "E-stop input active");
 	else if (k == K_F2 && busy) act(C_PAUSE, NULL, SRC_PANEL);
 	else if (k == K_F3 && C.countdown) { C.countdown = 0; ctl_toast(false, "Remote start cancelled"); }
-	else if (k == K_F3 && (busy || C.m == M_LIMIT || C.macro_on)) act(C_STOP, NULL, SRC_PANEL);
-	else if (k == K_F7) page(sh ? -1 : 1);
+	else if (k == K_F3 && (busy || C.m == M_LIMIT || C.macro_on || C.m == M_TOOL)) act(C_STOP, NULL, SRC_PANEL);
+	else if (ps && k >= K_F1 && k <= K_F6) ui_goto(PAGE_KEYS[k - K_F1]);
+	else if (ps && (k == K_F7 || k == K_CANCEL)) return;
+	else if (k == K_F7 && sh) ui_goto(U.last_screen);
+	else if (k == K_F7) { U.pagesel = true; U.pagesel_t = now_ms(); }
 	else if (k == K_MODE) toggle_mode();
 	else if (k == K_TAB) { int n = ui_npanes(U.screen); U.pane[U.screen] = (U.pane[U.screen] + (sh ? n - 1 : 1)) % n; }
 	else switch (U.screen) {
@@ -148,10 +157,17 @@ void ui_render(fb_t *fb)
 	default: break;
 	}
 	gfx_noclip(fb);
+	if (U.pagesel && now_ms() - U.pagesel_t > 8000) U.pagesel = false;
+	sk[6] = (sk_t){ "Page R", U.shift ? "last screen" : "screens" };
+	if (U.pagesel) {                        /* the screen menu: F1-F6 = the screens */
+		for (int i = 0; i < 6; i++) sk[i] = (sk_t){ SCR_SHORT[PAGE_KEYS[i]], PAGE_KEYS[i] == U.screen ? "screen · here" : "screen" };
+		sk[6] = (sk_t){ "Page R", "close" };
+	}
+	if (C.m == M_TOOL) sk[2] = (sk_t){ "Reset", "stop program" };
 	if (ctl_busy()) {                       /* while anything moves, F2/F3 are Pause/Reset everywhere */
 		sk[1] = (sk_t){ "Pause", C.m == M_RUN ? "feed hold" : "stop" };
 		sk[2] = (sk_t){ "Reset", "stop" };
-		if (U.screen != SCR_RUN) sk[0] = (sk_t){ NULL, NULL };
+		if (U.screen != SCR_RUN && !U.pagesel) sk[0] = (sk_t){ NULL, NULL };
 	}
 	if (C.m == M_OFF) sk[2] = (sk_t){ "Reset", "drives ON" };
 	if (C.m == M_ESTOP) sk[2] = (sk_t){ "Reset", "release E-stop" };

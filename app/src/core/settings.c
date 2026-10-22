@@ -8,12 +8,14 @@ workdata_t WD;
 
 const char *const SETTING_GROUPS[] = {
 	"Display", "Jog & touch-off", "Pendant", "Network & API", "Axes", "Homing & limits",
-	"Spindle & outputs", "Macros", "I/O & diagnostics", NULL
+	"Spindle & outputs", "Tool change", "Macros", "I/O & diagnostics", NULL
 };
 const char *const HOME_ORDERS[] = { "Z X Y A", "Z X Y", "Z Y X A", "X Y Z A", NULL };
 static const char *const DECS[] = { "0.0", "0.00", "0.000", NULL };
 static const char *const VIEWS[] = { "2D plan", "Isometric wireframe", "CPU saver (no preview)", NULL };
 static const char *const DIRS[] = { "Negative", "Positive", NULL };
+static const char *const TC_MODES[] = { "Pause: change by hand", "Run a tool-change macro", "Ignore M6", NULL };
+static const char *const TC_WHERE[] = { "Z up to safe height, stay here", "Tool-change position (homed)", NULL };
 
 #define O(f) offsetof(settings_t, f)
 #define A(i, f) (offsetof(settings_t, ax) + (i) * sizeof(axis_set_t) + offsetof(axis_set_t, f))
@@ -70,9 +72,12 @@ const setting_desc_t SETTINGS[] = {
 	{ "macro.park_x", "Macros", "Park X (machine)", "mm", ST_DBL, O(park[0]), -9999, 9999, DEC_POS, 0, 1, 0 },
 	{ "macro.park_y", "Macros", "Park Y (machine)", "mm", ST_DBL, O(park[1]), -9999, 9999, DEC_POS, 0, 1, 0 },
 	{ "macro.park_z", "Macros", "Park Z (machine)", "mm", ST_DBL, O(park[2]), -9999, 9999, DEC_POS, 0, 1, 0 },
-	{ "macro.tc_x", "Macros", "Tool change X (machine)", "mm", ST_DBL, O(tc[0]), -9999, 9999, DEC_POS, 0, 1, 0 },
-	{ "macro.tc_y", "Macros", "Tool change Y (machine)", "mm", ST_DBL, O(tc[1]), -9999, 9999, DEC_POS, 0, 1, 0 },
-	{ "macro.tc_z", "Macros", "Tool change Z (machine)", "mm", ST_DBL, O(tc[2]), -9999, 9999, DEC_POS, 0, 1, 0 },
+	{ "tool.mode", "Tool change", "On M6", "", ST_ENUM, O(tc_mode), 0, 2, 0, TC_MODES, 1, 0 },
+	{ "tool.where", "Tool change", "Change the tool at", "", ST_ENUM, O(tc_where), 0, 1, 0, TC_WHERE, 1, 0 },
+	{ "tool.return_pct", "Tool change", "Return to the program at (% of rapid)", "%", ST_DBL, O(tc_return_pct), 5, 100, 0, 0, 1, 0 },
+	{ "macro.tc_x", "Tool change", "Tool change X (machine)", "mm", ST_DBL, O(tc[0]), -9999, 9999, DEC_POS, 0, 1, 0 },
+	{ "macro.tc_y", "Tool change", "Tool change Y (machine)", "mm", ST_DBL, O(tc[1]), -9999, 9999, DEC_POS, 0, 1, 0 },
+	{ "macro.tc_z", "Tool change", "Tool change Z (machine)", "mm", ST_DBL, O(tc[2]), -9999, 9999, DEC_POS, 0, 1, 0 },
 	{ "macro.warm_rpm", "Macros", "Warm-up spindle speed", "rpm", ST_DBL, O(warm_rpm), 0, 60000, 0, 0, 1, 0 },
 	{ "macro.warm_s", "Macros", "Warm-up time", "s", ST_DBL, O(warm_s), 1, 3600, 0, 0, 1, 0 },
 };
@@ -107,6 +112,7 @@ void settings_defaults(settings_t *s)
 	s->park[0] = 900; s->park[1] = 580; s->park[2] = -15;     /* back corner, Z up (inside the soft limits) */
 	s->tc[0] = 450; s->tc[1] = 20; s->tc[2] = -15;           /* front middle, Z up */
 	s->warm_rpm = 8000; s->warm_s = 120;
+	s->tc_mode = 0; s->tc_where = 0; s->tc_return_pct = 50;   /* user 2026-10-22: by hand, back at half rapid */
 	s->graceful_stop = true;   /* user 2026-10-18: brake at max deceleration, never lose steps */
 	s->pos_dec = 3; s->tool_dec = 2; s->view_iso = 0; s->edge_dia = 0;
 	s->pendant = true; s->quick_ms = 400; s->wheel_div = 4;

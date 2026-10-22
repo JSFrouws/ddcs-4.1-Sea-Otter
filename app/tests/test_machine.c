@@ -412,6 +412,91 @@ void test_machine(void)
 	CHECK_NEAR(sim_pos_mm(AX_X), C.mo.pos[AX_X], 0.002);             /* sim = machine, within the switch's few-step hysteresis */
 	WD.wcs[1].job = false;
 
+	/* --- tool change by hand: Z up, M_TOOL (jog + touch-off allowed), Start asks, Start goes --- */
+	{
+		const char *tp = "G21 G90 G54\nT1 M6\nG0 X5 Y5\nG1 Z-1 F600\nG1 X10\nG0 Z3\nT2 M6\nG0 X20 Y5\nG1 Z-1 F600\nG1 X25\nG0 Z3\nM30\n";
+		arg_t ld = { .path = "tools.nc", .text = tp, .len = strlen(tp) };
+		act(C_LOAD, &ld, SRC_PANEL);
+		CHECK(C.prog.loaded && C.prog.ntc == 2 && C.prog.tc_line[0] == 1 && C.prog.tc_line[1] == 6 && C.prog.tc_tool[1] == 2);
+		SET.tc_mode = 0; SET.tc_where = 0; SET.tc_return_pct = 50;
+		WD.loaded_tool = 1;                                 /* T1 already in: the first M6 doesn't stop */
+		for (int i = 0; i < NWCS; i++) WD.wcs[i].job = false;
+		WD.active = 0;
+		act(C_START, NULL, SRC_PANEL);
+		int t = 0;
+		while (C.m == M_RUN && t < 60000) { fx_run(10); t += 10; }
+		CHECK(C.m == M_TOOL && C.tc_tool == 2);
+		CHECK_NEAR(ctl_work(AX_Z), SET.safe_z, 1e-6);         /* went up to the safe height */
+		CHECK_NEAR(ctl_work(AX_X), 10, 1e-6);                 /* and stayed above the part */
+		CHECK(!C.spindle);
+		/* jog while changing; touch off Z with the new (0.5 mm longer) tool */
+		double zoff = WD.wcs[0].off[AX_Z];
+		arg_t j = { .axis = AX_Z, .dir = -1, .dist = 2 };
+		CHECK(act(C_JOG, &j, SRC_PANEL));
+		fx_until_idle(5000);
+		CHECK(C.m == M_TOOL);
+		double zm = C.mo.pos[AX_Z];
+		WD.wcs[0].off[AX_Z] = zm - (SET.safe_z - 2 + 0.5);   /* = a touch-off with a 0.5 mm shorter tool */
+		CHECK(act(C_START, NULL, SRC_PANEL) && C.m == M_TOOL && C.tc_confirm);   /* first Start: asks */
+		j.dir = 1; act(C_JOG, &j, SRC_PANEL); fx_until_idle(5000);
+		CHECK(!C.tc_confirm);                                /* moved: asks again */
+		act(C_START, NULL, SRC_PANEL);
+		CHECK(C.tc_confirm);
+		CHECK(act(C_START, NULL, SRC_PANEL) && C.m == M_RUN);
+		CHECK(WD.loaded_tool == 2);
+		t = 0;
+		while (C.m == M_RUN && t < 60000) { fx_run(10); t += 10; }
+		CHECK(C.m == M_IDLE);
+		CHECK_NEAR(ctl_work(AX_X), 25, 1e-6);
+		CHECK_NEAR(ctl_work(AX_Z), 3, 1e-6);
+		/* Reset in M_TOOL stops the program */
+		WD.loaded_tool = 1; act(C_START, NULL, SRC_PANEL);
+		t = 0; while (C.m == M_RUN && t < 60000) { fx_run(10); t += 10; }
+		CHECK(C.m == M_TOOL);
+		CHECK(act(C_STOP, NULL, SRC_PANEL) && C.m == M_IDLE && !C.feed_wait && C.work_done >= 0);
+		fx_until_idle(5000);
+		WD.wcs[0].off[AX_Z] = zoff;
+
+		/* --- multi-part job per tool: G54 + G55, two tools -> T1 on both, ONE change, T2 on both --- */
+		memcpy(WD.wcs[1].off, WD.wcs[0].off, sizeof WD.wcs[1].off);
+		WD.wcs[1].off[AX_X] += 100;
+		WD.wcs[0].job = WD.wcs[1].job = true;
+		WD.loaded_tool = 1;
+		C.resume_line = -1; C.work_done = -1;
+		act(C_START, NULL, SRC_PANEL);
+		int changes = 0;
+		double x_at_change = 0, max_x1 = -1e9;
+		t = 0;
+		while ((C.m == M_RUN || C.m == M_TOOL) && t < 120000) {
+			max_x1 = fmax(max_x1, C.mo.pos[AX_X] - WD.wcs[1].off[AX_X]);
+			if (C.m == M_TOOL) {
+				changes++;
+				x_at_change = C.mo.pos[AX_X] - WD.wcs[1].off[AX_X];
+				CHECK(C.job_idx == 0 && C.job_seg == 2 && C.tc_tool == 2);   /* segments: header, T1, T2 */
+				act(C_START, NULL, SRC_PANEL); act(C_START, NULL, SRC_PANEL);
+			}
+			fx_run(10); t += 10;
+		}
+		CHECK(C.m == M_IDLE && changes == 1);
+		CHECK_NEAR(x_at_change, 10, 1e-6);         /* T1 had finished on the SECOND part before the change */
+		CHECK_NEAR(max_x1, 25, 1e-6);
+		CHECK_NEAR(C.mo.pos[AX_X] - WD.wcs[1].off[AX_X], 25, 1e-6);      /* T2 finished on the second part */
+
+		/* --- tool change by macro: toolchange.nc in the macro folder, {tool} filled in --- */
+		snprintf(macro_dir_user, sizeof macro_dir_user, "%s", ".");
+		FILE *mf = fopen("toolchange.nc", "w");
+		if (mf) { fputs("(tool {tool} was {tool.prev})\nG91 G0 Z1\nG90\n", mf); fclose(mf); }
+		SET.tc_mode = 1; WD.loaded_tool = 1;
+		WD.wcs[1].job = false;
+		act(C_START, NULL, SRC_PANEL);
+		t = 0; bool tool_state = false;
+		while (C.m == M_RUN && t < 60000) { fx_run(10); t += 10; tool_state |= C.m == M_TOOL; }
+		CHECK(C.m == M_IDLE && !tool_state && WD.loaded_tool == 2);
+		CHECK_NEAR(ctl_work(AX_X), 25, 1e-6);
+		remove("toolchange.nc"); macro_dir_user[0] = 0;
+		SET.tc_mode = 0;
+	}
+
 	/* --- remote start: allowed by default, refused once the owner switches it off --- */
 	{
 		settings_t d;

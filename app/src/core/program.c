@@ -59,6 +59,10 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 	int r;
 	while ((r = gc_next(&g, &op)) > 0) {
 		if (op.kind == OP_DWELL) p->est_s += op.value;
+		if (op.kind == OP_PAUSE && op.ival == PAUSE_TOOL && (!p->ntc || p->tc_line[p->ntc - 1] != op.line)) {
+			if (p->ntc < PROG_MAX_TC) { p->tc_line[p->ntc] = op.line; p->tc_tool[p->ntc] = (int)op.value; }
+			p->ntc++;
+		}
 		if (op.kind != OP_LINE) continue;
 		double d = 0;
 		for (int a = 0; a < 3; a++) d += (op.end[a] - last[a]) * (op.end[a] - last[a]);
@@ -79,6 +83,10 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 	}
 	if (p->lo[0] > p->hi[0]) for (int a = 0; a < 3; a++) p->lo[a] = p->hi[a] = 0;
 	if (p->mlo[0] > p->mhi[0]) for (int a = 0; a < 3; a++) p->mlo[a] = p->mhi[a] = 0;   /* no moves at all */
+	if (p->ntc > PROG_MAX_TC) {                             /* too many to cut per tool: whole program per part */
+		p->ntc = 0;
+		snprintf(p->warn, sizeof p->warn, "more than %d tool changes - a multi-part job runs the whole program per part", PROG_MAX_TC);
+	}
 	if (g.warn[0]) snprintf(p->warn, sizeof p->warn, "line %d: %s", g.warn_line + 1, g.warn);
 	if (r < 0) {
 		snprintf(p->err, sizeof p->err, "line %d: %s", g.err_line + 1, g.err);

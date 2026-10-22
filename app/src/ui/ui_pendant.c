@@ -4,10 +4,16 @@
  *                                  while running: X1 feed %, X10 spindle %, X100 feed % ×10
  *   wheel, hold, axis X/Y/Z/4 .... JOG 0.001 / 0.010 / 0.100 mm per detent (state machine permitting)
  *   quick press of hold (< quick_ms, no turning, axis OFF) = Enter on the focused item
- * Positions 5 and 6 of the axis switch have no wires: they read exactly like OFF. */
+ * Positions 5 and 6 of the axis switch have no wires: they read exactly like OFF.
+ * Jog screen (user 2026-10-22): holding with an axis picked marks that axis (diamond) and
+ * focuses the jog pane - only then does the wheel jog; holding with the switch on OFF focuses
+ * the jog setup pane. The wheel never acts on the jog keys themselves (a wheel-made Y key
+ * once started a continuous jog that never stopped). */
 #include "ui.h"
 
-static void nav_key(int n, pkey_t up, pkey_t down) { ui_key(n > 0 ? down : up); }
+/* a key made by the wheel: U.synth tells the jog screen it is not a finger on a jog key */
+static void synth_key(pkey_t k) { U.synth = true; ui_key(k); U.synth = false; }
+static void nav_key(int n, pkey_t up, pkey_t down) { synth_key(n > 0 ? down : up); }
 
 void ui_pendant_nav(int n)
 {
@@ -15,7 +21,7 @@ void ui_pendant_nav(int n)
 	extern bool set_inline_active(void);
 	if (set_inline_active()) { ctl_toast(false, "Hold and turn to change the value, quick press to accept"); return; }
 	int p = ui_pane();
-	if (U.screen == SCR_JOG && p == 0) { ctl_toast(false, "Hold the dead-man and pick an axis to jog"); return; }
+	if (U.screen == SCR_JOG && p == 0) { ctl_toast(false, "Hold the dead-man with an axis picked (X Y Z 4) to jog"); return; }
 	if ((U.screen == SCR_RUN && p == 0) || (U.screen == SCR_FILES && p == 1)) { ui_view_key(n > 0 ? K_XP : K_XM); U.dirty = true; return; }
 	nav_key(n, K_YP, K_YM);
 }
@@ -32,6 +38,7 @@ void ui_pendant_change(int n)
 		return;
 	}
 	int p = ui_pane();
+	if (U.screen == SCR_JOG && p == 0) return;                    /* no axis picked: nothing to do */
 	if ((U.screen == SCR_RUN && p == 0) || (U.screen == SCR_FILES && p == 1)) { ui_view_key(n > 0 ? K_YP : K_YM); return; }
 	if (U.screen == SCR_RUN && p == 1) {
 		int step = C.pend.mult;
@@ -41,11 +48,11 @@ void ui_pendant_change(int n)
 	if ((U.screen == SCR_JOG && p == 1) || (U.screen == SCR_SETTINGS && p == 1) || U.screen == SCR_WORK || U.screen == SCR_TOOLS) {
 		if (U.screen == SCR_SETTINGS && p == 1) {
 			extern bool set_inline_active(void);
-			if (set_inline_active()) ui_key(n > 0 ? K_XP : K_XM);                       /* change the value */
+			if (set_inline_active()) synth_key(n > 0 ? K_XP : K_XM);                    /* change the value */
 			else for (int i = 0; i < (C.pend.mult >= 10 ? 10 : 1) && ui_pane() == 1; i++) nav_key(n, K_YP, K_YM);   /* fast scroll, stops at the edge */
 			return;
 		}
-		ui_key(n > 0 ? K_XP : K_XM);                                                        /* field / column */
+		synth_key(n > 0 ? K_XP : K_XM);                                                     /* field / column */
 		return;
 	}
 	for (int i = 0; i < (C.pend.mult >= 10 ? 10 : 1); i++) nav_key(n, K_YP, K_YM);           /* fast scroll */
@@ -56,8 +63,10 @@ void ui_pendant_click(void)
 	if (U.ed.on) { ui_editor_key(K_ENTER, false); U.dirty = true; return; }
 	int p = ui_pane();
 	if (U.screen == SCR_JOG && p == 0) return;
+	U.synth = true;
 	bool sel = (U.screen == SCR_RUN) || (U.screen == SCR_FILES && p == 0) || (U.screen == SCR_WORK && p == 1);
 	ui_key(sel ? K_SEL : K_ENTER);
+	U.synth = false;
 }
 
 void ui_pendant(const pendant_t *pd, int counts)
@@ -71,6 +80,15 @@ void ui_pendant(const pendant_t *pd, int counts)
 	static int held_axis = -1;                   /* the switch is only readable while held */
 	if (pd->held && !U.held) { U.held = true; U.held_t = now_ms(); U.held_counts = 0; }
 	if (pd->held) held_axis = pd->axis;
+	/* jog screen: the axis switch picks the pane (axis -> jog keys, OFF -> jog setup) */
+	static int last_sel = -2;
+	int sel = pd->held ? pd->axis : -2;
+	if (sel != last_sel && pd->held && U.screen == SCR_JOG && !U.ed.on) {
+		U.pane[SCR_JOG] = pd->axis >= 0 ? 0 : 1;
+		U.dirty = true;
+	}
+	if (sel != last_sel && U.screen == SCR_JOG) U.dirty = true;   /* the axis diamond */
+	last_sel = sel;
 	if (detents) {
 		if (U.held) U.held_counts += detents > 0 ? detents : -detents;
 		if (!pd->held) ui_pendant_nav(detents);

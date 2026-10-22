@@ -155,7 +155,6 @@ void set_sk(sk_t sk[7])
 	sk[1] = (sk_t){ "Defaults", "machine" };
 	sk[2] = (sk_t){ "Edit", inl.on ? "accept" : "value" };
 	sk[3] = (sk_t){ "Export", "to USB" };
-	sk[6] = (sk_t){ "Page R", U.shift ? "previous" : "Run" };
 }
 
 static void set_num(double v, int ctx)

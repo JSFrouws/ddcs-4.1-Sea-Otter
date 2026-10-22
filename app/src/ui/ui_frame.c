@@ -22,6 +22,7 @@ static const char *state_word(uint16_t *col)
 	case M_HOLD: *col = COL_AMBER; return "HOLD";
 	case M_OFF: *col = COL_AMBER; return "DRIVES OFF";
 	case M_LIMIT: *col = COL_RED; return "LIMIT";
+	case M_TOOL: *col = COL_AMBER; return "TOOL CHANGE";
 	case M_ESTOP: *col = COL_RED; return "E-STOP";
 	default: return "READY";
 	}
@@ -65,7 +66,8 @@ static void topbar(fb_t *fb)
 
 int ui_banner_h(void)
 {
-	return (C.m == M_ESTOP || C.m == M_LIMIT || C.m == M_OFF || C.countdown || (C.m == M_HOLD && C.pause_msg[0]) || C.driver_warn[0] || C.macro_on) ? 30 : 0;
+	return (C.m == M_ESTOP || C.m == M_LIMIT || C.m == M_OFF || C.countdown || (C.m == M_HOLD && C.pause_msg[0]) || C.m == M_TOOL ||
+		(C.m == M_RUN && C.tc_state != TC_NONE) || C.driver_warn[0] || C.macro_on) ? 30 : 0;
 }
 
 static void banner(fb_t *fb)
@@ -93,6 +95,14 @@ static void banner(fb_t *fb)
 		C.stop_cause[0] ? C.stop_cause : "switched off"); }
 	else if (C.countdown) { c0 = RGB(0x1c, 0x6f, 0xd0); snprintf(b, sizeof b, "REMOTE START in %d s   requested over the API  ·  Reset cancels", C.countdown); }
 	else if (C.m == M_HOLD && C.pause_msg[0]) { c0 = COL_AMBER; tc = COL_BLACK; snprintf(b, sizeof b, "%s", C.pause_msg); }
+	else if (C.m == M_TOOL) {
+		c0 = COL_AMBER; tc = COL_BLACK;
+		char d[24] = "";
+		if (C.tc_tool >= 1 && C.tc_tool <= NTOOLS && WD.tool[C.tc_tool - 1].dia > 0) { char v[16]; fmt_tool(v, sizeof v, WD.tool[C.tc_tool - 1].dia); snprintf(d, sizeof d, " (Ø%s)", v); }
+		snprintf(b, sizeof b, "TOOL CHANGE  ·  put in T%d%s  ·  Mode = jog, touch off Z if needed  ·  F1 Start = back to the program  ·  F3 Reset stops", C.tc_tool, d);
+	}
+	else if (C.m == M_RUN && C.tc_state == TC_GOING) { c0 = COL_AMBER; tc = COL_BLACK; snprintf(b, sizeof b, "%s  ·  Z up first%s", C.pause_msg, SET.tc_where ? ", then the tool-change position" : ""); }
+	else if (C.m == M_RUN && C.tc_state == TC_MACRO) { c0 = RGB(0x1a, 0x8f, 0x78); snprintf(b, sizeof b, "TOOL CHANGE  ·  T%d by the tool-change macro  ·  F2 Pause  ·  F3 Reset", C.tc_tool); }
 	else if (C.macro_on) {
 		c0 = RGB(0x1a, 0x8f, 0x78);                         /* teal: a macro instead of the program */
 		if (C.m == M_RUN) snprintf(b, sizeof b, "MACRO  ·  %s running  ·  F2 Pause holds  ·  F3 Reset stops it", C.macro_name);
@@ -110,7 +120,8 @@ static void softkeys(fb_t *fb, const sk_t sk[7])
 	gfx_vgrad(fb, 0, y, SCR_W, SK_H, RGB(0x0d, 0x2c, 0x56), RGB(0x08, 0x1f, 0x3f));
 	gfx_fill(fb, 0, y, SCR_W, 1, COL_EDGE2);
 	gfx_coral(fb, 0, y - 7, SCR_W);                          /* and above the soft keys */
-	uint16_t lc = U.shift ? COL_AMBER : COL_TXT, fc = U.shift ? COL_AMBER : COL_CYAN;
+	uint16_t lc = U.shift ? COL_AMBER : U.pagesel ? COL_CYAN : COL_TXT, fc = U.shift ? COL_AMBER : COL_CYAN;
+	if (U.pagesel) gfx_fill(fb, 0, y + 1, w * 7, SK_H - 1, RGB(0x0b, 0x3a, 0x52));   /* the screen menu is open */
 	for (int i = 0; i < 8; i++) {
 		int x = i * w;
 		if (i) gfx_fill(fb, x, y + 6, 1, SK_H - 12, COL_EDGE);
@@ -152,8 +163,8 @@ static void side_strip(fb_t *fb)
 		snprintf(s1, sizeof s1, "touch-off");
 		if (SET.edge_dia > 0) { char d[24]; fmt_tool(d, sizeof d, SET.edge_dia); snprintf(s2, sizeof s2, "edge Ø%s", d); }
 		else snprintf(s2, sizeof s2, "axis = 0");
-	} else if (U.screen == SCR_RUN) { snprintf(s1, sizeof s1, "ALT"); snprintf(s2, sizeof s2, "2nd key legend"); }
-	else { snprintf(s1, sizeof s1, "ALT"); snprintf(s2, sizeof s2, "reverse Tab/Page"); }
+	} else if (U.screen == SCR_RUN || U.screen == SCR_JOG) { snprintf(s1, sizeof s1, "ALT"); snprintf(s2, sizeof s2, "2nd functions F1-F6"); }
+	else { snprintf(s1, sizeof s1, "ALT"); snprintf(s2, sizeof s2, "reverse Tab, last screen"); }
 	if (U.shift) { char t[96]; snprintf(t, sizeof t, "ON · %.80s", s2); snprintf(s2, sizeof s2, "%s", t); }
 	bool lock = ctl_busy() && U.screen != SCR_JOG;
 	side_label(fb, 166, "TAB", tab, tsub, 0);
@@ -172,11 +183,39 @@ static void toast(fb_t *fb)
 	gfx_text_fit(fb, &font_14, x + 14, y + 6, w - 28, C.msg_bad ? RGB(0xff, 0xd3, 0xd3) : COL_TXT, C.msg);
 }
 
+/* M_TOOL, Start pressed once: what Start / Enter will do (user: ask before moving back) */
+static void tc_prompt(fb_t *fb)
+{
+	if (C.m != M_TOOL || !C.tc_confirm) return;
+	double t[NAXES], via;
+	double v = ctl_tc_target(t, &via);
+	int w = ctl_prog_wcs();
+	const double *o = WD.wcs[w].off;
+	int bw = 600, bh = 176, x = (CONTENT_W - bw) / 2, y = BODY_Y + 90;
+	gfx_fill(fb, x, y, bw, bh, RGB(0x06, 0x14, 0x2a));
+	gfx_rect(fb, x, y, bw, bh, COL_AMBER);
+	gfx_rect(fb, x + 1, y + 1, bw - 2, bh - 2, COL_AMBER);
+	char b[160], px[24], py[24], pz[24];
+	gfx_text(fb, &font_20, x + 18, y + 12, COL_AMBER, "Back to the program?");
+	fmt_pos(px, sizeof px, t[AX_X] - o[AX_X]); fmt_pos(py, sizeof py, t[AX_Y] - o[AX_Y]); fmt_pos(pz, sizeof pz, via - o[AX_Z]);
+	snprintf(b, sizeof b, "Straight line to  X %s   Y %s   Z %s   (G%d)", px, py, pz, 54 + w);
+	gfx_text_fit(fb, &font_16, x + 18, y + 48, bw - 36, COL_TXT, b);
+	if (via > t[AX_Z] + 1e-9) { fmt_pos(pz, sizeof pz, t[AX_Z] - o[AX_Z]); snprintf(b, sizeof b, "then down to Z %s", pz); }
+	else b[0] = 0;
+	if (b[0]) gfx_text(fb, &font_16, x + 18, y + 72, COL_TXT, b);
+	snprintf(b, sizeof b, "at %.0f mm/min (%.0f %% of rapid, Settings > Tool change), then T%d cuts on", v, SET.tc_return_pct, C.tc_tool);
+	gfx_text_fit(fb, &font_14, x + 18, y + 98, bw - 36, COL_DIM, b);
+	gfx_fill(fb, x + 12, y + bh - 44, bw - 24, 1, COL_EDGE);
+	gfx_text(fb, &font_16, x + 18, y + bh - 34, COL_GREEN, "F1 Start / Enter = go");
+	gfx_text_r(fb, &font_16, x + bw - 18, y + bh - 34, COL_DIM, "Cancel = stay here");
+}
+
 void ui_frame(fb_t *fb, const sk_t sk[7])
 {
 	topbar(fb);
 	banner(fb);
 	softkeys(fb, sk);
 	side_strip(fb);
+	tc_prompt(fb);
 	toast(fb);
 }

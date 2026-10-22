@@ -11,11 +11,13 @@
 #include "program.h"
 #include "settings.h"
 
-typedef enum { M_ESTOP, M_OFF, M_IDLE, M_MOVE, M_HOMING, M_PROBING, M_RUN, M_HOLD, M_LIMIT, M__N } mstate_t;
+/* M_TOOL: a program waits at an M6 for the tool to be changed by hand - jogging and
+ * touch-off are allowed, Start (twice: the return move is confirmed) goes back and continues */
+typedef enum { M_ESTOP, M_OFF, M_IDLE, M_MOVE, M_HOMING, M_PROBING, M_RUN, M_HOLD, M_LIMIT, M_TOOL, M__N } mstate_t;
 typedef enum {
 	C_JOG, C_TOUCHOFF, C_GOTOZERO, C_HOME, C_PROBE, C_START, C_PAUSE, C_STOP, C_SPINDLE,
 	C_DRIVES_ON, C_DRIVES_OFF, C_LOAD, C_EDIT_TABLE, C_EDIT_SETTING, C_OVERRIDE,
-	C_ESTOP_IN, C_ESTOP_OUT, C_LIMIT_HIT, C_LIMIT_CLEAR, C_DONE, C_MACRO, C__N
+	C_ESTOP_IN, C_ESTOP_OUT, C_LIMIT_HIT, C_LIMIT_CLEAR, C_DONE, C_MACRO, C_COOLANT, C_TOOL_READY, C__N
 } cmd_t;
 typedef enum { SRC_PANEL, SRC_API, SRC_MACHINE } src_t;
 enum { ARM_RUN, ARM_TRYCUT, ARM_SIM };
@@ -23,6 +25,7 @@ enum { ARM_RUN, ARM_TRYCUT, ARM_SIM };
 typedef struct {
 	int axis, dir;          /* jog / touch-off / limit */
 	double dist;            /* jog step (mm); 0 with cont = continuous */
+	                        /* kind 1 with C_GOTOZERO: Z up to the safe height only */
 	bool cont;
 	int kind, delta;        /* override: kind 0 feed, 1 spindle; delta in % */
 	const char *path;       /* load */
@@ -46,7 +49,19 @@ typedef struct {
 	bool spindle; double rpm; int coolant;
 	int armed, run_mode;
 	program_t prog;
-	gc_t gc; bool feeding; int job_idx;
+	gc_t gc; bool feeding;
+	/* multi-part job (several WCS marked JOB): each tool segment of the program (between M6
+	 * lines) is cut on every JOB part in turn, then the next tool - one tool change per tool */
+	int job_idx, job_seg;
+	/* tool change at an M6 (Settings > Tool change). The feeder waits at the M6 (feed_wait)
+	 * until it has been dealt with: by hand (TC_GOING to the change position, then M_TOOL),
+	 * by a macro (TC_MACRO: its moves run as part of the program), or skipped */
+	enum { TC_NONE, TC_GOING, TC_MACRO } tc_state;
+	int tc_tool;
+	bool tc_confirm;                /* Start pressed once in M_TOOL: the return move is shown */
+	bool feed_wait;
+	double tc_off[NWCS][NAXES];     /* work offsets when the change began (Z touch-off = new tool length) */
+	char *tc_text; gc_t tc_gc;      /* the tool-change macro, expanded */
 	int resume_line, work_done;
 	int touch_axis, touch_dir;     /* last touch-off (same key again = 0) */
 	bool touched[NAXES];
@@ -88,6 +103,10 @@ void ctl_toast(bool bad, const char *fmt, ...);
 bool ctl_axis_range(int axis, double *lo, double *hi);   /* soft + bench limits in force; false = none */
 double ctl_trycut_z(void);                             /* TryCut: clearance level above the work plane */
 double ctl_work(int axis);                             /* work position, active WCS */
+/* M_TOOL: where Start (confirmed) goes back to - machine coordinates: a straight line to
+ * (x, y, via_z), then down to z when via_z is higher. Returns the speed in mm/min. */
+double ctl_tc_target(double t[NAXES], double *via_z);
+int ctl_prog_wcs(void);                                /* the WCS the running program uses */
 void ctl_apply_axis_config(void);                      /* push settings to the FPGA */
 void ctl_save(void);
 int ctl_cur_line(void);

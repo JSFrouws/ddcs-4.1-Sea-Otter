@@ -91,7 +91,7 @@ static void status(http_resp_t *r)
 		"\"limit\":{\"axis\":\"%c\",\"dir\":%d},\"limits\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"armed\":\"%s\",\"remoteStart\":%s,\"countdown\":%d,\"screen\":%d,\"leds\":%u,"
 		"\"fpga\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"steps\":{\"x\":%lld,\"y\":%lld,\"z\":%lld,\"a\":%lld},"
 		"\"posChecks\":%u,\"posFaults\":%u,\"posErr\":[%d,%d,%d,%d],\"faultLine\":%d,\"busErrors\":%u,\"busRetries\":%u,\"busErrno\":%d,\"reversalsWaited\":%u,\"bursts\":%u,"
-		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u},\"message\":\"%s\",\"driverWarning\":\"%s\",\"macro\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
+		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u},\"tool\":{\"loaded\":%d,\"changeTo\":%d,\"confirm\":%s},\"jobPart\":\"%s\",\"message\":\"%s\",\"driverWarning\":\"%s\",\"macro\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
 		STATE_NAMES[C.m], C.homed ? "true" : "false", pos[0], pos[1], pos[2], pos[3], wp[0], wp[1], wp[2], wp[3], 54 + WD.active,
 		nm, C.prog.loaded ? "true" : "false", C.prog.nlines, ctl_cur_line() + 1,
 		C.mo.feed_ov, rapid_override(C.mo.feed_ov), C.mo.spin_ov, C.mo.applied_pct, C.spindle ? "true" : "false", C.rpm, C.coolant,
@@ -99,7 +99,10 @@ static void status(http_resp_t *r)
 		SET.remote_start ? "true" : "false", C.countdown, U.screen, (unsigned)ui_leds(),
 		C.fpos[0], C.fpos[1], C.fpos[2], C.fpos[3], (long long)C.mo.steps[0], (long long)C.mo.steps[1], (long long)C.mo.steps[2], (long long)C.mo.steps[3],
 		C.pos_checks, C.pos_faults, C.pos_err[0], C.pos_err[1], C.pos_err[2], C.pos_err[3], C.fault_line, bus_errors, bus_retries, bus_last_errno, C.mo.deferred, C.fp.bursts, PERF.loops, PERF.tick_us_avg, PERF.tick_us_max, PERF.render_us_avg, PERF.render_us_max, PERF.draw_us_avg, PERF.present_us_avg, PERF.gap_ms_max,
-		(unsigned long long)PERF.motion_ms, (unsigned long long)PERF.lost_ms, C.mo.replan_iters, msg, dw, mac, C.sim ? "sim" : "real", DSP ? DSP->frame_no : 0);
+		(unsigned long long)PERF.motion_ms, (unsigned long long)PERF.lost_ms, C.mo.replan_iters,
+		WD.loaded_tool, C.m == M_TOOL || C.tc_state != TC_NONE ? C.tc_tool : 0, C.tc_confirm ? "true" : "false",
+		(const char *[]){ "", "G54", "G55", "G56", "G57", "G58", "G59" }[C.job_idx >= 0 && C.job_idx < NWCS && (C.m == M_RUN || C.m == M_HOLD || C.m == M_TOOL) ? C.job_idx + 1 : 0],
+		msg, dw, mac, C.sim ? "sim" : "real", DSP ? DSP->frame_no : 0);
 }
 
 static void settings_json(http_resp_t *r)
@@ -255,7 +258,7 @@ void api_handle(const http_req_t *q, http_resp_t *r)
 	if (!strcmp(p, "machine/stop")) {
 		int32_t at[NAXES];
 		fpga_heartbeat(&C.fp); fpga_positions(&C.fp, at);        /* where the FPGA is right now */
-		if (ctl_busy() || C.m == M_LIMIT || !motion_idle(&C.mo)) act(C_STOP, NULL, SRC_API);
+		if (ctl_busy() || C.m == M_LIMIT || C.m == M_TOOL || !motion_idle(&C.mo)) act(C_STOP, NULL, SRC_API);
 		C.countdown = 0;
 		resp_text(r, 200, "application/json", "{\"ok\":true,\"state\":\"%s\",\"fpgaAtStop\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d}}",
 			STATE_NAMES[C.m], at[0], at[1], at[2], at[3]);

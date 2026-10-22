@@ -291,6 +291,20 @@ requirements only here.
 - **REQ-O4 (M) Settings never leave a group by scrolling** (user, 2026-10-22): one step past
   either end is an orange "back to the groups" position; only Enter / a quick press there
   leaves.
+- **REQ-O5 (M) Page R is a screen menu** (user, 2026-10-22): Page R turns F1-F6 into the
+  screens (Run, Macros, Tools, Files above View, Work, Settings; Jog is on Mode). F2/F3 stay
+  Pause/Reset while anything moves. Shift + Page R = last screen.
+- **REQ-O6 (S) Shift = second functions on F1-F6** (user, 2026-10-22), Run and Jog (and Work
+  F4), shown in amber on the soft keys.
+- **REQ-O7 (M) The pendant wheel never jogs by itself** (user, 2026-10-22, after a runaway
+  continuous Y jog): on the Jog screen the wheel only jogs with the dead-man held and an axis
+  picked (marked with a diamond); switch OFF focuses the jog setup pane. Any key ends a
+  continuous jog; touch-off needs a standstill.
+- **REQ-O8 (M) Tool change** (user, 2026-10-22): M6 by hand (safe height or tool-change
+  position, jog + touch-off allowed, Start asks before going back in a straight line at a set
+  % of rapid), by a macro (`toolchange-T<n>.nc` or `toolchange.nc` with `{tool}`), or ignored.
+- **REQ-O9 (M) Multi-part jobs cut per tool** (user, 2026-10-22): with several WCS marked JOB,
+  each tool's part of the program runs on every part before the next tool change.
 
 ### M — Explicit non-goals (v1)
 

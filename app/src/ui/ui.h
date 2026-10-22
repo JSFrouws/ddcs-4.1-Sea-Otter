@@ -1,6 +1,8 @@
-/* Panel UI: six screens driven by the 18 physical keys and the optional pendant.
- * Mode = Run <-> Jog, Page R = Run -> Files -> Work -> Tools -> Macros -> Settings, Tab = next pane,
- * Shift = ALT layer. Every machine action goes through act() (core/machine.h). */
+/* Panel UI: seven screens driven by the 18 physical keys and the optional pendant.
+ * Mode = Run <-> Jog. Page R opens the screen menu: F1-F6 then show and pick Run, Macros,
+ * Tools, Files, Work, Settings (Page R again or Cancel closes it; Shift + Page R = back to the
+ * last screen). Tab = next pane, Shift = ALT layer (second functions, amber).
+ * Every machine action goes through act() (core/machine.h). */
 #ifndef UI_H
 #define UI_H
 #include "gfx.h"
@@ -17,9 +19,11 @@ typedef enum { SCR_RUN, SCR_JOG, SCR_FILES, SCR_WORK, SCR_TOOLS, SCR_SETTINGS, S
 
 #define MAXFILES 64
 typedef struct {
-	scr_t screen;
+	scr_t screen, last_screen;
 	int pane[SCR__N];
 	bool shift;
+	bool pagesel; uint64_t pagesel_t;   /* Page R pressed: F1-F6 are the screens */
+	bool synth;                          /* the key comes from the pendant wheel, not a finger: never jogs */
 	struct {
 		bool on, neg, allow_neg, locks;
 		char label[64], unit[12];
@@ -41,7 +45,11 @@ extern void (*ui_yield)(void);   /* set by main: runs a motion slice if one is d
 extern const double JOG_STEPS[];
 extern const int NJOG_STEPS;
 
+extern const scr_t PAGE_KEYS[6];                    /* the screen on F1..F6 in the Page R menu */
+extern const char *const SCR_SHORT[SCR__N];
+
 void ui_init(void);
+void ui_goto(scr_t s);
 void ui_key(pkey_t k);
 void ui_key_release(pkey_t k);                     /* continuous jog stops on release */
 void ui_pendant(const pendant_t *p, int counts);    /* call every tick */

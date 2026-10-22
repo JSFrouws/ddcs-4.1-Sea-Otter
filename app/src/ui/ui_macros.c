@@ -46,7 +46,6 @@ void macros_sk(sk_t sk[7])
 {
 	sk[0] = (sk_t){ "Arm", "→ Run page" };
 	sk[3] = (sk_t){ "Rescan", "folders" };
-	sk[6] = (sk_t){ "Page R", U.shift ? "previous" : "Settings" };
 }
 
 void macros_key(pkey_t k, bool sh)

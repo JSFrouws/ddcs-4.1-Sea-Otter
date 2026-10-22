@@ -43,20 +43,21 @@ void work_render(fb_t *fb)
 	}
 	gfx_panel(fb, x + 368, py, w - 368, ph, false);
 	const char *t[] = { "Several workpieces: give each its own WCS (G54, G55 …),", "touch each off in Jog, and mark them JOB (F4).",
-		"Start then runs the program on every JOB part in turn,", "with a move to safe Z between parts.",
+		"Start then cuts every JOB part with one tool, then", "changes the tool once and does all parts again.",
+		"Safe Z between parts.  Shift + F4 clears the job.",
 		"Probe input: not configured on this machine." };
-	for (int i = 0; i < 5; i++) gfx_text(fb, &font_14, x + 380, py + 10 + i * 21, i == 4 ? COL_AMBER : COL_DIM, t[i]);
+	for (int i = 0; i < 6; i++) gfx_text(fb, &font_14, x + 380, py + 10 + i * 21, i == 5 ? COL_AMBER : COL_DIM, t[i]);
 }
 
 void work_sk(sk_t sk[7])
 {
+	if (U.shift) { sk[3] = (sk_t){ "Job", "none (all off)" }; return; }
 	sk[0] = (sk_t){ "Activate", "this WCS" };
 	sk[1] = (sk_t){ "From pos", "cell = here" };
 	sk[2] = (sk_t){ "Edit", "cell" };
 	sk[3] = (sk_t){ "In job", "toggle" };
 	sk[4] = (sk_t){ "Clear", "row" };
 	sk[5] = (sk_t){ "Probe", "routine" };
-	sk[6] = (sk_t){ "Page R", U.shift ? "previous" : "Tools" };
 }
 
 static void set_cell(double v, int ctx) { WD.wcs[ctx / 10].off[ctx % 10] = v; workdata_save(C.wd_path); }
@@ -74,6 +75,11 @@ void work_key(pkey_t k, bool sh)
 	if (k == K_XP) { U.wcs_col = CLAMP(U.wcs_col + 1, 0, NAXES - 1); return; }
 	if (k == K_XM) { U.wcs_col = CLAMP(U.wcs_col - 1, 0, NAXES - 1); return; }
 	if (k == K_F6) { U.pane[SCR_WORK] = 1; return; }
+	if (sh && k == K_F4) {
+		if (ctl_busy() || C.m == M_TOOL) { ctl_toast(true, "Change the job when idle"); return; }
+		for (int i = 0; i < NWCS; i++) WD.wcs[i].job = false;
+		workdata_save(C.wd_path); ctl_toast(false, "Job cleared - Start runs on the active WCS only"); return;
+	}
 	if (k != K_F1 && k != K_SEL && k != K_F2 && k != K_F3 && k != K_ENTER && k != K_MOD && k != K_F4 && k != K_F5) return;
 	const char *w = can(C_EDIT_TABLE, NULL, SRC_PANEL);
 	if (w) { ctl_toast(true, "%s", w); return; }
@@ -131,7 +137,6 @@ void tools_sk(sk_t sk[7])
 	sk[0] = (sk_t){ "Load tool", s };
 	sk[1] = (sk_t){ "Edit", "cell" };
 	sk[2] = (sk_t){ "Edge Ø", "= this Ø" };
-	sk[6] = (sk_t){ "Page R", U.shift ? "previous" : "Macros" };
 }
 
 static void set_tool(double v, int ctx) { if (ctx % 2) WD.tool[ctx / 2].len = v; else WD.tool[ctx / 2].dia = v; workdata_save(C.wd_path); }

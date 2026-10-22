@@ -32,12 +32,19 @@ void jog_render(fb_t *fb)
 	bool sh = U.shift && ui_pane() == 0;
 	gfx_panel(fb, x, top, w, h, ui_pane() == 0);
 	char b[128];
-	snprintf(b, sizeof b, "JOG  ·  G%d WORK / MACHINE  ·  %s", 54 + WD.active, sh ? "ALT: TOUCH-OFF VALUES" : "PER-DIRECTION STATUS");
+	int pick = SET.pendant && C.pend.held ? C.pend.axis : -1;   /* the pendant's axis, while held */
+	snprintf(b, sizeof b, "JOG  ·  G%d WORK / MACHINE  ·  %s", 54 + WD.active, sh ? "ALT: TOUCH-OFF VALUES" : pick >= 0 ? "PENDANT: THE WHEEL JOGS THE MARKED AXIS" : "PER-DIRECTION STATUS");
 	gfx_text(fb, &font_12, x + 10, top + 6, sh ? COL_AMBER : COL_DIM, b);
 	int rh = (h - 30) / 4;
 	for (int a = 0; a < NAXES; a++) {
 		int y = top + 26 + a * rh;
-		dro_row(fb, x, y, w - 150, a, &font_40);
+		if (a == pick) {                                    /* the diamond: this axis is on the wheel */
+			int cx = x + 11, cy = y + 20;
+			gfx_tri(fb, cx - 6, cy, cx + 6, cy, cx, cy - 7, COL_AMBER);
+			gfx_tri(fb, cx - 6, cy, cx + 6, cy, cx, cy + 7, COL_AMBER);
+			gfx_hgrad(fb, x + 2, y - 2, 6, rh - 6, COL_AMBER, COL_PANE2);
+		}
+		dro_row(fb, x + 12, y, w - 162, a, &font_40);
 		int cx = x + w - 12;
 		for (int d = 1; d >= -1; d -= 2) {
 			char t[48], v[24];
@@ -78,12 +85,25 @@ void jog_render(fb_t *fb)
 		"Touch-off: Shift + the key you", "approached the part with.",
 		SET.edge_dia > 0 ? "With an edge Ø: axis = −dir·Ø/2;" : "No Ø set: the axis becomes 0.",
 		SET.edge_dia > 0 ? "same key again = 0 (centre)." : "", "Z touch-off always sets 0.",
-		"Pendant: hold + X/Y/Z/4 jogs." };
+		"Pendant: hold + X Y Z 4 = marked, wheel jogs." };
 	for (size_t i = 0; i < ARRAY_LEN(hint); i++) gfx_text(fb, &font_12, sx + 12, top + 166 + (int)i * 19, i == 2 || i == 0 ? COL_TXT : COL_DIM, hint[i]);
 }
 
 void jog_sk(sk_t sk[7])
 {
+	if (U.shift) {                                       /* ALT: the second functions */
+		static char a4[24], a5[16];
+		int ps = (U.step + NJOG_STEPS - 1) % NJOG_STEPS;
+		if (JOG_STEPS[ps] > 0) snprintf(a4, sizeof a4, "← %g mm", JOG_STEPS[ps]); else snprintf(a4, sizeof a4, "← continuous");
+		snprintf(a5, sizeof a5, "← G%d", 54 + (WD.active + NWCS - 1) % NWCS);
+		sk[0] = (sk_t){ "Home", "all axes" };
+		sk[1] = (sk_t){ "Safe Z", "Z up only" };
+		sk[2] = (sk_t){ "Drives", C.m == M_OFF ? "→ ON" : "→ OFF" };
+		sk[3] = (sk_t){ "Step", a4 };
+		sk[4] = (sk_t){ "WCS", a5 };
+		sk[5] = (sk_t){ "Coolant", C.coolant & 1 ? "on" : "off" };
+		return;
+	}
 	static char s3[16], s4[16], s5[16];
 	if (JOG_STEPS[U.step] > 0) snprintf(s4, sizeof s4, "%g mm", JOG_STEPS[U.step]); else snprintf(s4, sizeof s4, "continuous");
 	snprintf(s3, sizeof s3, "%s", C.m == M_OFF ? "→ ON" : "→ OFF");
@@ -95,7 +115,6 @@ void jog_sk(sk_t sk[7])
 	sk[3] = (sk_t){ "Step", s4 };
 	sk[4] = (sk_t){ "WCS", s5 };
 	sk[5] = (sk_t){ "Spindle", C.spindle ? "on" : "off" };
-	sk[6] = (sk_t){ "Page R", U.shift ? "previous" : "Files" };
 }
 
 static void set_edge(double v, int ctx) { SET.edge_dia = v; settings_save(C.cfg_path); }
@@ -103,19 +122,31 @@ static void set_feed(double v, int ctx) { SET.jog_feed = v; settings_save(C.cfg_
 
 void jog_key(pkey_t k, bool sh)
 {
+	if (sh && k >= K_F2 && k <= K_F6 && k != K_F3) {      /* ALT functions */
+		if (k == K_F2) { arg_t z = { .kind = 1 }; act(C_GOTOZERO, &z, SRC_PANEL); }
+		if (k == K_F4) U.step = (U.step + NJOG_STEPS - 1) % NJOG_STEPS;
+		if (k == K_F5) {
+			if (ctl_busy() || C.m == M_TOOL) { ctl_toast(true, "Change the WCS when idle"); return; }
+			WD.active = (WD.active + NWCS - 1) % NWCS; workdata_save(C.wd_path);
+			ctl_toast(false, "Touch-off now sets G%d", 54 + WD.active);
+		}
+		if (k == K_F6) act(C_COOLANT, NULL, SRC_PANEL);
+		return;
+	}
 	switch (k) {
 	case K_F1: act(C_HOME, NULL, SRC_PANEL); return;
 	case K_F2: act(C_GOTOZERO, NULL, SRC_PANEL); return;
 	case K_F3: act(C.m == M_OFF ? C_DRIVES_ON : C_DRIVES_OFF, NULL, SRC_PANEL); return;
 	case K_F4: U.step = (U.step + 1) % NJOG_STEPS; return;
 	case K_F5:
-		if (ctl_busy()) { ctl_toast(true, "Change the WCS when idle"); return; }
+		if (ctl_busy() || C.m == M_TOOL) { ctl_toast(true, "Change the WCS when idle"); return; }
 		WD.active = (WD.active + 1) % NWCS; workdata_save(C.wd_path);
 		ctl_toast(false, "Touch-off now sets G%d", 54 + WD.active); return;
 	case K_F6: act(C_SPINDLE, NULL, SRC_PANEL); return;
 	default: break;
 	}
 	int i = jog_index(k);
+	if (ui_pane() == 0 && i >= 0 && U.synth) return;      /* the pendant wheel never presses a jog key */
 	if (ui_pane() == 0 && i >= 0) {
 		arg_t a = { .axis = JOGA[i], .dir = JOGD[i] };
 		if (sh) {
@@ -132,7 +163,7 @@ void jog_key(pkey_t k, bool sh)
 	if (k == K_YP || k == K_YM) { U.jog_field = CLAMP(U.jog_field + (k == K_YM ? 1 : -1), 0, 3); return; }
 	int d = k == K_XP ? 1 : k == K_XM ? -1 : 0;
 	if (U.jog_field == 1 && d) U.step = (U.step + d + NJOG_STEPS) % NJOG_STEPS;
-	if (U.jog_field == 2 && d && !ctl_busy()) { WD.active = (WD.active + d + NWCS) % NWCS; workdata_save(C.wd_path); }
+	if (U.jog_field == 2 && d && !ctl_busy() && C.m != M_TOOL) { WD.active = (WD.active + d + NWCS) % NWCS; workdata_save(C.wd_path); }
 	if (k == K_ENTER || k == K_MOD || k == K_SEL) {
 		if (U.jog_field == 0) ui_editor_open("Edge finder / tool Ø", SET.edge_dia, SET.tool_dec, "mm", 2, 50, false, false, set_edge, 0);
 		if (U.jog_field == 3) {

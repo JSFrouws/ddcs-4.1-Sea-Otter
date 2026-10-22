@@ -14,6 +14,10 @@
  *   {jog.safe_z}  {macro.park_x}  ...   any setting key (Settings / API names)
  *   {machine.x} {work.z} ...            the position at that moment (x y z a)
  *   {max:A,B}  {min:A,B}                A, B = numbers or any of the names above
+ *   {tool} {tool.prev} {tool.dia} {tool.len}   tool-change macros: the tool an M6 asks for,
+ *                               the one in now, the new one's size (Tools table)
+ * Tool-change macros (Settings > Tool change > Run a macro) are found by name in the same
+ * folders: toolchange-T<n>.nc (one per tool) first, else toolchange.nc (all tools).
  * Running one is like running a program: it is armed on the Run page, Start runs it, Pause
  * holds it, Reset stops it - and afterwards the loaded program is back as it was. */
 #ifndef MACRO_H

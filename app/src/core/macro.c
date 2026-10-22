@@ -111,6 +111,14 @@ static int value_of(const char *s, double *v)
 		snprintf(k, sizeof k, "work.%c", ax[a]);
 		if (!strcasecmp(s, k)) { *v = ctl_work(a); return 0; }
 	}
+	/* tool change: the tool asked for, its size from the tool table, and the one in now */
+	int t = C.tc_tool;
+	if (!strcasecmp(s, "tool")) { *v = t; return 0; }
+	if (!strcasecmp(s, "tool.prev")) { *v = WD.loaded_tool; return 0; }
+	if (!strcasecmp(s, "tool.dia") || !strcasecmp(s, "tool.len")) {
+		*v = t >= 1 && t <= NTOOLS ? (tolower((unsigned char)s[5]) == 'd' ? WD.tool[t - 1].dia : WD.tool[t - 1].len) : 0;
+		return 0;
+	}
 	const setting_desc_t *d = setting_find(s);
 	if (d) { *v = setting_get(d); return 0; }
 	return -1;

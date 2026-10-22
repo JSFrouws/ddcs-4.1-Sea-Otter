@@ -67,7 +67,6 @@ void files_sk(sk_t sk[7])
 	sk[1] = (sk_t){ "Simulate", "load + sim" };
 	sk[2] = (sk_t){ "Source", UI_SRC_NAMES[U.src] };
 	sk[3] = (sk_t){ "Rescan", "" };
-	sk[6] = (sk_t){ "Page R", U.shift ? "previous" : "Work" };
 }
 
 static void load(bool sim)
