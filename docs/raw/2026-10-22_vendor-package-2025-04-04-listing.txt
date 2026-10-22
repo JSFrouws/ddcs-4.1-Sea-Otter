@@ -1,0 +1,87 @@
+# Digital Dream DDCS V4.1 software package, listing (no files copied)
+# Source: http://www.ddcnc.com/?m=home&c=View&a=index&aid=229&lang=en  ("DDCS V4.1 (2025-04-04) software", uploaded 2025-04-09)
+# File: ddcsv4(2025-04-04).rar, downloaded 2026-10-22, SHA-256 6741d1b537dcaf41640b9d7840597ec4e41d139a4c4f137c0611c22168ea0321
+# ddcsv4.out MD5 237704ed235403b140d74cfcd616e10a, motiondev.ko MD5 136136bd4404b8a82114ba051c7023d3 = identical to the test controller's
+# No installer, script or readme: the update is this ddcsv4/ folder on a FAT32 stick (manual V1, section 3.4.3)
+
+   Date      Time    Attr         Size   Compressed  Name
+------------------- ----- ------------ ------------  ------------------------
+2022-04-11 01:58:34 ....A           47           47  ddcsv4(2025-04-04)\ddcsv4\adjush.nc
+2022-04-11 01:58:34 ....A         7495         1411  ddcsv4(2025-04-04)\ddcsv4\adjush.rc
+2022-04-11 01:58:34 ....A        16835         1991  ddcsv4(2025-04-04)\ddcsv4\advstart-array.rc
+2022-04-11 01:58:34 ....A        14668         1928  ddcsv4(2025-04-04)\ddcsv4\advstart-sr.rc
+2022-04-11 01:58:34 ....A            8            8  ddcsv4(2025-04-04)\ddcsv4\advstart.nc
+2022-04-11 01:58:34 ....A        13528         1800  ddcsv4(2025-04-04)\ddcsv4\advstart.rc
+2022-04-11 01:58:34 ....A           10           10  ddcsv4(2025-04-04)\ddcsv4\array.nc
+2022-04-11 01:58:34 ....A        19264         1933  ddcsv4(2025-04-04)\ddcsv4\array.rc
+2022-04-11 01:58:34 ....A        16914         2024  ddcsv4(2025-04-04)\ddcsv4\break-array.rc
+2022-04-11 01:58:34 ....A        14733         1958  ddcsv4(2025-04-04)\ddcsv4\break-sr.rc
+2022-04-11 01:58:34 ....A        13586         1815  ddcsv4(2025-04-04)\ddcsv4\break.rc
+2022-04-11 01:58:34 ....A         7191         1297  ddcsv4(2025-04-04)\ddcsv4\center.rc
+2022-04-11 01:58:34 ....A           68           68  ddcsv4(2025-04-04)\ddcsv4\centerx.nc
+2022-04-11 01:58:34 ....A           68           68  ddcsv4(2025-04-04)\ddcsv4\centery.nc
+2024-05-11 09:53:16 ....A        27666         4014  ddcsv4(2025-04-04)\ddcsv4\chs
+2022-04-11 01:58:34 ....A          432           27  ddcsv4(2025-04-04)\ddcsv4\coord1
+2023-05-13 12:30:28 ....A        26902         3876  ddcsv4(2025-04-04)\ddcsv4\custom
+2025-04-05 02:25:42 .R..A      4938156      1166401  ddcsv4(2025-04-04)\ddcsv4\ddcsv4.out
+2022-04-11 01:58:34 ....A           17           17  ddcsv4(2025-04-04)\ddcsv4\end.nc
+2024-05-11 09:53:16 ....A        27054         3984  ddcsv4(2025-04-04)\ddcsv4\eng
+2022-04-11 01:58:34 ....A            2            2  ddcsv4(2025-04-04)\ddcsv4\error.nc
+2022-04-11 01:58:34 ....A          154           96  ddcsv4(2025-04-04)\ddcsv4\gotoz.nc
+2022-04-11 01:58:34 ....A           11           11  ddcsv4(2025-04-04)\ddcsv4\gotozxy.nc
+2022-04-11 01:58:34 ....A           61           50  ddcsv4(2025-04-04)\ddcsv4\home_0.nc
+2022-04-11 01:58:34 ....A           49           47  ddcsv4(2025-04-04)\ddcsv4\home_1.nc
+2022-04-11 01:58:34 ....A           60           50  ddcsv4(2025-04-04)\ddcsv4\home_2.nc
+2022-04-11 01:58:34 ....A           60           50  ddcsv4(2025-04-04)\ddcsv4\home_3.nc
+2022-04-11 01:58:34 ....A           59           49  ddcsv4(2025-04-04)\ddcsv4\home_4.nc
+2022-04-11 01:58:34 ....A           53           35  ddcsv4(2025-04-04)\ddcsv4\home_ref1.nc
+2022-04-11 01:58:34 ....A           61           36  ddcsv4(2025-04-04)\ddcsv4\home_ref2.nc
+2022-04-11 01:58:34 ....A           59           36  ddcsv4(2025-04-04)\ddcsv4\home_ref3.nc
+2022-04-11 01:58:34 ....A           59           35  ddcsv4(2025-04-04)\ddcsv4\home_ref4.nc
+2024-05-11 09:53:16 ....A        32140         4973  ddcsv4(2025-04-04)\ddcsv4\jp
+2022-04-11 01:58:34 ....A            8            8  ddcsv4(2025-04-04)\ddcsv4\loadbreak.nc
+2022-04-11 01:58:34 ....A      1843256        22231  ddcsv4(2025-04-04)\ddcsv4\logo.bmp
+2022-04-11 01:58:34 ....A           10           10  ddcsv4(2025-04-04)\ddcsv4\M3.nc
+2022-04-11 01:58:34 ....A            0            0  ddcsv4(2025-04-04)\ddcsv4\m30.nc
+2022-04-11 01:58:34 ....A           10           10  ddcsv4(2025-04-04)\ddcsv4\M4.nc
+2022-04-11 01:58:34 ....A            4            4  ddcsv4(2025-04-04)\ddcsv4\M5.nc
+2022-04-11 01:58:34 ....A        17547         1922  ddcsv4(2025-04-04)\ddcsv4\M6.rc
+2022-04-11 01:58:34 ....A         1265          693  ddcsv4(2025-04-04)\ddcsv4\macroMillCylinder.nc
+2022-04-11 01:58:34 ....A        21236         1914  ddcsv4(2025-04-04)\ddcsv4\macroMillCylinder.rc
+2022-04-11 01:58:34 ....A         1142          566  ddcsv4(2025-04-04)\ddcsv4\macroMillRect.nc
+2022-04-11 01:58:34 ....A        24116         1999  ddcsv4(2025-04-04)\ddcsv4\macroMillRect.rc
+2022-04-11 01:58:34 ....A        14231         4753  ddcsv4(2025-04-04)\ddcsv4\motiondev.ko
+2022-04-11 01:58:34 ....A        16702         5781  ddcsv4(2025-04-04)\ddcsv4\msg-chs
+2022-04-11 01:58:34 ....A        16629         5386  ddcsv4(2025-04-04)\ddcsv4\msg-custom
+2022-04-11 01:58:34 ....A        16751         5410  ddcsv4(2025-04-04)\ddcsv4\msg-eng
+2022-12-09 05:28:28 ....A        19132         6303  ddcsv4(2025-04-04)\ddcsv4\msg-rus
+2022-04-11 01:58:34 ....A            1            1  ddcsv4(2025-04-04)\ddcsv4\null.nc
+2022-04-11 01:58:34 ....A           95           87  ddcsv4(2025-04-04)\ddcsv4\pause.nc
+2022-04-11 01:58:34 ....A          142          140  ddcsv4(2025-04-04)\ddcsv4\probe-fix.nc
+2022-04-11 01:58:34 ....A        19258         1907  ddcsv4(2025-04-04)\ddcsv4\probe-fix.rc
+2022-04-11 01:58:34 ....A           97           97  ddcsv4(2025-04-04)\ddcsv4\probe-float.nc
+2022-04-11 01:58:34 ....A        13118         1695  ddcsv4(2025-04-04)\ddcsv4\probe-float.rc
+2022-04-11 01:58:34 ....A         7544         1439  ddcsv4(2025-04-04)\ddcsv4\probe-h-1.rc
+2022-04-11 01:58:34 ....A          359          252  ddcsv4(2025-04-04)\ddcsv4\probe-h.nc
+2022-04-11 01:58:34 ....A        18664         2058  ddcsv4(2025-04-04)\ddcsv4\probe-h.rc
+2024-04-10 11:55:16 .R..A          415          250  ddcsv4(2025-04-04)\ddcsv4\probe-vertex.nc
+2022-12-25 13:04:42 ....A        27707         2179  ddcsv4(2025-04-04)\ddcsv4\probe-vertex.rc
+2022-04-11 01:58:34 ....A            9            9  ddcsv4(2025-04-04)\ddcsv4\rtnbreak.nc
+2024-05-11 09:53:16 ....A        35342         4831  ddcsv4(2025-04-04)\ddcsv4\rus
+2022-04-11 01:58:34 ....A          202          150  ddcsv4(2025-04-04)\ddcsv4\safez.nc
+2022-04-11 01:58:34 ....A           35           35  ddcsv4(2025-04-04)\ddcsv4\selcoord.nc
+2022-04-11 01:58:34 ....A         7527         1383  ddcsv4(2025-04-04)\ddcsv4\selcoord.rc
+2022-04-11 01:58:34 ....A           75           50  ddcsv4(2025-04-04)\ddcsv4\simulate.nc
+2022-04-11 01:58:34 ....A        12179         1676  ddcsv4(2025-04-04)\ddcsv4\simulate.rc
+2022-04-11 01:58:34 ....A          710          307  ddcsv4(2025-04-04)\ddcsv4\slib-g.nc
+2022-04-11 01:58:34 ....A          436          239  ddcsv4(2025-04-04)\ddcsv4\slib-m.nc
+2022-04-11 01:58:34 ....A         4297         1322  ddcsv4(2025-04-04)\ddcsv4\slib.nc
+2022-04-11 01:58:34 ....A        11478         1694  ddcsv4(2025-04-04)\ddcsv4\template.rc
+2022-04-11 01:58:34 ....A           34           34  ddcsv4(2025-04-04)\ddcsv4\zeroall.nc
+2022-04-11 01:58:34 ....A           16           16  ddcsv4(2025-04-04)\ddcsv4\zeroxy.nc
+2022-04-11 01:58:34 ....A            7            7  ddcsv4(2025-04-04)\ddcsv4\zeroz.nc
+2022-04-11 01:58:34 ....A           16           16  ddcsv4(2025-04-04)\ddcsv4\zeroza.nc
+2025-04-09 04:38:54 D....            0            0  ddcsv4(2025-04-04)\ddcsv4
+2025-04-09 04:43:49 D....            0            0  ddcsv4(2025-04-04)
+------------------- ----- ------------ ------------  ------------------------
+2025-04-09 04:43:49            7329272      1279011  75 files, 2 folders

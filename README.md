@@ -44,11 +44,28 @@ The controller copies files from a USB stick into place at boot and runs whateve
 4. Remove the stick.
 
 No cabling into the board, no shell, no extra tools — a USB stick is the whole install, and
-the network/API come up on their own. To go back to the original software, drop its
-`ddcsv4.out` on a stick (or set `USE_VENDOR`) and boot once. Full instructions, including
-getting the original firmware back:
+the network/API come up on their own. This is the controller's own update mechanism: the
+vendor's V4.1 manual (section 3.4.3) updates the software the same way, with a folder named
+`ddcsv4` on a FAT32 stick, and the only file whose name is fixed is `ddcsv4.out`.
 
 **→ [docs/usb-install.md](docs/usb-install.md)**
+
+## Going back to the original software
+
+Same route, with the vendor's package:
+
+1. Download the newest DDCS V4.1 software from Digital Dream:
+   **[www.ddcnc.com › Downloads › Software & firmware](http://www.ddcnc.com/?m=home&c=Lists&a=index&tid=106&lang=en)** — the newest V4.1 release at
+   the time of writing is [DDCS V4.1 (2025-04-04) software](http://www.ddcnc.com/?m=home&c=View&a=index&aid=229&lang=en), file
+   `ddcsv4(2025-04-04).rar`. (Use `http://www.ddcnc.com`; the `https://` address had an
+   expired certificate in October 2026.)
+2. Unpack it and copy the inner **`ddcsv4`** folder to the root of an empty FAT32 stick.
+3. Controller off for 10 s, insert the stick, power on, wait ~30 s.
+4. Remove the stick.
+
+The vendor's `ddcsv4.out` replaces Sea Otter's start script and the controller runs the
+original software again; its machine parameters are never touched by either install. Details
+and checksums: [docs/usb-install.md › Restoring the original software](docs/usb-install.md#restoring-the-original-software).
 
 ## Read this first
 

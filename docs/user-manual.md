@@ -18,7 +18,14 @@ DDCS V4.1 (`app/`). This manual covers daily use. Design background is in
 From a USB stick, no PC tools needed on the controller: [usb-install.md](usb-install.md).
 In short: copy the `ddcsv4` install folder to a FAT32 stick, set the IP address in
 `network.conf`, plug it in, switch on, then take the stick out. The browser panel and the
-API answer at `http://<that IP>:8080/`. To go back to the vendor software, see the same page.
+API answer at `http://<that IP>:8080/`. This is the controller's own update route: the
+vendor's manual (section 3.4.3) updates its software the same way.
+
+**Back to the original software:** download the newest DDCS V4.1 software from Digital Dream
+at [www.ddcnc.com › Downloads › Software & firmware](http://www.ddcnc.com/?m=home&c=Lists&a=index&tid=106&lang=en)
+(newest at the time of writing: *DDCS V4.1 (2025-04-04) software*), unpack it, copy its
+`ddcsv4` folder to an empty FAT32 stick, power off 10 s, insert, power on, wait ~30 s, remove
+the stick. Details in [usb-install.md](usb-install.md#restoring-the-original-software).
 Remote access with a password: [ssh-setup.md](ssh-setup.md).
 
 ## 1. The screen

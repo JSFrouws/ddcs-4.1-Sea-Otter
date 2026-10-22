@@ -1,8 +1,10 @@
 # Installing Sea Otter from a USB stick
 
 The simplest way to put Sea Otter (and SSH) on a DDCS V4.1. No network, no PC tools on the
-controller, no opening the case. **Tested on the unit 2026-10-18** (boot into Sea Otter,
-boot into the vendor app with SSH, switching between them).
+controller, no opening the case. Uses the vendor's own documented update procedure. **Tested
+on the unit 2026-10-18** (boot into Sea Otter, boot into the vendor app with SSH, switching
+between them), by copying the package into place over the network; a boot from a physical
+stick has not been tried yet.
 
 ## How it works
 
@@ -18,7 +20,24 @@ cd /ddcsv4/
 ```
 
 So every file in a `ddcsv4` folder on a USB stick is copied over the app folder, and then
-`ddcsv4.out` is started. The install package's `ddcsv4.out` is a **start script**, not the
+`ddcsv4.out` is started.
+
+**This is the vendor's own, documented update procedure.** The *DDCS V4.1 Users Manual V1*,
+section 3.4.3 *Software Update* (pages 70–71), says: put a folder named **`ddcsv4`** (stressed:
+"not INSTALL") in the root of an empty FAT32 USB stick, switch the controller off for 10 s,
+insert the stick, switch on; the screen is blocked for about 30 s while it updates; then
+remove the folder, or the controller updates again on every start. Its file table calls
+`ddcsv4.out` the "System program file". The vendor's update package is exactly that folder:
+the 2025-04-04 release (`ddcsv4(2025-04-04).rar`) contains one `ddcsv4/` folder with
+`ddcsv4.out`, the `motiondev.ko` driver, the macros (`*.rc`, `*.nc`), the language and message
+files and `logo.bmp` — no installer, script or readme ([listing](raw/2026-10-22_vendor-package-2025-04-04-listing.txt)).
+The package does **not** contain the `setting` file, so a vendor update keeps the machine's
+parameters.
+
+Sea Otter's package uses the same mechanism and the same folder name. The only file whose
+name is fixed is `ddcsv4.out` — the one file the boot script starts. Everything else in the
+folder can be named freely. Nothing outside `/ddcsv4` (the boot script itself, the driver
+loading, Samba) is changed by either install. The install package's `ddcsv4.out` is a **start script**, not the
 vendor program. At boot it:
 
 1. sets the root password if you put one on the stick (`ssh-password.txt`, then deletes it),
@@ -46,9 +65,10 @@ only needed for development; for normal use the USB stick is enough.
 | `network.conf` | IP address settings: **edit before installing** |
 | `ssh-password.txt.example` | Rename to `ssh-password.txt` and put your root password in it to set one |
 
-- **The vendor's original `ddcsv4.out`**, from the vendor's firmware package or a copy taken
-  earlier (`SYSDISK` share, `\\<controller-ip>\SYSDISK\ddcsv4.out`). **Keep it safe: the
-  install overwrites it on the controller.** Putting it in the package as `ddcsv4.vendor`
+- **The vendor's original software**, to be able to go back: download it from the maker
+  (see [Restoring the original software](#restoring-the-original-software)) or copy it off
+  the controller first (`\\<controller-ip>\SYSDISK\ddcsv4.out`). **The install overwrites
+  `ddcsv4.out` on the controller.** Putting the original in the package as `ddcsv4.vendor`
   keeps a copy on the controller, so you can switch back without a PC.
 
 ## Installing
@@ -75,16 +95,44 @@ come from a USB stick.
 Put the new `seaotter` file (alone is fine) in `ddcsv4\` on a stick, boot with it, take it
 out. Settings and offsets are kept.
 
-## Back to the vendor app
+## Restoring the original software
 
-Either:
-- **Switch:** put an empty file named `USE_VENDOR` in `ddcsv4\` on the stick (and
-  `ddcsv4.vendor` if it isn't on the controller yet), boot. The vendor app runs, and SSH
-  still starts. To go back to Sea Otter, delete `/ddcsv4/USE_VENDOR` over SSH or the
-  `SYSDISK` share and reboot. A stick can only add files, not remove them.
-- **Uninstall:** put the vendor's original `ddcsv4.out` in `ddcsv4\` on the stick and boot
-  once. That overwrites the start script and the controller is back to stock (Sea Otter's
-  files stay in `/ddcsv4` but are never started).
+Use the vendor's own update package and procedure — the same USB route, in reverse:
+
+1. Download the newest DDCS V4.1 software from the maker, Digital Dream:
+   **[www.ddcnc.com › Downloads › Software & firmware](http://www.ddcnc.com/?m=home&c=Lists&a=index&tid=106&lang=en)**. The newest V4.1 entry
+   when this was written: **[DDCS V4.1 (2025-04-04) software](http://www.ddcnc.com/?m=home&c=View&a=index&aid=229&lang=en)** (uploaded 2025-04-09),
+   file `ddcsv4(2025-04-04).rar`. *Use the `http://www.ddcnc.com` address: in October 2026 the
+   `https://` site had an expired certificate and showed a hosting notice.* The V4.1 user
+   manual is under [Downloads › Manuals](http://www.ddcnc.com/?m=home&c=Lists&a=index&tid=101&lang=en).
+2. Unpack the `.rar` (7-Zip, WinRAR). Inside is a folder `ddcsv4(2025-04-04)` containing a
+   folder **`ddcsv4`**.
+3. Copy that inner **`ddcsv4`** folder to the root of an **empty FAT32** USB stick, so you have
+   `E:\ddcsv4\ddcsv4.out`, `E:\ddcsv4\motiondev.ko`, … (not `E:\ddcsv4(2025-04-04)\…`).
+4. Switch the controller off, wait 10 s, insert the stick, switch on. The screen is blocked for
+   about 30 s, then the vendor software starts.
+5. **Remove the stick** (or delete the folder from it), otherwise it updates again on every
+   start.
+
+Its `ddcsv4.out` overwrites Sea Otter's start script, so the controller is back to stock. Sea
+Otter's own files (`seaotter`, `seaotter.cfg`, `network.conf`, `dropbearmulti`, …) stay in
+`/ddcsv4` but nothing starts them any more; the vendor's machine parameters (`setting`) were
+never touched. If SSH was installed with the `connecting/` tools it keeps starting from the
+boot script; see [connecting/Readme.md](../connecting/Readme.md) to remove it.
+
+To check you have the same release that was tested here (downloaded 2026-10-22): the
+`ddcsv4.out` inside is 4 938 156 bytes, MD5 `237704ed235403b140d74cfcd616e10a`, and
+`motiondev.ko` MD5 `136136bd4404b8a82114ba051c7023d3` — identical to the software found on the
+test controller. The `.rar` was SHA-256
+`6741d1b537dcaf41640b9d7840597ec4e41d139a4c4f137c0611c22168ea0321` (a re-upload by the maker
+would change this).
+
+### Switching without a PC
+
+If you put the original `ddcsv4.out` in the Sea Otter package as `ddcsv4.vendor`, it is already
+on the controller: put an empty file named `USE_VENDOR` in `ddcsv4\` on a stick and boot. The
+vendor app runs and SSH still starts. To go back to Sea Otter, delete `/ddcsv4/USE_VENDOR` over
+SSH or the `SYSDISK` share and reboot (a stick can only add files, not remove them).
 
 ## SSH only, keeping the vendor app
 
@@ -108,6 +156,6 @@ sh install/make-usb.sh                # -> build/usb/ddcsv4/
 - **No network / no panel in the browser:** check `network.conf`. The start script logs to
   `/tmp/seaotter-boot.log` and Sea Otter to `/tmp/seaotter.log` (readable over SSH).
 - **Black screen:** after 5 failed starts the start script runs `ddcsv4.vendor` if it's
-  there. Otherwise put the vendor's original `ddcsv4.out` on a stick and boot (see
-  *Uninstall*).
+  there. Otherwise restore the vendor software from a stick (see
+  [Restoring the original software](#restoring-the-original-software)).
 - The USB copy only works with the stick in **before** power-on.
