@@ -132,6 +132,7 @@ void run_sk(sk_t sk[7])
 	static char s1[24], s5[24];
 	if (C.m == M_HOLD) snprintf(s1, sizeof s1, "resume");
 	else if (C.resume_line >= 0) snprintf(s1, sizeof s1, "from %d", C.resume_line + 1);
+	else if (C.macro_on) snprintf(s1, sizeof s1, "macro");
 	else snprintf(s1, sizeof s1, "%s", C.armed == ARM_RUN ? "run" : C.armed == ARM_TRYCUT ? "dry run" : "simulate");
 	snprintf(s5, sizeof s5, "armed: %s", ARMED[C.armed]);
 	sk[0] = (sk_t){ "Start", s1 };

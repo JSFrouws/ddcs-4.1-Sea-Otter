@@ -9,6 +9,7 @@
 #include <strings.h>
 #include "api.h"
 #include "../core/machine.h"
+#include "../core/macro.h"
 #include "../sim/fpga_sim.h"
 #include "../ui/ui.h"
 #include "../perf.h"
@@ -80,8 +81,9 @@ static void status(http_resp_t *r)
 	for (int a = 0; a < NAXES; a++) { snprintf(pos[a], 48, "%.4f", C.mo.pos[a]); snprintf(wp[a], 48, "%.4f", ctl_work(a)); }
 	json_escape(nm, sizeof nm, C.prog.name);
 	json_escape(msg, sizeof msg, C.msg);
-	char dw[200];
+	char dw[200], mac[100];
 	json_escape(dw, sizeof dw, C.driver_warn);
+	json_escape(mac, sizeof mac, C.macro_on ? C.macro_name : "");
 	resp_text(r, 200, "application/json",
 		"{\"state\":\"%s\",\"homed\":%s,\"machine\":{\"x\":%s,\"y\":%s,\"z\":%s,\"a\":%s},"
 		"\"work\":{\"x\":%s,\"y\":%s,\"z\":%s,\"a\":%s},\"wcs\":\"G%d\",\"program\":{\"name\":\"%s\",\"loaded\":%s,\"lines\":%d,\"line\":%d},"
@@ -89,7 +91,7 @@ static void status(http_resp_t *r)
 		"\"limit\":{\"axis\":\"%c\",\"dir\":%d},\"limits\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"armed\":\"%s\",\"remoteStart\":%s,\"countdown\":%d,\"screen\":%d,\"leds\":%u,"
 		"\"fpga\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"steps\":{\"x\":%lld,\"y\":%lld,\"z\":%lld,\"a\":%lld},"
 		"\"posChecks\":%u,\"posFaults\":%u,\"posErr\":[%d,%d,%d,%d],\"faultLine\":%d,\"busErrors\":%u,\"busRetries\":%u,\"busErrno\":%d,\"reversalsWaited\":%u,\"bursts\":%u,"
-		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u},\"message\":\"%s\",\"driverWarning\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
+		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u},\"message\":\"%s\",\"driverWarning\":\"%s\",\"macro\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
 		STATE_NAMES[C.m], C.homed ? "true" : "false", pos[0], pos[1], pos[2], pos[3], wp[0], wp[1], wp[2], wp[3], 54 + WD.active,
 		nm, C.prog.loaded ? "true" : "false", C.prog.nlines, ctl_cur_line() + 1,
 		C.mo.feed_ov, rapid_override(C.mo.feed_ov), C.mo.spin_ov, C.mo.applied_pct, C.spindle ? "true" : "false", C.rpm, C.coolant,
@@ -97,7 +99,7 @@ static void status(http_resp_t *r)
 		SET.remote_start ? "true" : "false", C.countdown, U.screen, (unsigned)ui_leds(),
 		C.fpos[0], C.fpos[1], C.fpos[2], C.fpos[3], (long long)C.mo.steps[0], (long long)C.mo.steps[1], (long long)C.mo.steps[2], (long long)C.mo.steps[3],
 		C.pos_checks, C.pos_faults, C.pos_err[0], C.pos_err[1], C.pos_err[2], C.pos_err[3], C.fault_line, bus_errors, bus_retries, bus_last_errno, C.mo.deferred, C.fp.bursts, PERF.loops, PERF.tick_us_avg, PERF.tick_us_max, PERF.render_us_avg, PERF.render_us_max, PERF.draw_us_avg, PERF.present_us_avg, PERF.gap_ms_max,
-		(unsigned long long)PERF.motion_ms, (unsigned long long)PERF.lost_ms, C.mo.replan_iters, msg, dw, C.sim ? "sim" : "real", DSP ? DSP->frame_no : 0);
+		(unsigned long long)PERF.motion_ms, (unsigned long long)PERF.lost_ms, C.mo.replan_iters, msg, dw, mac, C.sim ? "sim" : "real", DSP ? DSP->frame_no : 0);
 }
 
 static void settings_json(http_resp_t *r)
@@ -202,6 +204,22 @@ void api_handle(const http_req_t *q, http_resp_t *r)
 	if (!SET.api) { resp_text(r, 403, "application/json", "{\"error\":\"api_off\"}"); return; }
 	if (!strcmp(p, "status")) { status(r); return; }
 	if (!strcmp(p, "settings") && !post) { settings_json(r); return; }
+	if (!strcmp(p, "macros") && !post) {                 /* the macro files Sea Otter found */
+		static macro_t ml[MACRO_MAX];
+		int n = macro_scan(ml, MACRO_MAX);
+		size_t cap = 16384, k = 0;
+		char *o = malloc(cap);
+		k += (size_t)snprintf(o + k, cap - k, "{\"armed\":\"%s\",\"macros\":[", C.macro_on ? C.macro_name : "");
+		for (int i = 0; i < n && k < cap - 600; i++) {
+			char nm[100], in[200], pa[300];
+			json_escape(nm, sizeof nm, ml[i].name); json_escape(in, sizeof in, ml[i].info); json_escape(pa, sizeof pa, ml[i].path);
+			k += (size_t)snprintf(o + k, cap - k, "%s{\"name\":\"%s\",\"info\":\"%s\",\"file\":\"%s\",\"needsHomed\":%s,\"source\":\"%s\"}",
+				i ? "," : "", nm, in, pa, ml[i].needs_homed ? "true" : "false", ml[i].user ? "share" : "package");
+		}
+		k += (size_t)snprintf(o + k, cap - k, "]}");
+		r->body = o; r->len = k; r->status = 200; r->type = "application/json";
+		return;
+	}
 	if (!strcmp(p, "settings")) { put_settings(b, r); return; }
 	if (!post && !del) { resp_text(r, 404, "text/plain", "not found"); return; }
 
@@ -251,12 +269,15 @@ void api_handle(const http_req_t *q, http_resp_t *r)
 		doit(r, C_JOG, &a); return;
 	}
 	if (!strcmp(p, "move/gotozero")) { doit(r, C_GOTOZERO, NULL); return; }
-	if (!strcmp(p, "move/macro")) {                    /* {"macro":"park"} or {"macro":2} */
-		static const char *const ids[MAC__N] = { "safez", "workzero", "park", "toolchange", "warmup" };
-		a.kind = -1;
-		if (jstr(b, "macro", s, sizeof s)) for (int i = 0; i < MAC__N; i++) if (!strcmp(s, ids[i])) a.kind = i;
-		if (a.kind < 0 && jnum(b, "macro", &v)) a.kind = (int)v;
-		doit(r, C_MACRO, &a); return;
+	if (!strcmp(p, "move/macro")) {                    /* {"macro":"Park"} (name or file) -> armed and started */
+		char mname[96];
+		if (!jstr(b, "macro", mname, sizeof mname)) { resp_text(r, 400, "application/json", "{\"error\":\"need macro (its name or file)\"}"); return; }
+		a.path = mname;
+		if (can(C_MACRO, &a, SRC_API)) { refuse(r, C_MACRO, &a); return; }
+		act(C_MACRO, &a, SRC_API);
+		if (!C.macro_on) { char e[200]; json_escape(e, sizeof e, C.msg); resp_text(r, 400, "application/json", "{\"error\":\"macro\",\"detail\":\"%s\"}", e); return; }
+		run_start(b, r);                                    /* same countdown / remote-START rules as a program */
+		return;
 	}
 	if (!strcmp(p, "offsets/touch-off")) {
 		if (!jstr(b, "axis", s, sizeof s) || (a.axis = axis_of(s)) < 0) { resp_text(r, 400, "application/json", "{\"error\":\"need axis\"}"); return; }

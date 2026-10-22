@@ -1,8 +1,10 @@
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "machine.h"
+#include "macro.h"
 
 ctl_t C;
 
@@ -11,7 +13,6 @@ const char *const CMD_NAMES[C__N] = {
 	"jog", "touchoff", "gotozero", "home", "probe", "start", "pause", "stop", "spindle",
 	"drives_on", "drives_off", "load", "edit_table", "edit_setting", "override",
 	"estop_in", "estop_out", "limit_hit", "limit_clear", "done", "macro" };
-const char *const MACRO_NAMES[MAC__N] = { "Safe Z", "Go to work zero", "Park", "Tool change position", "Spindle warm-up" };
 
 #define B(c) (1u << (c))
 /* Which commands each state accepts. Everything else is refused with WHY[state]. */
@@ -120,7 +121,8 @@ static const char *program_outside(void)
 		for (int a = 0; a < AX_A; a++) {
 			double lo, hi;
 			if (!ctl_axis_range(a, &lo, &hi)) continue;
-			double plo = C.prog.lo[a] + off[a], phi = C.prog.hi[a] + off[a];
+			if (C.prog.mlo[a] > C.prog.mhi[a]) continue;          /* no moves */
+			double plo = C.prog.mlo[a] + off[a], phi = C.prog.mhi[a] + off[a];   /* rapids too */
 			if (C.armed == ARM_TRYCUT && a == AX_Z) plo = phi = off[AX_Z] + SET.safe_z;   /* TryCut flies at one Z */
 			if (phi > hi + 1e-6 || plo < lo - 1e-6) {
 				bool up = phi > hi + 1e-6;
@@ -169,20 +171,13 @@ const char *can(cmd_t c, const arg_t *a, src_t src)
 		if (w) return w;
 		break;
 	}
-	case C_MACRO:
-		if (a->kind < 0 || a->kind >= MAC__N) return "Unknown macro";
+	case C_MACRO: {
+		static macro_t m;
+		if (!a->path || macro_find(a->path, &m)) return "No such macro (see the Macros page)";
 		if (!motion_idle(&C.mo)) return "Wait for the jog to finish";
-		if ((a->kind == MAC_PARK || a->kind == MAC_TOOLCHANGE) && !C.homed)
-			return "Home first - park and tool-change positions are machine coordinates";
-		if (a->kind == MAC_PARK || a->kind == MAC_TOOLCHANGE) {
-			const double *p = a->kind == MAC_PARK ? SET.park : SET.tc;
-			double t[NAXES];
-			memcpy(t, C.mo.pos, sizeof t);
-			t[AX_X] = p[0]; t[AX_Y] = p[1]; t[AX_Z] = p[2];
-			const char *w = target_outside(t);
-			if (w) return w;
-		}
+		if (m.needs_homed && !C.homed) { snprintf(why, sizeof why, "%s: home first - it uses machine coordinates", m.name); return why; }
 		break;
+	}
 	default: break;
 	}
 	return NULL;
@@ -197,7 +192,7 @@ static mstate_t next_state(cmd_t c, mstate_t f)
 	case C_DRIVES_OFF: return M_OFF;
 	case C_HOME: return M_HOMING;
 	case C_PROBE: return M_PROBING;
-	case C_GOTOZERO: case C_MACRO: return M_MOVE;
+	case C_GOTOZERO: return M_MOVE;
 	case C_START: return M_RUN;
 	case C_PAUSE: return f == M_RUN ? M_HOLD : M_IDLE;
 	case C_STOP: return f == M_LIMIT ? M_LIMIT : M_IDLE;
@@ -264,6 +259,42 @@ double ctl_trycut_z(void)
 	return WD.wcs[w].off[AX_Z] + SET.safe_z;
 }
 
+/* ---- macros: a small program that takes C.prog's place while it is armed or running ---- */
+static bool macro_load(const char *path, const char *name, program_t *out)
+{
+	char err[160];
+	size_t len;
+	char *text = macro_expand_file(path, &len, err, sizeof err);
+	if (!text) { ctl_toast(true, "Macro %s: %s", name, err); return false; }
+	memset(out, 0, sizeof *out);
+	int r = program_load_text(out, name, text, len);
+	free(text);
+	if (r) { ctl_toast(true, "Macro %s: %s", name, out->err); program_free(out); return false; }
+	snprintf(out->path, sizeof out->path, "%s", path);
+	return true;
+}
+
+/* back to the operator's own program, exactly as it was */
+static void macro_end(void)
+{
+	if (!C.macro_on) return;
+	program_free(&C.prog);
+	C.prog = C.saved_prog;
+	memset(&C.saved_prog, 0, sizeof C.saved_prog);
+	C.resume_line = C.saved_resume; C.work_done = C.saved_done; C.armed = C.saved_armed;
+	C.macro_on = false;
+}
+
+/* re-fill the {placeholders} with the position and settings of this moment (Start) */
+static bool macro_refresh(void)
+{
+	program_t p;
+	if (!macro_load(C.macro_path, C.macro_name, &p)) return false;
+	program_free(&C.prog);
+	C.prog = p;
+	return true;
+}
+
 static void finish_sim(void)
 {
 	if (!C.mo.dry) return;
@@ -306,7 +337,6 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		break;
 	}
 	case C_GOTOZERO: {
-		C.macro = -1;
 		double p[NAXES];
 		memcpy(p, C.mo.pos, sizeof p);
 		p[AX_Z] = fmax(p[AX_Z], w->off[AX_Z] + SET.safe_z);
@@ -317,30 +347,20 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		break;
 	}
 	case C_MACRO: {
-		double p[NAXES];
-		memcpy(p, C.mo.pos, sizeof p);
-		double safe = fmax(p[AX_Z], w->off[AX_Z] + SET.safe_z);   /* only ever up */
-		const double *xyz = a->kind == MAC_PARK ? SET.park : SET.tc;
-		C.macro = a->kind;
-		switch (a->kind) {
-		case MAC_SAFEZ: p[AX_Z] = safe; motion_move_to(&C.mo, p, 0, true); break;
-		case MAC_WORKZERO:
-			p[AX_Z] = safe; motion_move_to(&C.mo, p, 0, true);
-			p[AX_X] = w->off[AX_X]; p[AX_Y] = w->off[AX_Y]; motion_move_to(&C.mo, p, 0, true);
-			break;
-		case MAC_PARK: case MAC_TOOLCHANGE:                /* Z up first, then XY, then Z to its height */
-			p[AX_Z] = fmax(safe, xyz[2]); motion_move_to(&C.mo, p, 0, true);
-			p[AX_X] = xyz[0]; p[AX_Y] = xyz[1]; motion_move_to(&C.mo, p, 0, true);
-			p[AX_Z] = xyz[2]; motion_move_to(&C.mo, p, 0, true);
-			break;
-		case MAC_WARMUP: {
-			C.spindle = true; C.rpm = SET.warm_rpm;
-			gc_op_t d = { .kind = OP_DWELL, .value = SET.warm_s, .line = -1 };
-			motion_push(&C.mo, &d);
-			break;
-		}
-		}
-		ctl_toast(false, "Macro: %s%s", MACRO_NAMES[a->kind], a->kind == MAC_WARMUP ? " - Reset stops it" : "");
+		/* arm: the macro becomes the program on the Run page; Start runs it, Pause holds it,
+		 * Reset stops it - and the operator's own program comes back afterwards */
+		macro_t m;
+		if (macro_find(a->path, &m)) break;
+		macro_end();
+		program_t p;
+		if (!macro_load(m.path, m.name, &p)) break;
+		C.saved_prog = C.prog; C.prog = p;
+		C.saved_resume = C.resume_line; C.saved_done = C.work_done; C.saved_armed = C.armed;
+		C.resume_line = -1; C.work_done = -1; C.armed = ARM_RUN;
+		snprintf(C.macro_name, sizeof C.macro_name, "%s", m.name);
+		snprintf(C.macro_path, sizeof C.macro_path, "%s", m.path);
+		C.macro_on = true;
+		ctl_toast(false, "Macro %s armed - Start runs it, Reset cancels", m.name);
 		break;
 	}
 	case C_HOME: C.homed = false; motion_home(&C.mo); ctl_toast(false, "Homing %s", HOME_ORDERS[SET.home_order]); break;
@@ -354,13 +374,14 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		else motion_stop(&C.mo, false);
 		break;
 	case C_STOP:
-		motion_stop(&C.mo, false); C.macro = -1;
+		motion_stop(&C.mo, false);
 		if (from == M_RUN || from == M_HOLD) {
 			C.work_done = C.mo.line;
 			ctl_toast(false, "Stopped at line %d - work done is remembered; Program > Select resumes", C.work_done + 1);
 		} else if (from == M_LIMIT) ctl_toast(false, "Program cleared - limit still active, jog off the switch");
 		C.feeding = false; C.countdown = 0; C.pause_msg[0] = 0;
 		all_off(); finish_sim();
+		if (C.macro_on) { ctl_toast(false, "Macro %s %s", C.macro_name, from == M_IDLE ? "cancelled" : "stopped"); macro_end(); }
 		break;
 	case C_SPINDLE:
 		C.spindle = !C.spindle;
@@ -374,6 +395,7 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		ctl_toast(false, "Drives OFF");
 		break;
 	case C_LOAD: {
+		macro_end();
 		int r = a->text ? program_load_text(&C.prog, a->path ? a->path : "upload.nc", a->text, a->len)
 		                : program_load(&C.prog, a->path);
 		C.resume_line = -1; C.work_done = -1;
@@ -389,6 +411,7 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 	case C_ESTOP_IN:
 		motion_stop(&C.mo, !SET.graceful_stop); C.feeding = false; all_off(); finish_sim();
 		if (from == M_RUN || from == M_HOLD) C.work_done = C.mo.line;
+		macro_end();
 		ctl_toast(true, "E-STOP: %s", C.stop_cause[0] ? C.stop_cause : "E-stop input");
 		break;
 	case C_ESTOP_OUT: {
@@ -402,6 +425,7 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		motion_stop(&C.mo, !SET.graceful_stop);   /* brakes past the switch: the overshoot is v^2/2a */
 		if (from == M_RUN) C.work_done = C.mo.line;
 		C.feeding = false; all_off(); finish_sim();
+		macro_end();
 		C.limit_axis = a->axis; C.limit_dir = a->dir;
 		C.lim_dir[a->axis] = a->dir ? a->dir : 2;
 		{
@@ -422,12 +446,9 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 			ctl_toast(!C.homed, C.homed ? "Homed - soft limits active" : "Homing failed: switch not found within travel");
 		} else if (from == M_RUN) {
 			C.work_done = C.prog.nlines - 1; all_off(); finish_sim();
-			ctl_toast(false, "Program finished");
-		} else if (from == M_MOVE) {
-			if (C.macro == MAC_WARMUP) all_off();
-			ctl_toast(false, C.macro >= 0 ? "%s done" : "Done", C.macro >= 0 ? MACRO_NAMES[C.macro] : "");
-		}
-		C.macro = -1;
+			if (C.macro_on) { ctl_toast(false, "Macro %s done", C.macro_name); macro_end(); }
+			else ctl_toast(false, "Program finished");
+		} else if (from == M_MOVE) ctl_toast(false, "Done");
 		break;
 	default: break;
 	}
@@ -437,6 +458,7 @@ bool act(cmd_t c, const arg_t *a, src_t src)
 {
 	static const arg_t none;
 	if (!a) a = &none;
+	if (c == C_START && C.m == M_IDLE && C.macro_on && !macro_refresh()) return false;
 	const char *why = can(c, a, src);
 	if (why) { if (src != SRC_MACHINE) ctl_toast(true, "%s", why); return false; }
 	mstate_t from = C.m;

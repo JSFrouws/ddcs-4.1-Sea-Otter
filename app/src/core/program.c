@@ -55,7 +55,7 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 	double last[NAXES];
 	memcpy(last, start, sizeof last);
 	add_pv(p, last, off, 0, true, true);
-	for (int a = 0; a < 3; a++) { p->lo[a] = 1e30f; p->hi[a] = -1e30f; }
+	for (int a = 0; a < 3; a++) { p->lo[a] = 1e30f; p->hi[a] = -1e30f; p->mlo[a] = 1e30f; p->mhi[a] = -1e30f; }
 	int r;
 	while ((r = gc_next(&g, &op)) > 0) {
 		if (op.kind == OP_DWELL) p->est_s += op.value;
@@ -65,6 +65,11 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 		d = sqrt(d);
 		p->est_s += d / ((op.rapid ? SET.ax[0].max_vel : fmax(op.feed, 1)) / 60.0);
 		add_pv(p, op.end, off, op.line, op.rapid, !op.arc);
+		for (int a = 0; a < 3; a++) {                       /* every move's end point */
+			float w = (float)(op.end[a] - off[a]);
+			if (w < p->mlo[a]) p->mlo[a] = w;
+			if (w > p->mhi[a]) p->mhi[a] = w;
+		}
 		if (!op.rapid) for (int a = 0; a < 3; a++) {
 			float w = (float)(op.end[a] - off[a]);
 			if (w < p->lo[a]) p->lo[a] = w;
@@ -73,6 +78,7 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 		memcpy(last, op.end, sizeof last);
 	}
 	if (p->lo[0] > p->hi[0]) for (int a = 0; a < 3; a++) p->lo[a] = p->hi[a] = 0;
+	if (p->mlo[0] > p->mhi[0]) for (int a = 0; a < 3; a++) p->mlo[a] = p->mhi[a] = 0;   /* no moves at all */
 	if (g.warn[0]) snprintf(p->warn, sizeof p->warn, "line %d: %s", g.warn_line + 1, g.warn);
 	if (r < 0) {
 		snprintf(p->err, sizeof p->err, "line %d: %s", g.err_line + 1, g.err);

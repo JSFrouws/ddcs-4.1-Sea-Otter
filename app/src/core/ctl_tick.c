@@ -74,7 +74,7 @@ void ctl_init(bus_t *bus, bool sim, const char *cfg_path, const char *wd_path)
 	motion_init(&C.mo, &C.fp, p);
 	C.mo.switch_active = switch_active;
 	C.mo.range = ctl_axis_range;
-	C.resume_line = C.work_done = -1; C.touch_axis = -1; C.limit_axis = -1; C.macro = -1;
+	C.resume_line = C.work_done = -1; C.touch_axis = -1; C.limit_axis = -1;
 	C.rpm = SET.spindle_default;
 	C.m = M_IDLE;
 	C.inputs = fpga_inputs(&C.fp);

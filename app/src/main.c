@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include "core/machine.h"
+#include "core/macro.h"
 #include "hal/display.h"
 #include "hal/panel.h"
 #include "net/api.h"
@@ -149,6 +150,12 @@ int main(int argc, char **argv)
 	if (!data) data = stat("/ddcsv4", &st) == 0 && !sim ? "/ddcsv4" : ".";
 	if (progs) UI_SRC_DIRS[0] = progs;
 	else if (stat("/local", &st) != 0) UI_SRC_DIRS[0] = "programs";
+	/* macros: the package's macro-*.nc in the app folder, and the operator's own in
+	 * <programs>/macros (= the CNCDISK share on the controller). On a PC without an app
+	 * folder of its own the package sources are used. */
+	snprintf(macro_dir_sys, sizeof macro_dir_sys, "%s", data);
+	if (strcmp(data, "/ddcsv4") && stat("install/usb/ddcsv4", &st) == 0) snprintf(macro_dir_sys, sizeof macro_dir_sys, "install/usb/ddcsv4");
+	snprintf(macro_dir_user, sizeof macro_dir_user, "%s/macros", UI_SRC_DIRS[0]);
 	if (usb) UI_SRC_DIRS[1] = usb;
 	char cfg[300], wd[300];
 	snprintf(cfg, sizeof cfg, "%s/seaotter.cfg", data);

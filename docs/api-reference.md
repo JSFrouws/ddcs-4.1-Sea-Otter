@@ -66,7 +66,7 @@ Everything in one snapshot. Poll it (e.g. every 0.5–1 s).
   "perf": {"loops": 32533, "tickUs": 141, "tickUsMax": 9000, "renderUs": 50694,
            "renderUsMax": 340000, "drawUs": 26466, "presentUs": 24231, "gapMsMax": 4410,
            "motionMs": 344855, "lostMs": 0, "replanIters": 26556},
-  "message": "Program started", "backend": "real", "frame": 10422
+  "message": "Program started", "driverWarning": "", "macro": "", "backend": "real", "frame": 10422
 }
 ```
 
@@ -86,6 +86,8 @@ Everything in one snapshot. Poll it (e.g. every 0.5–1 s).
 | `posChecks` / `posFaults` / `posErr` / `faultLine` | Position checks at rest, mismatches, last mismatch per axis (steps), program line of the last mismatch |
 | `perf.lostMs` | Motion time lost to the loop being busy (should stay 0) |
 | `message` | The last panel message (toast) |
+| `driverWarning` | Not empty when the FPGA driver is not the one Sea Otter was tested with |
+| `macro` | The macro armed or running (empty: none; `program` is then the macro) |
 | `backend` | `real` (the unit's FPGA) or `sim` (simulator) |
 
 ### GET `settings`
@@ -108,7 +110,8 @@ listed in [Settings keys](#settings-keys) below.
 |---|---|---|---|
 | POST | `jog` | `{"axis":"X","dist":-0.5}` | Relative jog in mm (negative = minus direction), at the jog feed. A jog past a soft/bench limit is shortened to end exactly on it (decelerating into it). Refused while running, when already at the limit that way, or into a tripped limit switch |
 | POST | `move/gotozero` | – | Z up to safe height, then X Y to the active work zero |
-| POST | `move/macro` | `{"macro":"safez"}` | Run a macro: `safez`, `workzero`, `park`, `toolchange` (machine positions from `macro.*`, need a homed machine), `warmup` (spindle at `macro.warm_rpm` for `macro.warm_s`). Also by number 0–4 |
+| POST | `move/macro` | `{"macro":"Park"}` | Arm a macro (by its name or its file name, see `GET macros`) and start it: same rules as `run/start` — **202** with the panel countdown, **403** if remote START is off. While it runs, `run/pause`, `run/start` and `run/stop` / `machine/stop` act on it; afterwards the loaded program is back. **409** e.g. `"Park: home first"` for a `(needs: homed)` macro; **400** if the file has an error (`detail`) |
+| GET | `macros` | – | The macro files found: `{"armed":"","macros":[{"name":"Park","info":"…","file":"/ddcsv4/macro-park.nc","needsHomed":true,"source":"package"},…]}` — `source` `package` (app folder) or `share` (CNCDISK `macros` folder) |
 
 ## Work offsets
 

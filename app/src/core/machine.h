@@ -57,7 +57,12 @@ typedef struct {
 	fpga_t fp;
 	agent_t agent;
 	uint32_t inputs;
-	int macro;                      /* MAC_* running in M_MOVE, -1 none */
+	/* an armed / running macro: it is C.prog for that time, the operator's program waits in
+	 * saved_prog and comes back when the macro ends, is reset or stopped (core/macro.h) */
+	bool macro_on;
+	char macro_name[48], macro_path[256];
+	program_t saved_prog;
+	int saved_resume, saved_done, saved_armed;
 	char stop_cause[96];            /* why the drives are off / E-stop is active, shown on the panel */
 	char driver_warn[200];          /* set at start-up when motiondev.ko is not the tested one */
 	int32_t fpos[NAXES];            /* FPGA position counters (latched every 20 ms) */
@@ -75,10 +80,7 @@ extern const char *const CMD_NAMES[C__N];
 
 void ctl_init(bus_t *bus, bool sim, const char *cfg_path, const char *wd_path);
 void ctl_tick(double dt);
-/* Macros (Macros page / API "macro"): arg kind = MAC_*. Park and tool change are machine
- * positions (Settings > Macros) and need a homed machine. */
-enum { MAC_SAFEZ, MAC_WORKZERO, MAC_PARK, MAC_TOOLCHANGE, MAC_WARMUP, MAC__N };
-extern const char *const MACRO_NAMES[MAC__N];
+/* C_MACRO arms a macro: arg path = its file (or its name). See core/macro.h */
 const char *can(cmd_t c, const arg_t *a, src_t src);   /* NULL = allowed, else why not */
 bool act(cmd_t c, const arg_t *a, src_t src);
 bool ctl_busy(void);                                   /* RUN HOLD HOMING MOVE PROBING */

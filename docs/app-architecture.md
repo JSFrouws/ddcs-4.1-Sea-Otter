@@ -85,6 +85,14 @@ Two mechanisms make that work:
 Still open: loading a 64 000-line file takes **4.3 s** and blocks the loop (fine while idle,
 and refused while a program or move runs - but a jog in progress would be stalled by it).
 
+## Controller quirks the code works around
+
+- **`opendir()` fails on the controller** with `EINVAL` (the static, modern C library vs the
+  2.6.35 kernel; measured 2026-10-22), while plain `open(O_DIRECTORY)` + the `getdents64`
+  system call work. Every directory listing (Files page, macro folders) therefore goes
+  through `dir_list()` in `src/common.c`. Before this fix the Files page listed nothing on
+  the real unit (programs were only loaded by name over the API).
+
 ## Open items before the first real cut
 
 The former blocker (the "done latch") is solved: `0x67` is a motion watchdog. With the fixes

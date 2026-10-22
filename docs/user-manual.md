@@ -163,7 +163,8 @@ Two software boxes keep the machine inside its travel, without touching a switch
 
 When both are on, the tighter one counts. What they do:
 
-- **A program that would leave the box is refused** at Start, with the axis, the side and
+- **A program that would leave the box is refused** at Start — rapid moves count, not only
+  cutting moves (a `G28` to machine zero can therefore be refused) — with the axis, the side and
   how far: e.g. *Program goes past the X+ bench limit on G54: reaches 675.8 mm, limit
   587.8*. TryCut is checked at its clearance height. Simulate still runs (it moves nothing)
   and says the program is outside.
@@ -179,24 +180,63 @@ Only when someone switched the drives off (Jog F3, or over the network). The ban
 who. **F3 Reset** on any screen switches them on again.
 
 ## 5. Macros
-**Page R** → Macros. **Y±** pick, **Select / Enter / F1** run. **Reset** stops any macro.
+Macros are **small G-code files** — nothing is built in. The Macros page lists every macro
+file it finds, and you can add, change or remove them yourself.
 
-| Macro | Does |
+**Running one:** **Page R** → Macros, **Y±** pick, **Select / Enter / F1**. The macro is
+*armed*: Sea Otter switches to the **Run page**, the program pane shows the macro's lines and
+a teal banner says *MACRO · Park armed*. Then it behaves exactly like a program:
+
+| Key | Does |
 |---|---|
-| Safe Z | Z up to work Z0 + Safe Z (only ever up) |
-| Go to work zero | Z up, then X Y to the active work zero |
-| Park | Z up, X Y to the park position, Z to its height *(homed machine only)* |
-| Tool change position | Same, to the tool-change position *(homed machine only)* |
-| Spindle warm-up | Spindle at the warm-up speed for the warm-up time, then off |
-| Zero all | X Y Z of the active work offset = the current position |
+| **F1 Start** | runs the macro (its values are filled in at this moment, see below) |
+| **F2 Pause** | holds it; **F1 Start** continues |
+| **F3 Reset** | stops it halfway (or cancels it before Start) |
 
-Positions, speed and time: *Settings › Macros* (machine coordinates).
+When the macro ends — finished, Reset, E-stop or a limit — **your loaded program is back**,
+with its resume line and its Run / TryCut / Simulate setting as they were. A macro that
+would leave the soft or bench limits is refused at Start, like a program.
+
+**Where macros come from:**
+
+| Folder | What |
+|---|---|
+| `macro-*.nc` in the app folder (`/ddcsv4`) | the package's set; installed and updated with the USB package. The package brings: Safe Z, Go to work zero, Park, Tool change position, Spindle warm-up, Zero all |
+| **`macros`** folder on the **CNCDISK** network share (`/local/macros`) | **your own**: copy `.nc` files there from a PC, no USB stick or restart needed (F4 Rescan on the Macros page) |
+
+**Writing one:** plain G-code, with optional header comments on the first lines, and
+`{placeholders}` that are filled in when you press Start:
+
+```
+(name: Park)
+(info: Z up, X Y to the park position, Z to its height)
+(needs: homed)
+G90
+G53 G0 Z{max:machine.z,macro.park_z}
+G53 G0 X{macro.park_x} Y{macro.park_y}
+G53 G0 Z{macro.park_z}
+```
+
+| | |
+|---|---|
+| `(name: …)` | the name on the Macros page (default: the file name) |
+| `(info: …)` | one line under the name |
+| `(needs: homed)` | refused until the machine is homed (for machine coordinates) |
+| `{jog.safe_z}`, `{macro.park_x}`, … | the value of any setting (the keys in [api-reference.md](api-reference.md#settings-keys)) |
+| `{machine.x}` `{work.z}` … | the current position, machine or work coordinates (x y z a) |
+| `{max:A,B}` `{min:A,B}` | the larger / smaller of two numbers or names, e.g. `{max:work.z,jog.safe_z}` = "Z up to the safe height, never down" |
+
+*Settings › Macros* holds the values the package's macros use (park and tool-change
+positions, warm-up speed and time); your own macros can use them too.
 
 ## 6. Settings
 **Page R** → Settings. Left: groups, right: values. Quick press / Modify / Enter starts
 editing. On/off, lists and small numbers change in place with Y± (or hold + wheel); larger
-numbers open the digit editor. **Enter accepts, Cancel discards.** Moving past the first
-or last value goes back to the groups, so the pendant alone can do everything.
+numbers open the digit editor. **Enter accepts, Cancel discards.** One step past the last
+value (or before the first) shows an orange **← back to the groups** line, and the group on
+the left gets an orange arrow: Enter or a quick press there goes back to the groups, one step
+the other way returns to the list. Scrolling to the end never leaves the group by itself, and
+the pendant alone can do everything.
 
 - **Grey values don't apply** right now, and the reason is shown (e.g. "API is off"). They
   can't be edited until the setting they depend on is changed.

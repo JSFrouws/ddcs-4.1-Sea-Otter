@@ -270,7 +270,7 @@ requirements only here.
 
 ### O — Panel conveniences (added 2026-10-18)
 
-- **REQ-O1 (M) Macros page** (Page R: Run → Files → Work → Tools → **Macros** →
+- **REQ-O1 (M, replaced by O3) Macros page** (Page R: Run → Files → Work → Tools → **Macros** →
   Settings): Safe Z (up only), Go to work zero (Z up, then XY), Park and Tool
   change position (machine coordinates from *Settings › Macros*, need a homed
   machine; Z up first, then XY, then Z to its height), Spindle warm-up (rpm and
@@ -281,6 +281,16 @@ requirements only here.
   is off; start countdown when remote START is off; pendant settings with no
   pendant; E-stop level with no E-stop input; soft-limit values with soft limits
   off; warm-up time with warm-up speed 0.
+
+- **REQ-O3 (M) Macros are files** (user, 2026-10-22): no fixed set. Macros are G-code
+  files in the app folder (`macro-*.nc`, from the package) and in the CNCDISK share's
+  `macros` folder (the operator's own), with optional `(name:) (info:) (needs: homed)`
+  headers and `{setting / position / max / min}` placeholders filled in at Start. Picking
+  one arms it on the Run page: Start runs, Pause holds, Reset stops; the loaded program
+  comes back afterwards.
+- **REQ-O4 (M) Settings never leave a group by scrolling** (user, 2026-10-22): one step past
+  either end is an orange "back to the groups" position; only Enter / a quick press there
+  leaves.
 
 ### M — Explicit non-goals (v1)
 

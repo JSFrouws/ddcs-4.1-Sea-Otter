@@ -14,6 +14,10 @@ extern const char AXIS_CH[NAXES];   /* "XYZA" */
 
 /* monotonic milliseconds (real clock, or the simulator's clock in tests) */
 uint64_t now_ms(void);
+/* Directory listing that works on the controller: the C library's opendir() fails there
+ * with EINVAL (static glibc vs the 2.6.35 kernel - measured), plain open() + getdents64 work.
+ * Calls fn(name, ctx) for each entry except "." and ".."; returns the count, -1 on error. */
+int dir_list(const char *dir, void (*fn)(const char *name, void *ctx), void *ctx);
 void clock_use_virtual(bool on);     /* tests: time only moves via clock_advance() */
 void clock_advance(uint32_t ms);
 

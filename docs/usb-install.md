@@ -70,6 +70,7 @@ seaotter-v0.2.0.zip      (v0.2.0 itself is called seaotter.v0.2.0.zip on GitHub)
         ├── seaotter        the Sea Otter program (static ARM binary)
         ├── motiondev.ko    the FPGA driver Sea Otter was tested with (see below)
         ├── logo.bmp        boot logo, 1024 x 600 24-bit BMP (replaceable, see boot-logo.md)
+        ├── macro-*.nc      the default macros (Safe Z, Park, ...; see user-manual.md, Macros)
         ├── dropbearmulti   SSH server with password login (ssh-setup.md)
         ├── network.conf    IP address settings: edit before installing
         └── ssh-password.txt.example   rename to ssh-password.txt to set a root password

@@ -14,7 +14,8 @@ typedef struct {
 	int nlines;
 	uint32_t *line_off;          /* byte offset of each line */
 	pv_t *pv; int npv;           /* preview vertices; segment i = pv[i-1] -> pv[i] */
-	float lo[3], hi[3];          /* work-coordinate bounding box of cutting moves */
+	float lo[3], hi[3];          /* work-coordinate bounding box of cutting moves (view) */
+	float mlo[3], mhi[3];        /* ... of every move, rapids included (soft/bench limit check) */
 	double est_s;                /* time estimate at 100 % */
 	char err[128]; int err_line;
 	char warn[128];

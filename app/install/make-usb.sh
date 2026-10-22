@@ -23,7 +23,7 @@ OUT="build/usb/$NAME/ddcsv4"
 KO_TESTED=136136bd4404b8a82114ba051c7023d3
 
 rm -rf build/usb && mkdir -p "$OUT"
-cp "$SRC/ddcsv4.out" "$SRC/network.conf" "$SRC/ssh-password.txt.example" "$SRC/logo.bmp" "$SRC/motiondev.ko" "$OUT/"
+cp "$SRC/ddcsv4.out" "$SRC/network.conf" "$SRC/ssh-password.txt.example" "$SRC/logo.bmp" "$SRC/motiondev.ko" "$SRC"/macro-*.nc "$OUT/"
 cp build/arm/seaotter "$OUT/seaotter"
 if [ -f tools/ssh/out/dropbearmulti ]; then cp tools/ssh/out/dropbearmulti "$OUT/"; else echo "note: no dropbearmulti (tools/ssh/build-dropbear.sh) - SSH left out"; fi
 sed -i 's/\r$//' "$OUT/ddcsv4.out" "$OUT/network.conf"      # the unit's shell needs LF line ends

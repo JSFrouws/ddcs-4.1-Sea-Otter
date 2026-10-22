@@ -1,4 +1,3 @@
-#include <dirent.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -52,15 +51,16 @@ static int has_ext(const char *n)
 	return e && (!strcasecmp(e, ".nc") || !strcasecmp(e, ".ngc") || !strcasecmp(e, ".tap") || !strcasecmp(e, ".gcode") || !strcasecmp(e, ".txt"));
 }
 
+static void add_file(const char *name, void *ctx)
+{
+	(void)ctx;
+	if (U.nfiles < MAXFILES && name[0] != '.' && has_ext(name)) snprintf(U.files[U.nfiles++], sizeof U.files[0], "%.159s", name);
+}
+
 void ui_scan_files(void)
 {
 	U.nfiles = 0;
-	DIR *d = opendir(UI_SRC_DIRS[U.src]);
-	if (!d) return;
-	struct dirent *e;
-	while ((e = readdir(d)) && U.nfiles < MAXFILES)
-		if (e->d_name[0] != '.' && has_ext(e->d_name)) snprintf(U.files[U.nfiles++], sizeof U.files[0], "%.159s", e->d_name);
-	closedir(d);
+	dir_list(UI_SRC_DIRS[U.src], add_file, NULL);
 	for (int i = 1; i < U.nfiles; i++)                  /* sort by name */
 		for (int j = i; j > 0 && strcasecmp(U.files[j - 1], U.files[j]) > 0; j--) {
 			char t[160]; memcpy(t, U.files[j], sizeof t); memcpy(U.files[j], U.files[j - 1], sizeof t); memcpy(U.files[j - 1], t, sizeof t);
@@ -74,6 +74,7 @@ static void page(int d)
 	for (int k = 0; k < n; k++) if (PAGES[k] == U.screen) i = k;
 	U.screen = PAGES[(i + d + n) % n];
 	if (U.screen == SCR_FILES) ui_scan_files();
+	if (U.screen == SCR_MACROS) { extern void macros_scan(void); macros_scan(); }
 }
 
 static void toggle_mode(void)
@@ -100,7 +101,7 @@ void ui_key(pkey_t k)
 	else if (k == K_F3 && C.m == M_ESTOP) ctl_toast(true, "Release the E-stop first (%s)", C.stop_cause[0] ? C.stop_cause : "E-stop input active");
 	else if (k == K_F2 && busy) act(C_PAUSE, NULL, SRC_PANEL);
 	else if (k == K_F3 && C.countdown) { C.countdown = 0; ctl_toast(false, "Remote start cancelled"); }
-	else if (k == K_F3 && (busy || C.m == M_LIMIT)) act(C_STOP, NULL, SRC_PANEL);
+	else if (k == K_F3 && (busy || C.m == M_LIMIT || C.macro_on)) act(C_STOP, NULL, SRC_PANEL);
 	else if (k == K_F7) page(sh ? -1 : 1);
 	else if (k == K_MODE) toggle_mode();
 	else if (k == K_TAB) { int n = ui_npanes(U.screen); U.pane[U.screen] = (U.pane[U.screen] + (sh ? n - 1 : 1)) % n; }

@@ -34,7 +34,8 @@ void gfx_fill(fb_t *f, int x, int y, int w, int h, uint16_t c);
 void gfx_vgrad(fb_t *f, int x, int y, int w, int h, uint16_t top, uint16_t bot);
 void gfx_hgrad(fb_t *f, int x, int y, int w, int h, uint16_t l, uint16_t r);
 void gfx_rect(fb_t *f, int x, int y, int w, int h, uint16_t c);          /* 1 px outline */
-void gfx_panel(fb_t *f, int x, int y, int w, int h, bool focus);         /* themed pane */
+void gfx_panel(fb_t *f, int x, int y, int w, int h, bool focus);
+void gfx_coral(fb_t *f, int x, int y, int w);   /* the 7 px coral divider (boot-logo colours) */         /* themed pane */
 void gfx_line(fb_t *f, int x0, int y0, int x1, int y1, uint16_t c, int width);
 void gfx_dash(fb_t *f, int x0, int y0, int x1, int y1, uint16_t c);
 void gfx_tri(fb_t *f, int x0, int y0, int x1, int y1, int x2, int y2, uint16_t c);

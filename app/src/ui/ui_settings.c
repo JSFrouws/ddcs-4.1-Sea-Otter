@@ -78,10 +78,19 @@ void set_render(fb_t *fb)
 	int x = 8, w = 220;
 	gfx_panel(fb, x, top, w, h, ui_pane() == 0);
 	gfx_text(fb, &font_12, x + 10, top + 6, COL_DIM, "GROUP");
+	const setting_desc_t *items[64];
+	int nitems = group_items(items, 64);
+	bool back = ui_pane() == 1 && (U.item < 0 || U.item >= nitems);   /* cursor on "back to the groups" */
 	for (int i = 0; SETTING_GROUPS[i]; i++) {
 		int y = top + 28 + i * 28;
-		if (i == U.grp) { gfx_hgrad(fb, x + 2, y - 4, w - 4, 26, RGB(0x1f, 0x5a, 0x86), COL_PANE2); gfx_fill(fb, x + 2, y - 4, 3, 26, COL_CYAN); }
-		gfx_text(fb, &font_16, x + 12, y, COL_TXT, SETTING_GROUPS[i]);
+		if (i == U.grp) { gfx_hgrad(fb, x + 2, y - 4, w - 4, 26, RGB(0x1f, 0x5a, 0x86), COL_PANE2); gfx_fill(fb, x + 2, y - 4, 3, 26, back ? COL_AMBER : COL_CYAN); }
+		int tw = gfx_text(fb, &font_16, x + 12, y, COL_TXT, SETTING_GROUPS[i]);
+		if (i == U.grp && back) {                       /* "Axes  <━━" in orange: Enter goes back here */
+			int ax = x + 12 + tw + 10, ay = y + 9;
+			for (int k = 0; k < 9; k++) gfx_fill(fb, ax + k, ay - k, 2, 2 * k + 1, COL_AMBER);   /* arrow head */
+			gfx_fill(fb, ax + 8, ay - 3, 34, 7, COL_AMBER);                                       /* shaft */
+			gfx_rect(fb, x + 2, y - 4, w - 4, 26, COL_AMBER);
+		}
 	}
 	int vx = x + w + 8, vw = CONTENT_W - vx - 8;
 	gfx_panel(fb, vx, top, vw, h, ui_pane() == 1);
@@ -89,9 +98,20 @@ void set_render(fb_t *fb)
 	snprintf(hd, sizeof hd, inl.on ? "%s  ·  EDITING: Y± / X± / HOLD + WHEEL CHANGE  ·  ENTER OR QUICK PRESS ACCEPTS  ·  CANCEL DISCARDS"
 		: "%s  ·  QUICK PRESS / MODIFY / ENTER STARTS EDITING  ·  CANCEL BACK", SETTING_GROUPS[U.grp]);
 	gfx_text(fb, &font_12, vx + 10, top + 6, COL_DIM, hd);
-	if (!strcmp(SETTING_GROUPS[U.grp], "I/O & diagnostics")) { io_page(fb, vx, top + 28, vw); return; }
-	const setting_desc_t *it[64];
-	int n = group_items(it, 64), rows = (h - 40) / 26;
+	if (!strcmp(SETTING_GROUPS[U.grp], "I/O & diagnostics")) {
+		io_page(fb, vx, top + 28, vw);
+		if (back) gfx_text(fb, &font_16, vx + 12, bot - 50, COL_AMBER, "←  back to the groups  ·  Enter / quick press");
+		return;
+	}
+	const setting_desc_t **it = items;
+	int n = nitems, rows = (h - 40) / 26 - 1;          /* one row kept for the "back" line */
+	if (back && U.item < 0) {                           /* before the first: the back line on top */
+		int y = top + 28;
+		gfx_fill(fb, vx + 2, y - 4, vw - 4, 25, RGB(0x3a, 0x2c, 0x10));
+		gfx_rect(fb, vx + 2, y - 4, vw - 4, 25, COL_AMBER);
+		gfx_text(fb, &font_16, vx + 12, y - 1, COL_AMBER, "←  back to the groups  ·  Enter / quick press");
+		top += 26;
+	}
 	int first = CLAMP(U.item - rows + 2, 0, n > rows ? n - rows : 0);
 	for (int i = first; i < n && i < first + rows; i++) {
 		int y = top + 28 + (i - first) * 26;
@@ -116,6 +136,12 @@ void set_render(fb_t *fb)
 		else if (it[i]->machine) gfx_text(fb, &font_12, vx + vw - 210, y + 2, COL_DIM2, "idle only");
 		uint16_t vc = na ? COL_DIM2 : it[i]->type == ST_BOOL ? (setting_get(it[i]) ? COL_GREEN : COL_DIM) : COL_TXT;
 		gfx_text_r(fb, &font_16, vx + vw - 12, y - 1, vc, v);
+	}
+	if (back && U.item >= n) {                          /* past the last: the back line below it */
+		int y = top + 28 + (n - first < rows ? n - first : rows) * 26;
+		gfx_fill(fb, vx + 2, y - 4, vw - 4, 25, RGB(0x3a, 0x2c, 0x10));
+		gfx_rect(fb, vx + 2, y - 4, vw - 4, 25, COL_AMBER);
+		gfx_text(fb, &font_16, vx + 12, y - 1, COL_AMBER, "←  back to the groups  ·  Enter / quick press");
 	}
 	if (!strcmp(SETTING_GROUPS[U.grp], "Network & API"))
 		gfx_text_fit(fb, &font_12, vx + 12, bot - 44, vw - 24, COL_DIM,
@@ -181,15 +207,22 @@ void set_key(pkey_t k, bool sh)
 	if (k == K_CANCEL || k == K_XM) { U.pane[SCR_SETTINGS] = 0; return; }        /* back to the categories */
 	const setting_desc_t *it[64];
 	int n = group_items(it, 64);
+	bool start = k == K_ENTER || k == K_MOD || k == K_F3 || k == K_SEL;     /* incl. a pendant quick press */
 	if (k == K_YP || k == K_YM) {
-		int i = U.item + (k == K_YM ? 1 : -1);
-		if (i < 0 || i >= n) { U.pane[SCR_SETTINGS] = 0; return; }   /* past either end: back to the categories */
-		U.item = i;
+		/* one step past either end lands on "back to the groups" (-1 before the first, n after
+		 * the last) and stays there; only Enter / a quick press there leaves the group, so
+		 * scrolling to the bottom never leaves the category by surprise */
+		if (U.item < 0) U.item = k == K_YM ? 0 : -1;
+		else if (U.item >= n) U.item = k == K_YP ? n - 1 : n;
+		else U.item += k == K_YM ? 1 : -1;
+		if (n == 0) U.item = k == K_YM ? 0 : -1;
 		return;
 	}
-	if (!n) return;
+	if (U.item < 0 || U.item >= n) {                    /* on the back position */
+		if (start) { U.pane[SCR_SETTINGS] = 0; U.item = 0; }
+		return;
+	}
 	const setting_desc_t *d = it[U.item];
-	bool start = k == K_ENTER || k == K_MOD || k == K_F3 || k == K_SEL;     /* incl. a pendant quick press */
 	const char *na = inapplicable(d);
 	if (start && na) { ctl_toast(true, "%s: not used - %s", d->label, na); return; }
 	if (d->machine) { const char *w = can(C_EDIT_SETTING, NULL, SRC_PANEL); if (w) { ctl_toast(true, "%s", w); return; } }

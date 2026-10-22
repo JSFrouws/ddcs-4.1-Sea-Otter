@@ -1,65 +1,62 @@
-/* Macros: preset moves and commands instead of MDI typing (no keyboard on the panel).
- * Y± picks, Select / Enter / F1 runs. Positions live in Settings > Macros. */
+/* Macros: the .nc files in the macro folders (core/macro.h) - nothing is built in. Y± picks,
+ * Select / Enter / F1 arms the macro and goes to the Run page, where Start runs it, Pause
+ * holds it and Reset stops it; the loaded program comes back afterwards. */
 #include <stdio.h>
 #include <string.h>
 #include "ui.h"
+#include "../core/macro.h"
 
-#define MAC_ZEROALL MAC__N                          /* UI-only: a table edit, not a move */
-#define NITEMS (MAC__N + 1)
+static macro_t list[MACRO_MAX];
+static int nlist = -1;
 
-static void describe(int i, char *b, size_t n)
-{
-	char x[24], y[24], z[24];
-	const double *p = i == MAC_PARK ? SET.park : SET.tc;
-	fmt_pos(x, sizeof x, p[0]); fmt_pos(y, sizeof y, p[1]); fmt_pos(z, sizeof z, p[2]);
-	char s[24];
-	fmt_pos(s, sizeof s, SET.safe_z);
-	switch (i) {
-	case MAC_SAFEZ: snprintf(b, n, "Z up to %s mm above work zero (never down)", s); break;
-	case MAC_WORKZERO: snprintf(b, n, "Z up to safe height, then X Y to G%d zero", 54 + WD.active); break;
-	case MAC_PARK: case MAC_TOOLCHANGE: snprintf(b, n, "Z up, X Y to %s / %s, Z to %s (machine)", x, y, z); break;
-	case MAC_WARMUP: snprintf(b, n, "Spindle %.0f rpm for %.0f s, then off", SET.warm_rpm, SET.warm_s); break;
-	default: snprintf(b, n, "G%d X Y Z zero = the current position", 54 + WD.active); break;
-	}
-}
+void macros_scan(void) { nlist = macro_scan(list, MACRO_MAX); if (U.macro >= nlist) U.macro = nlist > 0 ? nlist - 1 : 0; }
 
 void macros_render(fb_t *fb)
 {
+	if (nlist < 0) macros_scan();
 	int top = BODY_Y + ui_banner_h() + 8, bot = SCR_H - SK_H - 8, x = 8, w = CONTENT_W - 16;
 	gfx_panel(fb, x, top, w, bot - top, true);
-	gfx_text(fb, &font_12, x + 10, top + 6, COL_DIM, "MACROS  ·  Y± PICK  ·  SELECT / ENTER RUNS  ·  POSITIONS IN SETTINGS › MACROS");
-	for (int i = 0; i < NITEMS; i++) {
-		int y = top + 30 + i * 44;
-		if (i == U.macro) gfx_fill(fb, x + 2, y - 4, w - 4, 40, RGB(0x17, 0x4a, 0x78));
-		const char *name = i == MAC_ZEROALL ? "Zero all" : MACRO_NAMES[i];
-		gfx_text(fb, &font_16, x + 14, y, COL_TXT, name);
-		char b[160];
-		describe(i, b, sizeof b);
-		gfx_text(fb, &font_12, x + 14, y + 20, COL_DIM, b);
-		bool homed_only = (i == MAC_PARK || i == MAC_TOOLCHANGE) && !C.homed;
-		if (homed_only) gfx_text_r(fb, &font_12, x + w - 14, y + 3, COL_AMBER, "home first");
+	gfx_text(fb, &font_12, x + 10, top + 6, COL_DIM, "MACROS  ·  Y± PICK  ·  SELECT / ENTER ARMS IT ON THE RUN PAGE  ·  F4 RESCAN");
+	int rows = (bot - top - 110) / 40;
+	int first = CLAMP(U.macro - rows + 1, 0, nlist > rows ? nlist - rows : 0);
+	for (int i = first; i < nlist && i < first + rows; i++) {
+		int y = top + 28 + (i - first) * 40;
+		if (i == U.macro) gfx_fill(fb, x + 2, y - 4, w - 4, 38, RGB(0x17, 0x4a, 0x78));
+		gfx_text(fb, &font_16, x + 14, y, COL_TXT, list[i].name);
+		gfx_text_fit(fb, &font_12, x + 14, y + 19, w - 220, COL_DIM, list[i].info[0] ? list[i].info : "(no info line)");
+		const char *tag = list[i].needs_homed && !C.homed ? "home first" : list[i].user ? "network share" : "package";
+		gfx_text_r(fb, &font_12, x + w - 14, y + 3, list[i].needs_homed && !C.homed ? COL_AMBER : COL_DIM2, tag);
 	}
+	if (nlist == 0) gfx_text(fb, &font_16, x + 14, top + 32, COL_AMBER, "No macros found - see below how to add them");
+	/* how to add your own */
+	int hy = bot - 92;
+	gfx_coral(fb, x + 8, hy - 12, w - 16);
+	char b[256];
+	snprintf(b, sizeof b, "Your own macros: put .nc files in %.120s (on the controller: the CNCDISK network share, folder \"macros\").",
+		macro_dir_user[0] ? macro_dir_user : "<programs>/macros");
+	gfx_text_fit(fb, &font_12, x + 14, hy, w - 28, COL_TXT, b);
+	gfx_text_fit(fb, &font_12, x + 14, hy + 18, w - 28, COL_DIM,
+		"Plain G-code. Optional first lines: (name: ...)  (info: ...)  (needs: homed). Values filled in at Start: {jog.safe_z} or any setting key,");
+	gfx_text_fit(fb, &font_12, x + 14, hy + 34, w - 28, COL_DIM,
+		"{machine.x} {work.z} (position), {max:work.z,jog.safe_z}. The package's own macro-*.nc files live in the app folder and come with each update.");
+	gfx_text_fit(fb, &font_12, x + 14, hy + 50, w - 28, COL_DIM2, "Details and examples: docs/user-manual.md, section Macros.");
 }
 
 void macros_sk(sk_t sk[7])
 {
-	sk[0] = (sk_t){ "Run", U.macro == MAC_ZEROALL ? "set zero" : "macro" };
+	sk[0] = (sk_t){ "Arm", "→ Run page" };
+	sk[3] = (sk_t){ "Rescan", "folders" };
 	sk[6] = (sk_t){ "Page R", U.shift ? "previous" : "Settings" };
 }
 
 void macros_key(pkey_t k, bool sh)
 {
-	if (k == K_YP) { U.macro = CLAMP(U.macro - 1, 0, NITEMS - 1); return; }
-	if (k == K_YM) { U.macro = CLAMP(U.macro + 1, 0, NITEMS - 1); return; }
+	if (nlist < 0) macros_scan();
+	if (k == K_YP) { U.macro = CLAMP(U.macro - 1, 0, nlist > 0 ? nlist - 1 : 0); return; }
+	if (k == K_YM) { U.macro = CLAMP(U.macro + 1, 0, nlist > 0 ? nlist - 1 : 0); return; }
+	if (k == K_F4) { macros_scan(); ctl_toast(false, "%d macros", nlist); return; }
 	if (k != K_F1 && k != K_SEL && k != K_ENTER) return;
-	if (U.macro == MAC_ZEROALL) {
-		const char *why = can(C_EDIT_TABLE, NULL, SRC_PANEL);
-		if (why) { ctl_toast(true, "%s", why); return; }
-		for (int a = 0; a <= AX_Z; a++) WD.wcs[WD.active].off[a] = C.mo.pos[a];
-		workdata_save(C.wd_path);
-		ctl_toast(false, "G%d X Y Z zero = here", 54 + WD.active);
-		return;
-	}
-	arg_t a = { .kind = U.macro };
-	act(C_MACRO, &a, SRC_PANEL);
+	if (U.macro < 0 || U.macro >= nlist) return;
+	arg_t a = { .path = list[U.macro].path };
+	if (act(C_MACRO, &a, SRC_PANEL) && C.macro_on) U.screen = SCR_RUN;   /* armed: Start runs it there */
 }

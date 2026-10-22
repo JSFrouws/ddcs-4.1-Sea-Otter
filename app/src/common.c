@@ -1,4 +1,9 @@
+#define _GNU_SOURCE
+#include <fcntl.h>
+#include <string.h>
+#include <sys/syscall.h>
 #include <time.h>
+#include <unistd.h>
 #include "common.h"
 
 const char AXIS_CH[NAXES] = { 'X', 'Y', 'Z', 'A' };
@@ -27,3 +32,22 @@ uint64_t now_us(void)
 
 void clock_use_virtual(bool on) { virt = on; virt_ms = 0; }
 void clock_advance(uint32_t ms) { virt_ms += ms; }
+
+struct dent64 { uint64_t ino; int64_t off; unsigned short reclen; unsigned char type; char name[]; };
+
+int dir_list(const char *dir, void (*fn)(const char *name, void *ctx), void *ctx)
+{
+	int fd = open(dir, O_RDONLY | O_DIRECTORY);
+	if (fd < 0) return -1;
+	char buf[4096] __attribute__((aligned(8)));
+	long n;
+	int count = 0;
+	while ((n = syscall(SYS_getdents64, fd, buf, sizeof buf)) > 0)
+		for (long p = 0; p < n;) {
+			struct dent64 *e = (struct dent64 *)(buf + p);
+			if (strcmp(e->name, ".") && strcmp(e->name, "..")) { fn(e->name, ctx); count++; }
+			p += e->reclen;
+		}
+	close(fd);
+	return n < 0 ? -1 : count;
+}

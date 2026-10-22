@@ -40,6 +40,7 @@ static void topbar(fb_t *fb)
 	static const char *const titles[SCR__N] = { "Run", "Jog", "Files", "Work zero & probe", "Tools", "Settings", "Macros" };
 	gfx_vgrad(fb, 0, 0, SCR_W, TOP_H, RGB(0x16, 0x44, 0x7e), RGB(0x0d, 0x2c, 0x56));
 	gfx_fill(fb, 0, TOP_H - 1, SCR_W, 1, COL_EDGE2);
+	gfx_coral(fb, 0, TOP_H - 6, SCR_W);                     /* coral divider under the top bar */
 	const char *mode = U.screen == SCR_JOG ? "JOG" : U.screen == SCR_RUN ? "AUTO" : "SETUP";
 	pill(fb, 10, 10, mode, COL_CYAN);
 	int x = 10 + gfx_text_w(&font_12, mode) + 30;
@@ -64,7 +65,7 @@ static void topbar(fb_t *fb)
 
 int ui_banner_h(void)
 {
-	return (C.m == M_ESTOP || C.m == M_LIMIT || C.m == M_OFF || C.countdown || (C.m == M_HOLD && C.pause_msg[0]) || C.driver_warn[0]) ? 30 : 0;
+	return (C.m == M_ESTOP || C.m == M_LIMIT || C.m == M_OFF || C.countdown || (C.m == M_HOLD && C.pause_msg[0]) || C.driver_warn[0] || C.macro_on) ? 30 : 0;
 }
 
 static void banner(fb_t *fb)
@@ -92,6 +93,12 @@ static void banner(fb_t *fb)
 		C.stop_cause[0] ? C.stop_cause : "switched off"); }
 	else if (C.countdown) { c0 = RGB(0x1c, 0x6f, 0xd0); snprintf(b, sizeof b, "REMOTE START in %d s   requested over the API  ·  Reset cancels", C.countdown); }
 	else if (C.m == M_HOLD && C.pause_msg[0]) { c0 = COL_AMBER; tc = COL_BLACK; snprintf(b, sizeof b, "%s", C.pause_msg); }
+	else if (C.macro_on) {
+		c0 = RGB(0x1a, 0x8f, 0x78);                         /* teal: a macro instead of the program */
+		if (C.m == M_RUN) snprintf(b, sizeof b, "MACRO  ·  %s running  ·  F2 Pause holds  ·  F3 Reset stops it", C.macro_name);
+		else if (C.m == M_HOLD) snprintf(b, sizeof b, "MACRO  ·  %s on hold  ·  F1 Start continues  ·  F3 Reset stops it", C.macro_name);
+		else snprintf(b, sizeof b, "MACRO  ·  %s armed  ·  F1 Start runs it  ·  F3 Reset cancels (your program comes back)", C.macro_name);
+	}
 	else snprintf(b, sizeof b, "UNTESTED FPGA DRIVER  ·  %.150s  ·  reinstall the Sea Otter package", C.driver_warn);   /* stays */
 	gfx_hgrad(fb, 0, BODY_Y, CONTENT_W, 30, c0, gfx_mix(COL_BG1, c0, 6));
 	gfx_text_fit(fb, &font_16, 12, BODY_Y + 5, CONTENT_W - 24, tc, b);
@@ -102,6 +109,7 @@ static void softkeys(fb_t *fb, const sk_t sk[7])
 	int y = SCR_H - SK_H, w = SCR_W / 8;
 	gfx_vgrad(fb, 0, y, SCR_W, SK_H, RGB(0x0d, 0x2c, 0x56), RGB(0x08, 0x1f, 0x3f));
 	gfx_fill(fb, 0, y, SCR_W, 1, COL_EDGE2);
+	gfx_coral(fb, 0, y - 7, SCR_W);                          /* and above the soft keys */
 	uint16_t lc = U.shift ? COL_AMBER : COL_TXT, fc = U.shift ? COL_AMBER : COL_CYAN;
 	for (int i = 0; i < 8; i++) {
 		int x = i * w;

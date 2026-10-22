@@ -120,6 +120,15 @@ void test_ui(void)
 	ui_key(K_F7); CHECK(U.screen == SCR_WORK); snap("06_work");
 	ui_key(K_F7); CHECK(U.screen == SCR_TOOLS); snap("07_tools");
 	ui_key(K_F7); CHECK(U.screen == SCR_MACROS); snap("07b_macros");
+	{                                                 /* Enter arms the macro and goes to Run */
+		char keep[128]; snprintf(keep, sizeof keep, "%s", C.prog.name);
+		U.macro = 0; ui_key(K_ENTER);
+		CHECK(U.screen == SCR_RUN && C.macro_on && ui_banner_h() > 0);
+		snap("07c_macro_armed");
+		ui_key(K_F3);                                 /* Reset cancels: the program is back */
+		CHECK(!C.macro_on && !strcmp(C.prog.name, keep));
+		U.screen = SCR_MACROS;
+	}
 	ui_key(K_F7); CHECK(U.screen == SCR_SETTINGS); snap("08_settings");
 	ui_key(K_SHIFT); ui_key(K_F7); CHECK(U.screen == SCR_MACROS);  /* ALT + Page R = back */
 	ui_key(K_F7); ui_key(K_F7); CHECK(U.screen == SCR_RUN);
@@ -153,10 +162,22 @@ void test_ui(void)
 	CHECK(SET.pos_dec == 1);
 	ui_key(K_MOD); ui_key(K_XP); ui_key(K_CANCEL);   /* Cancel discards */
 	CHECK(SET.pos_dec == 1);
-	U.item = 0; ui_key(K_YP);                        /* up past the first value: back to the categories */
+	/* past either end: an orange "back to the groups" position that does NOT leave the group
+	 * by itself - one step back returns to the list, Enter there goes to the categories */
+	U.item = 0; ui_key(K_YP);
+	CHECK(ui_pane() == 1 && U.item == -1);
+	snap("08a_settings_back_top");
+	ui_key(K_YP); CHECK(ui_pane() == 1 && U.item == -1);            /* stays, doesn't wrap */
+	ui_key(K_YM); CHECK(ui_pane() == 1 && U.item == 0);             /* back into the list */
+	ui_key(K_YP); ui_key(K_ENTER);
 	CHECK(ui_pane() == 0);
 	ui_key(K_ENTER); U.item = 0;
-	for (int i = 0; i < 20 && ui_pane() == 1; i++) ui_key(K_YM);   /* down past the last one too */
+	int last = -1;
+	for (int i = 0; i < 40; i++) { ui_key(K_YM); if (U.item == last) break; last = U.item; }
+	CHECK(ui_pane() == 1 && U.item > 0);                            /* scrolled to the bottom, still in the group */
+	snap("08b_settings_back_bottom");
+	ui_key(K_YP); CHECK(ui_pane() == 1 && U.item == last - 1);      /* the last real item again */
+	ui_key(K_YM); ui_key(K_SEL);                                    /* a quick press on the back line */
 	CHECK(ui_pane() == 0);
 	char b[32]; fmt_pos(b, sizeof b, -12.3456);
 	CHECK(!strcmp(b, "−12.3"));

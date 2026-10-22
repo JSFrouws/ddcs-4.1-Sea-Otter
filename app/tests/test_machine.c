@@ -3,7 +3,10 @@
 #include <math.h>
 #include <string.h>
 #include "t.h"
+#include <sys/stat.h>
+#include <unistd.h>
 #include "core/machine.h"
+#include "core/macro.h"
 #include "sim/fpga_sim.h"
 
 static const char *PROG =
@@ -76,24 +79,85 @@ void test_machine(void)
 	CHECK_NEAR(sim_pos_mm(AX_Z), -15, 0.06);
 	CHECK(SIM.crashes == 0);
 
-	/* --- macros: park (machine position, Z up first), warm-up (spindle on, then off) --- */
+	/* --- macros are files: the package's macro-*.nc plus the operator's own folder. Picking
+	 * one arms it as the program on the Run page; Start runs it, Pause holds, Start goes on,
+	 * Reset stops it - and the loaded program comes back afterwards --- */
 	{
+		snprintf(macro_dir_sys, sizeof macro_dir_sys, "../install/usb/ddcsv4");
+		mkdir("umacros", 0755);
+		FILE *f = fopen("umacros/nudge-x.nc", "w");
+		fputs("(name: Nudge X)\n(info: my own macro)\nG91\nG0 X{max:2,1}\nG90\n", f);
+		fclose(f);
+		snprintf(macro_dir_user, sizeof macro_dir_user, "umacros");
+		static macro_t ml[MACRO_MAX];
+		int nm = macro_scan(ml, MACRO_MAX);
+		bool park = false, mine = false;
+		for (int k = 0; k < nm; k++) { park |= !strcmp(ml[k].name, "Park") && ml[k].needs_homed && !ml[k].user; mine |= !strcmp(ml[k].name, "Nudge X") && ml[k].user; }
+		CHECK(nm >= 7 && park && mine);
+
+		/* placeholders: settings, position, max/min; an unknown name is an error */
+		char out[200], err[120];
+		const char *src = "G0 Z{max:work.z,jog.safe_z} F{jog.feed}";
+		CHECK(macro_expand(src, strlen(src), out, sizeof out, err, sizeof err) > 0);
+		char want[120];
+		snprintf(want, sizeof want, "G0 Z%.4f F%.4f", fmax(ctl_work(AX_Z), SET.safe_z), SET.jog_feed);
+		CHECK(!strcmp(out, want));
+		src = "G0 X{no.such.key}";
+		CHECK(macro_expand(src, strlen(src), out, sizeof out, err, sizeof err) < 0 && strstr(err, "no.such.key"));
+
+		char prog_name[128];
+		snprintf(prog_name, sizeof prog_name, "%s", C.prog.name);
 		double back[NAXES];
 		memcpy(back, C.mo.pos, sizeof back);
 		SET.park[0] = 60; SET.park[1] = 70; SET.park[2] = -12;
-		arg_t m = { .kind = MAC_PARK };
-		CHECK(act(C_MACRO, &m, SRC_PANEL) && C.m == M_MOVE);
+		arg_t m = { .path = "Park" };
+		CHECK(act(C_MACRO, &m, SRC_PANEL) && C.macro_on && C.m == M_IDLE);   /* armed, nothing moves yet */
+		CHECK(!strcmp(C.prog.name, "Park") && fabs(C.mo.pos[AX_X] - back[AX_X]) < 1e-9);
+		CHECK(act(C_START, NULL, SRC_PANEL) && C.m == M_RUN);
 		fx_until_idle(60000);
-		CHECK(C.m == M_IDLE);
+		CHECK(C.m == M_IDLE && !C.macro_on && !strcmp(C.prog.name, prog_name));   /* program back */
 		CHECK_NEAR(C.mo.pos[AX_X], 60, 1e-6); CHECK_NEAR(C.mo.pos[AX_Y], 70, 1e-6); CHECK_NEAR(C.mo.pos[AX_Z], -12, 1e-6);
-		SET.warm_s = 1; SET.warm_rpm = 6000;
-		m.kind = MAC_WARMUP;
-		CHECK(act(C_MACRO, &m, SRC_PANEL));
-		fx_run(200);
-		CHECK(C.spindle && C.m == M_MOVE);
-		fx_run(1200);
-		CHECK(!C.spindle && C.m == M_IDLE);
-		motion_move_to(&C.mo, back, 0, true);          /* back where homing left it */
+
+		/* warm-up: Pause holds it, Start continues, Reset stops it halfway */
+		SET.warm_s = 4; SET.warm_rpm = 6000;
+		m.path = "macro-warm-up.nc";                          /* by file name works too */
+		CHECK(act(C_MACRO, &m, SRC_PANEL) && C.macro_on);
+		CHECK(act(C_START, NULL, SRC_PANEL));
+		fx_run(400);
+		CHECK(C.m == M_RUN && C.spindle);
+		CHECK(act(C_PAUSE, NULL, SRC_PANEL) && C.m == M_HOLD && C.macro_on);
+		CHECK(act(C_START, NULL, SRC_PANEL) && C.m == M_RUN);
+		fx_run(300);
+		CHECK(act(C_STOP, NULL, SRC_PANEL) && C.m == M_IDLE);
+		CHECK(!C.spindle && !C.macro_on && !strcmp(C.prog.name, prog_name));
+
+		/* Reset before Start just cancels; the user's own macro from the share folder runs */
+		m.path = "Nudge X";
+		CHECK(act(C_MACRO, &m, SRC_PANEL) && C.macro_on);
+		CHECK(act(C_STOP, NULL, SRC_PANEL) && !C.macro_on && !strcmp(C.prog.name, prog_name));
+		double x0 = C.mo.pos[AX_X];
+		CHECK(act(C_MACRO, &m, SRC_PANEL) && act(C_START, NULL, SRC_PANEL));
+		fx_until_idle(30000);
+		CHECK_NEAR(C.mo.pos[AX_X], x0 + 2, 1e-6);
+
+		/* needs: homed - refused un-homed; and a macro whose rapid leaves the bench box is
+		 * refused at Start (rapids count for the limit check, not only cutting moves) */
+		C.homed = false;
+		m.path = "Park";
+		CHECK(can(C_MACRO, &m, SRC_PANEL) != NULL);
+		C.homed = true;
+		SET.bench_limits = true;
+		for (int a = 0; a < 3; a++) { SET.ax[a].bench_min = C.mo.pos[a] - 5; SET.ax[a].bench_max = C.mo.pos[a] + 5; }
+		CHECK(act(C_MACRO, &m, SRC_PANEL) && C.macro_on);
+		const char *why = can(C_START, NULL, SRC_PANEL);
+		CHECK(why && strstr(why, "bench limit"));
+		CHECK(!act(C_START, NULL, SRC_PANEL) && C.m == M_IDLE);
+		act(C_STOP, NULL, SRC_PANEL);
+		SET.bench_limits = false;
+		CHECK(!C.macro_on && !strcmp(C.prog.name, prog_name));
+		remove("umacros/nudge-x.nc"); rmdir("umacros");
+
+		motion_move_to(&C.mo, back, 0, true);                /* back where homing left it */
 		fx_until_idle(60000);
 		CHECK_NEAR(C.mo.pos[AX_X], back[AX_X], 1e-6);
 	}
