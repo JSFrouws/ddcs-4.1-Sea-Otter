@@ -1,4 +1,7 @@
-"""Generate the PLACEHOLDER Sea Otter boot logo: app/install/usb/ddcsv4/logo.bmp.
+"""Generate the simple PLACEHOLDER boot logo: app/install/logo/logo-placeholder.bmp.
+
+The logo actually shipped is app/install/usb/ddcsv4/logo.bmp (the artwork); this script
+does not touch it. Kept as a reference for the format and as a fallback.
 
 The controller's boot logo is a 1024 x 600, 24-bit, uncompressed Windows BMP named
 logo.bmp in the ddcsv4 folder (same format as the vendor's). Sea Otter shows it while it
@@ -13,7 +16,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.dirname(os.path.dirname(HERE))
-OUT = os.path.join(APP, "install", "usb", "ddcsv4", "logo.bmp")
+OUT = os.path.join(HERE, "logo-placeholder.bmp")
 FONTS = os.path.join(APP, "tools", "fonts")
 W, H = 1024, 600
 
@@ -90,4 +93,4 @@ d.text((74, 540), "placeholder boot logo - replace ddcsv4/logo.bmp (1024 x 600, 
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 img.save(OUT, "BMP")
 print("wrote", OUT, os.path.getsize(OUT), "bytes")
-img.save(os.path.join(HERE, "logo-preview.png"))
+img.save(os.path.join(HERE, "logo-placeholder.png"))

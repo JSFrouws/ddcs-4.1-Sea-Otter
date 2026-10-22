@@ -37,8 +37,9 @@ void test_ui(void)
 		display_t d;
 		display_open(&d, NULL);
 		CHECK(display_logo(&d, "../install/usb/ddcsv4/logo.bmp"));
-		uint16_t px = d.front[300 * SCR_W + 20];                 /* dark sea, left margin */
-		CHECK(((px >> 11) & 31) < 8 && (px & 31) > 2);           /* dark, and blue above red */
+		int colours = 0;                                         /* a picture, not a blank screen */
+		for (int i = 1; i < SCR_W * SCR_H && colours < 50; i += 997) colours += d.front[i] != d.front[i - 1];
+		CHECK(colours >= 50);
 		CHECK(d.frame_no == 1);
 		FILE *f = fopen("not_a_logo.bmp", "wb");
 		if (f) { fputs("BM this is not a 1024x600 bitmap", f); fclose(f); }

@@ -2,11 +2,15 @@
 
 Sea Otter shows `logo.bmp` from the controller's app folder (`/ddcsv4/logo.bmp`) for about
 2 seconds while it starts — the same file and format the vendor software uses for its start
-screen. A key press skips it. The one in the package is a **placeholder**
-(`app/install/usb/ddcsv4/logo.bmp`, made by `app/install/logo/make-logo.py`); replace it with
-your own artwork.
+screen. A key press skips it. The shipped logo is `app/install/usb/ddcsv4/logo.bmp`: an
+image-generator picture made from the prompt below, cropped from 16:9 (1672 × 941) to 128:75
+by trimming 46 px on the left and 20 px on the right, scaled to 1024 × 600 and saved as a
+24-bit BMP. This is how it looks on the controller (captured from its framebuffer):
 
-![placeholder](../app/install/logo/logo-preview.png)
+![boot logo](../app/install/logo/logo-preview.png)
+
+`app/install/logo/make-logo.py` draws a simple placeholder in the same format
+(`logo-placeholder.bmp`), for reference.
 
 ## Format (must match exactly)
 
