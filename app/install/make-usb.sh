@@ -2,7 +2,7 @@
 # Assemble the USB update package, in the same layout as the vendor's own update package
 # (ddcsv4(2025-04-04).rar -> ddcsv4(2025-04-04)/ddcsv4/...):
 #
-#   build/seaotter(<VERSION>).zip
+#   build/seaotter-<VERSION>.zip     (no parentheses in the file name: GitHub renames them)
 #     seaotter(<VERSION>)/ddcsv4/   <- copy THIS folder to the root of an empty FAT32 stick
 #         ddcsv4.out      start script (the file the controller's boot script runs)
 #         seaotter        the app
@@ -16,7 +16,8 @@
 set -e
 cd "$(dirname "$0")/.."
 VER=${1:-${PIPELINE_ID:-local}}
-NAME="seaotter($VER)"
+NAME="seaotter($VER)"                # the folder inside, like the vendor's ddcsv4(2025-04-04)
+ZIP="seaotter-$VER.zip"
 SRC=install/usb/ddcsv4
 OUT="build/usb/$NAME/ddcsv4"
 KO_TESTED=136136bd4404b8a82114ba051c7023d3
@@ -42,7 +43,7 @@ sys.exit(0 if ok else "logo.bmp must be a 1024 x 600 24-bit uncompressed BMP")
 EOF
 
 # the zip (python: no zip tool needed; keeps the executable bits for Linux unzippers)
-python3 - "build/usb" "$NAME" "build/$NAME.zip" <<'EOF'
+python3 - "build/usb" "$NAME" "build/$ZIP" <<'EOF'
 import os, sys, zipfile
 root, name, out = sys.argv[1:]
 with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
@@ -58,7 +59,7 @@ with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
             zi.compress_type = zipfile.ZIP_DEFLATED
             z.writestr(zi, open(p, "rb").read())
 EOF
-( cd build && sha256sum "$NAME.zip" > "$NAME.zip.sha256" )
+( cd build && sha256sum "$ZIP" > "$ZIP.sha256" )
 ls -l "$OUT"
-echo "package: build/$NAME.zip"
-cat "build/$NAME.zip.sha256"
+echo "package: build/$ZIP"
+cat "build/$ZIP.sha256"

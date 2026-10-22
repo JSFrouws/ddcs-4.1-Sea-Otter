@@ -57,13 +57,13 @@ only needed for development; for normal use the USB stick is enough.
 ## What you need
 
 - A USB stick formatted **FAT32**.
-- The install package `seaotter(<version>).zip` from the
+- The install package `seaotter-<version>.zip` from the
   [Releases](https://github.com/JSFrouws/ddcs-4.1-Sea-Otter/releases) page, or built with
   `app/install/make-usb.sh` (below). It has the **same layout as the vendor's update package**
   (`ddcsv4(2025-04-04).rar` → `ddcsv4(2025-04-04)/ddcsv4/…`):
 
 ```
-seaotter(v0.2.0).zip
+seaotter-v0.2.0.zip      (v0.2.0 itself is called seaotter.v0.2.0.zip on GitHub)
 └── seaotter(v0.2.0)/
     └── ddcsv4/             <- this folder goes to the root of the USB stick
         ├── ddcsv4.out      the start script (takes the place of the vendor's ddcsv4.out)
@@ -172,7 +172,7 @@ In WSL / Linux, from `app/`:
 ```sh
 make arm                              # build/arm/seaotter
 sh tools/ssh/build-dropbear.sh        # tools/ssh/out/dropbearmulti (once)
-sh install/make-usb.sh v0.2.0         # -> build/seaotter(v0.2.0).zip (+ .sha256)
+sh install/make-usb.sh v0.2.0         # -> build/seaotter-v0.2.0.zip (+ .sha256)
 ```
 
 The package sources are in `app/install/usb/ddcsv4/` (start script, `network.conf`,

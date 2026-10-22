@@ -1,7 +1,7 @@
 # Build, test and package Sea Otter on GitHub's hosted runners (free for public repositories).
 #
 #   every push / pull request   tests (native + ARM under qemu), the ARM binary, the USB package
-#                               -> kept as a workflow artifact ("seaotter(gh-<run>)")
+#                               -> kept as a workflow artifact ("seaotter-gh-<run>")
 #   a tag v*  (git tag v0.1.0 && git push --tags)
 #                               -> the same, published as a GitHub Release with the zip attached
 #
@@ -52,16 +52,16 @@ jobs:
         run: |
           VER=$PIPELINE_ID
           case "$GITHUB_REF" in refs/tags/v*) VER=$GITHUB_REF_NAME;; esac
-          echo "PKG=seaotter($VER)" >> $GITHUB_ENV
+          echo "PKG=seaotter-$VER" >> $GITHUB_ENV
           sh install/make-usb.sh "$VER"
-          unzip -l "build/seaotter($VER).zip"
+          unzip -l "build/seaotter-$VER.zip"
 
       - uses: actions/upload-artifact@v6
         with:
           name: ${{ env.PKG }}
           path: |
-            app/build/seaotter*.zip
-            app/build/seaotter*.zip.sha256
+            app/build/seaotter-*.zip
+            app/build/seaotter-*.zip.sha256
           retention-days: 90
 
       - name: Release (tags only)
