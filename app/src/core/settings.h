@@ -22,6 +22,7 @@ typedef struct {
 	axis_set_t ax[NAXES];
 	int home_order;            /* index into HOME_ORDERS */
 	bool soft_limits;
+	bool retain_homed;         /* homed survives a restart / power cut if the machine was at rest (off by default) */
 	bool bench_limits;         /* the bench box (axis.*.bench_min/max) is enforced, homed or not */
 	bool limit_level_high;     /* vendor "active electric level High" = active when open */
 	int estop_port; bool estop_level_high;

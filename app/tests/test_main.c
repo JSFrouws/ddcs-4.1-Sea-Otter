@@ -26,6 +26,13 @@ void fx_reset(void)
 	ctl_init(bus, true, "t_settings.cfg", "t_work.cfg");
 }
 
+/* an app restart: same files, same (simulated) FPGA counters */
+void fx_restart(void)
+{
+	program_free(&C.prog);
+	ctl_init(bus, true, "t_settings.cfg", "t_work.cfg");
+}
+
 void fx_run(int ms)
 {
 	for (int t = 0; t < ms; t += TICK_MS) {

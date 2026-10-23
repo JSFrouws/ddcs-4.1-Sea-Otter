@@ -49,6 +49,7 @@ versus what's still factory default.
 ## What this tells us about the machine
 
 - **Work envelope:** X 10–915&nbsp;mm, Y 10–590&nbsp;mm, Z −300…−10&nbsp;mm
+  *(the vendor config as found. Sea Otter defaults to the machine's real 400 × 200 × 100 mm since 2026-10-23: X 0–400, Y 0–200, Z −100…0)*
   (software limits `#235-242`) — a ~900×580&nbsp;mm router bed with ~290&nbsp;mm
   of Z travel. This replaces the placeholder travel numbers used earlier in
   [architecture.md](architecture.md) and the UI mockup.

@@ -14,5 +14,6 @@ extern int t_fail, t_pass;
 void fx_reset(void);
 void fx_run(int ms);                 /* advance controller + sim in 10 ms ticks */
 void fx_until_idle(int max_ms);
+void fx_restart(void);               /* ctl_init again on the same files (app restart) */
 
 #endif

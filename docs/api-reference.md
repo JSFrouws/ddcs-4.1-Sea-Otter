@@ -36,7 +36,7 @@ Also served on the same port (not under `/api/v1/`):
 ## Machine states
 
 `state` is one of: `ESTOP`, `OFF` (drives off), `IDLE`, `MOVE` (goto / macro), `HOMING`,
-`PROBING`, `RUN`, `HOLD`, `LIMIT`, `TOOL` (a program waits at an M6 for a tool change by
+`PROBING`, `RUN`, `HOLD` (a program on hold, or a paused Goto 0: `run/start` continues either), `LIMIT`, `TOOL` (a program waits at an M6 for a tool change by
 hand: jog and touch-off allowed; `run/start` twice goes back and continues, `run/stop`
 stops the program). What each state accepts is in
 [operator-procedures.md](operator-procedures.md) § state machine.
@@ -225,6 +225,7 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `axis.<X|Y|Z|A>.home_backoff` | Homing & limits | back-off after home | mm | number, 0 to 500 | yes |
 | `home.order` | Homing & limits | Home order |  | choice index 0 to 3 | yes |
 | `limits.soft` | Homing & limits | Soft limits (when homed) |  | on/off | yes |
+| `home.retain` | Homing & limits | Keep the homed state after a restart / power cut (only if the machine was at rest; off by default) |  | on/off | yes |
 | `limits.bench` | Homing & limits | Bench limits (work box, also un-homed) |  | on/off | yes |
 | `limits.level_high` | Homing & limits | Limit/home active when open (NC) |  | on/off | yes |
 | `estop.port` | Homing & limits | External E-stop input (0 = none) | IN | whole number, 0 to 18 | yes |

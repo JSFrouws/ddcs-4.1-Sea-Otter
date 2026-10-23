@@ -32,7 +32,7 @@ common:
 	return true;
 }
 
-typedef struct { double cy, sy, ce, se, cx0, cy0, cz0, sc; int ox, oy; bool iso; } proj_t;
+typedef struct { double cy, sy, ce, se, cx0, cy0, cz0, sc, zf; int ox, oy; bool iso; } proj_t;
 void view_proj(proj_t *p, int x, int y, int w, int h);
 
 static void P(const proj_t *p, double x, double y, double z, int *sx, int *sy)
@@ -40,7 +40,7 @@ static void P(const proj_t *p, double x, double y, double z, int *sx, int *sy)
 	double dx = x - p->cx0, dy = y - p->cy0, dz = z - p->cz0;
 	double xr = dx * p->cy - dy * p->sy, yr = dx * p->sy + dy * p->cy;
 	*sx = p->ox + (int)lround(xr * p->sc);
-	*sy = p->oy - (int)lround((yr * p->se + dz * 3 * p->ce) * p->sc);   /* depth ×3 so Z reads */
+	*sy = p->oy - (int)lround((yr * p->se + dz * p->zf * p->ce) * p->sc);   /* depth ×zf so Z reads */
 }
 
 /* The toolpath is drawn once into a cache (the panel background + stock + triad + path) and
@@ -138,6 +138,15 @@ static void prog_box(double lo[3], double hi[3])
 	if (!pg->loaded || (hi[0] - lo[0] < 1e-3 && hi[1] - lo[1] < 1e-3)) { lo[0] = lo[1] = 0; hi[0] = 100; hi[1] = 70; lo[2] = -5; hi[2] = 0; }
 }
 
+/* the grid's height (work Z): the machine's Z floor (the Z soft limit -), when it is a
+ * sensible distance below the program; else just under the program */
+static double floor_z(const double lo[3])
+{
+	double z = SET.ax[AX_Z].soft_min - WD.wcs[WD.active].off[AX_Z];
+	double low = fmin(lo[2], 0);
+	return z <= low && z > low - 1000 ? z : low - 1;
+}
+
 /* the other JOB parts' zeros, relative to the active work zero; returns how many */
 static int job_zeros(int idx[NWCS], double d[NWCS][3])
 {
@@ -166,12 +175,15 @@ void view_proj(proj_t *p, int x, int y, int w, int h)
 	for (int a = 0; a < 3; a++) { lo[a] = fmin(lo[a], 0); hi[a] = fmax(hi[a], 0); }
 	int nj = job_zeros(idx, d);
 	for (int k = 0; k < nj; k++) for (int a = 0; a < 3; a++) { lo[a] = fmin(lo[a], d[k][a]); hi[a] = fmax(hi[a], d[k][a]); }
+	if (p->iso) lo[2] = fmin(lo[2], floor_z(lo));       /* the grid lies on the Z floor */
+	/* Z is stretched (up to ×3) so a flat part reads, but never beyond the X-Y size */
+	p->zf = CLAMP(fmax(hi[0] - lo[0], hi[1] - lo[1]) * 0.6 / fmax(hi[2] - lo[2], 1e-3), 1, 3);
 	p->cx0 = (lo[0] + hi[0]) / 2 + (p->iso ? 0 : U.view.panx); p->cy0 = (lo[1] + hi[1]) / 2 + (p->iso ? 0 : U.view.pany); p->cz0 = (lo[2] + hi[2]) / 2;
 	/* the box's corners at scale 1: their screen extent decides the scale and the centre */
 	double ex0 = 1e30, ex1 = -1e30, ey0 = 1e30, ey1 = -1e30;
 	for (int c = 0; c < 8; c++) {
 		double dx = (c & 1 ? hi[0] : lo[0]) - p->cx0, dy = (c & 2 ? hi[1] : lo[1]) - p->cy0, dz = (c & 4 ? hi[2] : lo[2]) - p->cz0;
-		double xr = dx * p->cy - dy * p->sy, yr = dx * p->sy + dy * p->cy, v = yr * p->se + dz * 3 * p->ce;
+		double xr = dx * p->cy - dy * p->sy, yr = dx * p->sy + dy * p->cy, v = yr * p->se + dz * p->zf * p->ce;
 		ex0 = fmin(ex0, xr); ex1 = fmax(ex1, xr); ey0 = fmin(ey0, v); ey1 = fmax(ey1, v);
 	}
 	int top = 58, bot = 22;                              /* the ARMED chip, % and estimate above, the view name below */
@@ -194,7 +206,7 @@ static void triad(fb_t *fb, const proj_t *p, double x, double y, double z, int p
 	P(p, x, y, z, &ax, &ay);
 	P(p, x + L, y, z, &bx, &by); gfx_line(fb, ax, ay, bx, by, cx, wd); if (big) gfx_text(fb, &font_12, bx + 3, by - 8, COL_DIM, "X");
 	P(p, x, y + L, z, &bx, &by); gfx_line(fb, ax, ay, bx, by, cy, wd); if (big) gfx_text(fb, &font_12, bx + 3, by - 8, COL_DIM, "Y");
-	if (p->iso) { P(p, x, y, z + L / 3, &bx, &by); gfx_line(fb, ax, ay, bx, by, cz, wd); if (big) gfx_text(fb, &font_12, bx + 3, by - 12, COL_DIM, "Z"); }
+	if (p->iso) { P(p, x, y, z + L / p->zf, &bx, &by); gfx_line(fb, ax, ay, bx, by, cz, wd); if (big) gfx_text(fb, &font_12, bx + 3, by - 12, COL_DIM, "Z"); }
 	if (label) gfx_text(fb, &font_12, ax + 4, ay + 2, COL_DIM, label);
 }
 
@@ -215,29 +227,44 @@ static void draw_view(fb_t *fb, int x, int y, int w, int h, bool mini)
 	double lo[3], hi[3];
 	prog_box(lo, hi);
 	int ax, ay, bx, by;
-	/* grid in the work plane (Z 0), aligned to work zero, covering the picture */
+	/* grid on the machine's Z floor, aligned to work zero, covering the picture: coarse lines,
+	 * and fine ones barely lighter than the background (user 2026-10-23) */
 	double d[NWCS][3];
 	int idx[NWCS], nj = job_zeros(idx, d);
 	double gx0 = fmin(lo[0], 0), gx1 = fmax(hi[0], 0), gy0 = fmin(lo[1], 0), gy1 = fmax(hi[1], 0);
 	for (int k = 0; k < nj; k++) { gx0 = fmin(gx0, d[k][0]); gx1 = fmax(gx1, d[k][0]); gy0 = fmin(gy0, d[k][1]); gy1 = fmax(gy1, d[k][1]); }
 	double g = grid_step(fmax(gx1 - gx0, gy1 - gy0));
 	gx0 = floor(gx0 / g - 1) * g; gx1 = ceil(gx1 / g + 1) * g; gy0 = floor(gy0 / g - 1) * g; gy1 = ceil(gy1 / g + 1) * g;
+	double gz = p.iso ? floor_z(lo) : 0;
 	if ((gx1 - gx0) / g < 80 && (gy1 - gy0) / g < 80) {
-		uint16_t gc = RGB(0x13, 0x30, 0x58);
-		for (double gx = gx0; gx <= gx1 + 1e-9; gx += g) { P(&p, gx, gy0, 0, &ax, &ay); P(&p, gx, gy1, 0, &bx, &by); gfx_line(fb, ax, ay, bx, by, gc, 1); }
-		for (double gy = gy0; gy <= gy1 + 1e-9; gy += g) { P(&p, gx0, gy, 0, &ax, &ay); P(&p, gx1, gy, 0, &bx, &by); gfx_line(fb, ax, ay, bx, by, gc, 1); }
-		if (!mini) { char gl[32]; snprintf(gl, sizeof gl, "grid %g mm", g); gfx_text_r(fb, &font_12, x + w - 8, y + h - 18, COL_DIM2, gl); }
+		double f = g * p.sc >= 50 ? g / 10 : g * p.sc >= 25 ? g / 5 : 0;   /* fine lines at least 5 px apart */
+		if (f > 0 && (gx1 - gx0) / f < 400 && (gy1 - gy0) / f < 400) {
+			uint16_t fc = RGB(0x0d, 0x27, 0x4b);
+			for (double gx = gx0; gx <= gx1 + 1e-9; gx += f) { P(&p, gx, gy0, gz, &ax, &ay); P(&p, gx, gy1, gz, &bx, &by); gfx_line(fb, ax, ay, bx, by, fc, 1); }
+			for (double gy = gy0; gy <= gy1 + 1e-9; gy += f) { P(&p, gx0, gy, gz, &ax, &ay); P(&p, gx1, gy, gz, &bx, &by); gfx_line(fb, ax, ay, bx, by, fc, 1); }
+		}
+		uint16_t gc = RGB(0x17, 0x37, 0x63);
+		for (double gx = gx0; gx <= gx1 + 1e-9; gx += g) { P(&p, gx, gy0, gz, &ax, &ay); P(&p, gx, gy1, gz, &bx, &by); gfx_line(fb, ax, ay, bx, by, gc, 1); }
+		for (double gy = gy0; gy <= gy1 + 1e-9; gy += g) { P(&p, gx0, gy, gz, &ax, &ay); P(&p, gx1, gy, gz, &bx, &by); gfx_line(fb, ax, ay, bx, by, gc, 1); }
+		if (!mini) {
+			char gl[80];
+			if (f > 0) snprintf(gl, sizeof gl, "grid %g / %g mm%s", g, f, p.iso ? " · on the Z floor" : "");
+			else snprintf(gl, sizeof gl, "grid %g mm%s", g, p.iso ? " · on the Z floor" : "");
+			gfx_text_r(fb, &font_12, x + w - 8, y + h - 18, COL_DIM2, gl);
+		}
 	}
-	/* stock box */
+	/* stock box: the program's size (none without a program) */
 	uint16_t sc = RGB(0x2a, 0x4b, 0x78);
-	double bx0 = lo[0] - 3, bx1 = hi[0] + 3, by0 = lo[1] - 3, by1 = hi[1] + 3, bz[2] = { lo[2] < 0 ? lo[2] : -1, 0 };
-	for (int i = 0; i < (p.iso ? 2 : 1); i++) {
-		double xs[5] = { bx0, bx1, bx1, bx0, bx0 }, ys[5] = { by0, by0, by1, by1, by0 };
-		for (int k = 0; k < 4; k++) { P(&p, xs[k], ys[k], bz[i], &ax, &ay); P(&p, xs[k + 1], ys[k + 1], bz[i], &bx, &by); gfx_line(fb, ax, ay, bx, by, sc, 1); }
-	}
-	if (p.iso) for (int k = 0; k < 4; k++) {
-		double xs[4] = { bx0, bx1, bx1, bx0 }, ys[4] = { by0, by0, by1, by1 };
-		P(&p, xs[k], ys[k], bz[0], &ax, &ay); P(&p, xs[k], ys[k], bz[1], &bx, &by); gfx_line(fb, ax, ay, bx, by, sc, 1);
+	if (pg->loaded) {
+		double bx0 = lo[0] - 3, bx1 = hi[0] + 3, by0 = lo[1] - 3, by1 = hi[1] + 3, bz[2] = { lo[2] < 0 ? lo[2] : -1, 0 };
+		for (int i = 0; i < (p.iso ? 2 : 1); i++) {
+			double xs[5] = { bx0, bx1, bx1, bx0, bx0 }, ys[5] = { by0, by0, by1, by1, by0 };
+			for (int k = 0; k < 4; k++) { P(&p, xs[k], ys[k], bz[i], &ax, &ay); P(&p, xs[k + 1], ys[k + 1], bz[i], &bx, &by); gfx_line(fb, ax, ay, bx, by, sc, 1); }
+		}
+		if (p.iso) for (int k = 0; k < 4; k++) {
+			double xs[4] = { bx0, bx1, bx1, bx0 }, ys[4] = { by0, by0, by1, by1 };
+			P(&p, xs[k], ys[k], bz[0], &ax, &ay); P(&p, xs[k], ys[k], bz[1], &bx, &by); gfx_line(fb, ax, ay, bx, by, sc, 1);
+		}
 	}
 	/* axis triad at work zero (a fixed size on screen), tiny ones at the other JOB parts' zeros */
 	triad(fb, &p, 0, 0, 0, mini ? 16 : 26, true, NULL);

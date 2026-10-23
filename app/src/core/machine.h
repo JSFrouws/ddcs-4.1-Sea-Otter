@@ -68,6 +68,8 @@ typedef struct {
 	int countdown; uint64_t countdown_t;
 	char msg[160]; bool msg_bad; uint64_t msg_t;
 	char pause_msg[96];
+	bool hold_move;                 /* HOLD of a move (Goto 0, Safe Z), not of a program: Start resumes it */
+	char move_name[48];             /* the move in progress, shown on the Run page */
 	motion_t mo;
 	fpga_t fp;
 	agent_t agent;

@@ -110,6 +110,7 @@ void ui_key(pkey_t k)
 	else if (k == K_F2 && busy) act(C_PAUSE, NULL, SRC_PANEL);
 	else if (k == K_F3 && C.countdown) { C.countdown = 0; ctl_toast(false, "Remote start cancelled"); }
 	else if (k == K_F3 && (busy || C.m == M_LIMIT || C.macro_on || C.m == M_TOOL)) act(C_STOP, NULL, SRC_PANEL);
+	else if (k == K_F1 && C.m == M_HOLD) act(C_START, NULL, SRC_PANEL);         /* on hold: Start resumes, any screen */
 	else if (ps && k >= K_F1 && k <= K_F6) ui_goto(PAGE_KEYS[k - K_F1]);
 	else if (ps && (k == K_F7 || k == K_CANCEL)) return;
 	else if (k == K_F7 && sh) ui_goto(U.last_screen);
@@ -170,6 +171,7 @@ void ui_render(fb_t *fb)
 		sk[1] = (sk_t){ "Pause", C.m == M_RUN ? "feed hold" : "stop" };
 		sk[2] = (sk_t){ "Reset", "stop" };
 		if (U.screen != SCR_RUN && !U.pagesel) sk[0] = (sk_t){ NULL, NULL };
+		if (C.m == M_HOLD) sk[0] = (sk_t){ "Start", "resume" };
 	}
 	if (C.m == M_OFF) sk[2] = (sk_t){ "Reset", "drives ON" };
 	if (C.m == M_ESTOP) sk[2] = (sk_t){ "Reset", "release E-stop" };

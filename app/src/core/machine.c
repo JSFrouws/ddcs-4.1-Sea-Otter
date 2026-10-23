@@ -41,7 +41,7 @@ static const char *const WHY[M__N] = {
 	[M_HOMING] = "Homing in progress - Reset stops it",
 	[M_PROBING] = "Probing in progress - Reset stops it",
 	[M_RUN] = "Program running - directional controls are locked (Pause, Reset, overrides)",
-	[M_HOLD] = "Program on hold - Start resumes, Reset stops; jogging stays locked",
+	[M_HOLD] = "On hold - Start resumes, Reset stops; jogging stays locked",
 	[M_LIMIT] = "Limit switch active - jog off it first (other axes are free)",
 	[M_TOOL] = "Tool change - jog / touch off, Start goes back to the program, Reset stops it",
 };
@@ -211,8 +211,8 @@ static mstate_t next_state(cmd_t c, mstate_t f)
 	case C_HOME: return M_HOMING;
 	case C_PROBE: return M_PROBING;
 	case C_GOTOZERO: return M_MOVE;
-	case C_START: return M_RUN;
-	case C_PAUSE: return f == M_RUN ? M_HOLD : f == M_TOOL ? M_TOOL : M_IDLE;
+	case C_START: return f == M_HOLD && C.hold_move ? M_MOVE : M_RUN;
+	case C_PAUSE: return f == M_RUN || f == M_MOVE ? M_HOLD : f == M_TOOL ? M_TOOL : M_IDLE;
 	case C_TOOL_READY: return M_TOOL;
 	case C_STOP: return f == M_LIMIT ? M_LIMIT : M_IDLE;
 	case C_LIMIT_HIT: return M_LIMIT;
@@ -425,6 +425,8 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		memcpy(p, C.mo.pos, sizeof p);
 		p[AX_Z] = fmax(p[AX_Z], w->off[AX_Z] + SET.safe_z);
 		motion_move_to(&C.mo, p, 0, true);
+		C.hold_move = false;
+		snprintf(C.move_name, sizeof C.move_name, a->kind == 1 ? "Safe Z" : "Goto 0 G%d", 54 + WD.active);
 		if (a->kind == 1) { ctl_toast(false, "Z up to the safe height (G%d Z%+.1f)", 54 + WD.active, SET.safe_z); break; }
 		p[AX_X] = w->off[AX_X]; p[AX_Y] = w->off[AX_Y];
 		motion_move_to(&C.mo, p, 0, true);
@@ -451,7 +453,7 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 	case C_HOME: C.homed = false; motion_home(&C.mo); ctl_toast(false, "Homing %s", HOME_ORDERS[SET.home_order]); break;
 	case C_START:
 		if (from == M_TOOL) tc_resume();
-		else if (from == M_HOLD) { motion_hold(&C.mo, false); C.pause_msg[0] = 0; ctl_toast(false, "Resumed"); }
+		else if (from == M_HOLD) { motion_hold(&C.mo, false); C.pause_msg[0] = 0; ctl_toast(false, C.hold_move ? "%s resumed" : "Resumed", C.move_name); }
 		else start_program(src);
 		C.countdown = 0;
 		break;
@@ -465,17 +467,25 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		ctl_toast(false, C.coolant & 1 ? "Coolant ON" : "Coolant OFF");
 		break;
 	case C_PAUSE:
+		C.hold_move = from == M_MOVE;
 		if (from == M_RUN) { motion_hold(&C.mo, true); if (src != SRC_MACHINE) ctl_toast(false, "Feed hold - Start resumes, Reset stops"); }
+		else if (from == M_MOVE) {                      /* user 2026-10-23: a paused Goto 0 resumes with Start */
+			motion_hold(&C.mo, true);
+			snprintf(C.pause_msg, sizeof C.pause_msg, "%.40s on hold  ·  F1 Start continues  ·  F3 Reset stops", C.move_name);
+			ctl_toast(false, "%s on hold - Start continues, Reset stops", C.move_name);
+		}
 		else motion_stop(&C.mo, false);
 		break;
 	case C_STOP:
 		motion_stop(&C.mo, false);
+		motion_hold(&C.mo, false);
 		tc_clear();
-		if (from == M_RUN || from == M_HOLD || from == M_TOOL) {
+		if (from == M_HOLD && C.hold_move) ctl_toast(false, "%s stopped", C.move_name);
+		else if (from == M_RUN || from == M_HOLD || from == M_TOOL) {
 			C.work_done = C.mo.line;
 			ctl_toast(false, "Stopped at line %d - work done is remembered; Program > Select resumes", C.work_done + 1);
 		} else if (from == M_LIMIT) ctl_toast(false, "Program cleared - limit still active, jog off the switch");
-		C.feeding = false; C.countdown = 0; C.pause_msg[0] = 0;
+		C.feeding = false; C.countdown = 0; C.pause_msg[0] = 0; C.hold_move = false;
 		all_off(); finish_sim();
 		if (C.macro_on) { ctl_toast(false, "Macro %s %s", C.macro_name, from == M_IDLE ? "cancelled" : "stopped"); macro_end(); }
 		break;
@@ -506,7 +516,8 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		break;
 	case C_ESTOP_IN:
 		motion_stop(&C.mo, !SET.graceful_stop); C.feeding = false; all_off(); finish_sim(); tc_clear();
-		if (from == M_RUN || from == M_HOLD || from == M_TOOL) C.work_done = C.mo.line;
+		if (from == M_RUN || from == M_TOOL || (from == M_HOLD && !C.hold_move)) C.work_done = C.mo.line;
+		motion_hold(&C.mo, false); C.hold_move = false;
 		macro_end();
 		ctl_toast(true, "E-STOP: %s", C.stop_cause[0] ? C.stop_cause : "E-stop input");
 		break;
@@ -544,7 +555,7 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 			C.work_done = C.prog.nlines - 1; all_off(); finish_sim(); tc_clear();
 			if (C.macro_on) { ctl_toast(false, "Macro %s done", C.macro_name); macro_end(); }
 			else ctl_toast(false, "Program finished");
-		} else if (from == M_MOVE) ctl_toast(false, "Done");
+		} else if (from == M_MOVE) { ctl_toast(false, "%s done", C.move_name[0] ? C.move_name : "Move"); C.move_name[0] = 0; }
 		break;
 	default: break;
 	}

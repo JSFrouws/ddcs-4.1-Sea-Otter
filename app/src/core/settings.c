@@ -59,6 +59,7 @@ const setting_desc_t SETTINGS[] = {
 	AXROWS(0, "X"), AXROWS(1, "Y"), AXROWS(2, "Z"), AXROWS(3, "A"),
 	{ "home.order", "Homing & limits", "Home order", "", ST_ENUM, O(home_order), 0, 3, 0, HOME_ORDERS, 1, 0 },
 	{ "limits.soft", "Homing & limits", "Soft limits (when homed)", "", ST_BOOL, O(soft_limits), 0, 1, 0, 0, 1, 0 },
+	{ "home.retain", "Homing & limits", "Keep the homed state after a restart / power cut", "", ST_BOOL, O(retain_homed), 0, 1, 0, 0, 1, 0 },
 	{ "limits.bench", "Homing & limits", "Bench limits (work box, also un-homed)", "", ST_BOOL, O(bench_limits), 0, 1, 0, 0, 1, 0 },
 	{ "limits.level_high", "Homing & limits", "Limit/home active when open (NC)", "", ST_BOOL, O(limit_level_high), 0, 1, 0, 0, 1, 0 },
 	{ "estop.port", "Homing & limits", "External E-stop input (0 = none)", "IN", ST_INT, O(estop_port), 0, 18, 0, 0, 1, 0 },
@@ -88,7 +89,9 @@ void settings_defaults(settings_t *s)
 	memset(s, 0, sizeof *s);
 	/* docs/machine-settings.md: steps #2-5, speeds #91-94, soft limits #235-242,
 	 * home #199-221 (home_pos is ours: vendor #214/215 semantics are unverified) */
-	const double smin[NAXES] = { 10, 10, -300, -99999 }, smax[NAXES] = { 915, 590, -10, 99999 };
+	/* user 2026-10-23: the machine is 400 x 200 x 100 mm (X Y from their home switch at 0,
+	 * Z down from its switch at the top) */
+	const double smin[NAXES] = { 0, 0, -100, -99999 }, smax[NAXES] = { 400, 200, 0, 99999 };
 	const double back[NAXES] = { 50, 50, 15, 0 };
 	const int hdir[NAXES] = { 0, 0, 1, 0 }, lim[NAXES] = { 2, 3, 4, 0 }, alarm[NAXES] = { 10, 11, 12, 13 };
 	for (int i = 0; i < NAXES; i++) {
@@ -109,8 +112,8 @@ void settings_defaults(settings_t *s)
 	s->out_spindle = 1; s->out_flood = 2; s->out_aux = 3;
 	s->safe_z = 5; s->jog_feed = 1200; s->default_feed = 1000;
 	s->lookahead = 64; s->junction_dev = 0.02;
-	s->park[0] = 900; s->park[1] = 580; s->park[2] = -15;     /* back corner, Z up (inside the soft limits) */
-	s->tc[0] = 450; s->tc[1] = 20; s->tc[2] = -15;           /* front middle, Z up */
+	s->park[0] = 380; s->park[1] = 180; s->park[2] = -5;      /* back corner, Z up (inside the soft limits) */
+	s->tc[0] = 200; s->tc[1] = 20; s->tc[2] = -5;            /* front middle, Z up */
 	s->warm_rpm = 8000; s->warm_s = 120;
 	s->tc_mode = 0; s->tc_where = 0; s->tc_return_pct = 50;   /* user 2026-10-22: by hand, back at half rapid */
 	s->graceful_stop = true;   /* user 2026-10-18: brake at max deceleration, never lose steps */

@@ -57,6 +57,11 @@ void test_ui(void)
 	fb.w = SCR_W; fb.h = SCR_H; fb.px = calloc(SCR_W * SCR_H, 2);
 	const char *prog = "(demo part)\nG21 G90 G54\nG0 Z5\nG0 X0 Y0\nM3 S12000\nG1 Z-2 F300\nG1 X40 F900\nG2 X60 Y20 I0 J20\nG1 Y40\nG3 X40 Y60 I-20 J0\n"
 		"G1 X0\nG1 Y0\nG0 Z5\nG81 X70 Y10 Z-6 R2 F200\nX70 Y30\nX70 Y50\nG80\nM5\nM30\n";
+	/* no program: the listing says so, Enter doesn't invent a resume line */
+	U.view.iso = true; snap("00_run_no_program");
+	ui_key(K_TAB); ui_key(K_ENTER);
+	CHECK(C.resume_line < 0 && strstr(C.msg, "No program"));
+	ui_key(K_TAB); U.view.iso = false;
 	arg_t a = { .path = "demo.nc", .text = prog, .len = strlen(prog) };
 	act(C_LOAD, &a, SRC_PANEL);
 	snap("01_run_idle");

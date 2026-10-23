@@ -47,7 +47,8 @@ static void topbar(fb_t *fb)
 	int x = 10 + gfx_text_w(&font_12, mode) + 30;
 	x += gfx_text(fb, &font_20, x, 9, COL_TXT, titles[U.screen]) + 10;
 	char b[200];
-	snprintf(b, sizeof b, "·  %s  ·  line %d / %d", C.prog.loaded ? C.prog.name : "no program", ctl_cur_line() + 1, C.prog.nlines);
+	if (C.prog.loaded) snprintf(b, sizeof b, "·  %s  ·  line %d / %d", C.prog.name, ctl_cur_line() + 1, C.prog.nlines);
+	else snprintf(b, sizeof b, "·  no program loaded");
 	uint16_t sc;
 	const char *sw = state_word(&sc);
 	int sww = gfx_text_w(&font_14, sw) + 22;
@@ -67,7 +68,7 @@ static void topbar(fb_t *fb)
 int ui_banner_h(void)
 {
 	return (C.m == M_ESTOP || C.m == M_LIMIT || C.m == M_OFF || C.countdown || (C.m == M_HOLD && C.pause_msg[0]) || C.m == M_TOOL ||
-		(C.m == M_RUN && C.tc_state != TC_NONE) || C.driver_warn[0] || C.macro_on) ? 30 : 0;
+		(C.m == M_RUN && C.tc_state != TC_NONE) || (C.m == M_MOVE && C.move_name[0]) || C.driver_warn[0] || C.macro_on) ? 30 : 0;
 }
 
 static void banner(fb_t *fb)
@@ -100,6 +101,11 @@ static void banner(fb_t *fb)
 		char d[24] = "";
 		if (C.tc_tool >= 1 && C.tc_tool <= NTOOLS && WD.tool[C.tc_tool - 1].dia > 0) { char v[16]; fmt_tool(v, sizeof v, WD.tool[C.tc_tool - 1].dia); snprintf(d, sizeof d, " (Ø%s)", v); }
 		snprintf(b, sizeof b, "TOOL CHANGE  ·  put in T%d%s  ·  Mode = jog, touch off Z if needed  ·  F1 Start = back to the program  ·  F3 Reset stops", C.tc_tool, d);
+	}
+	else if (C.m == M_MOVE && C.move_name[0]) {
+		c0 = RGB(0x1c, 0x6f, 0xd0);
+		snprintf(b, sizeof b, "%s  ·  %s  ·  F2 Pause holds (Start continues)  ·  F3 Reset stops", C.move_name,
+			strncmp(C.move_name, "Safe", 4) ? "Z up to the safe height, then X Y to 0" : "Z up only");
 	}
 	else if (C.m == M_RUN && C.tc_state == TC_GOING) { c0 = COL_AMBER; tc = COL_BLACK; snprintf(b, sizeof b, "%s  ·  Z up first%s", C.pause_msg, SET.tc_where ? ", then the tool-change position" : ""); }
 	else if (C.m == M_RUN && C.tc_state == TC_MACRO) { c0 = RGB(0x1a, 0x8f, 0x78); snprintf(b, sizeof b, "TOOL CHANGE  ·  T%d by the tool-change macro  ·  F2 Pause  ·  F3 Reset", C.tc_tool); }

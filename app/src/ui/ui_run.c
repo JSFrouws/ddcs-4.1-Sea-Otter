@@ -113,16 +113,28 @@ void run_render(fb_t *fb)
 	gfx_fill(fb, vx + 8, top + 8, gfx_text_w(&font_12, b) + 16, 20, RGB(0x3a, 0x2c, 0x10));
 	gfx_text(fb, &font_12, vx + 16, top + 10, COL_AMBER, b);
 	int cl = ctl_cur_line(), pct = C.prog.nlines ? (cl + 1) * 100 / C.prog.nlines : 0;
-	snprintf(b, sizeof b, "%d%%", C.prog.loaded ? pct : 0);
-	gfx_text_r(fb, &font_28, vx + vw - 10, top + 4, COL_TXT, b);
-	int est = (int)C.prog.est_s;
-	snprintf(b, sizeof b, "estimate %d:%02d:%02d", est / 3600, est / 60 % 60, est % 60);
-	gfx_text_r(fb, &font_12, vx + vw - 10, top + 38, COL_DIM, b);
+	if (C.prog.loaded) {                                  /* no program: no progress to show */
+		snprintf(b, sizeof b, "%d%%", pct);
+		gfx_text_r(fb, &font_28, vx + vw - 10, top + 4, COL_TXT, b);
+		int est = (int)C.prog.est_s;
+		snprintf(b, sizeof b, "estimate %d:%02d:%02d", est / 3600, est / 60 % 60, est % 60);
+		gfx_text_r(fb, &font_12, vx + vw - 10, top + 38, COL_DIM, b);
+	}
 	agent_card(fb, vx + vw - 330, top + vh - 24, 320);
 
 	/* program listing */
 	int py = top + vh + 8;
 	gfx_panel(fb, vx, py, vw, ph, ui_pane() == 1);
+	if (!C.prog.loaded) {                                 /* user 2026-10-23: no file - say so, nothing to pick */
+		const char *what = C.m == M_MOVE || (C.m == M_HOLD && C.hold_move) ? C.move_name : "";
+		gfx_text(fb, &font_16, vx + 16, py + 14, COL_DIM, "No program loaded");
+		gfx_text(fb, &font_12, vx + 16, py + 40, COL_DIM2, "Page R, F4 Files: pick a file, F1 Load  ·  or Page R, F2 Macros");
+		if (what[0]) {
+			char m[160]; snprintf(m, sizeof m, "%s %s", what, C.m == M_HOLD ? "on hold  ·  F1 Start continues  ·  F3 Reset stops" : "running  ·  F2 Pause  ·  F3 Reset");
+			gfx_text(fb, &font_16, vx + 16, py + 70, COL_CYAN, m);
+		}
+		return;
+	}
 	int anchor = ui_pane() == 1 ? U.prog_line : cl;
 	int first = CLAMP(anchor - 2, 0, C.prog.nlines > 6 ? C.prog.nlines - 6 : 0);
 	for (int i = 0; i < 6 && first + i < C.prog.nlines; i++) {
@@ -177,7 +189,7 @@ void run_key(pkey_t k, bool sh)
 	if (sh && k >= K_F1 && k <= K_F6) {                    /* ALT: the second functions */
 		switch (k) {
 		case K_F1:                                         /* Start from the line picked in the listing */
-			if (C.m == M_IDLE && C.prog.loaded) C.resume_line = U.prog_line > 0 ? U.prog_line : -1;
+			if (C.m == M_IDLE && C.prog.loaded && U.prog_line < C.prog.nlines) C.resume_line = U.prog_line > 0 ? U.prog_line : -1;
 			act(C_START, NULL, SRC_PANEL);
 			break;
 		case K_F2: {
@@ -241,6 +253,10 @@ void run_key(pkey_t k, bool sh)
 		return;
 	}
 	int n = C.prog.nlines;
+	if (!C.prog.loaded) {
+		if (k == K_SEL || k == K_ENTER) ctl_toast(true, "No program loaded - Page R, F4 Files to load one");
+		return;
+	}
 	if (k == K_YP) U.prog_line = CLAMP(U.prog_line - 1, 0, n - 1);
 	else if (k == K_YM) U.prog_line = CLAMP(U.prog_line + 1, 0, n - 1);
 	else if (k == K_XM) U.prog_line = CLAMP(U.prog_line - 10, 0, n - 1);

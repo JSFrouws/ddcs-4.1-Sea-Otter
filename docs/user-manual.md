@@ -88,6 +88,12 @@ A running program still pauses with F2 and resets with F3, Shift or not.
 ### 3.1 Power up
 1. Switch on. If the E-stop is pressed, release it. The banner tells you what's needed.
 2. **Mode** → Jog. **F1 Home** if you want soft limits (not required). Reset stops homing.
+3. *Optional:* **Keep the homed state after a restart** (*Settings › Homing & limits*, off by
+   default). The position is saved 2 s after every stop. After a restart or power cut,
+   Sea Otter is still homed if the machine was at rest when the power went. It is not homed
+   if the power went while it was moving. For a quick reboot when you don't need the last
+   hundredth: the drives were reset too (a small *clunk* is normal), so expect up to
+   1/100–1/50 turn, **0.05–0.1 mm on a 5 mm screw**. Home again for precision work.
 
 ### 3.2 Load a program
 1. **Page R** → Files. **F3** switches Local / USB. **Y±** picks a file.
@@ -106,7 +112,9 @@ A running program still pauses with F2 and resets with F3, Shift or not.
    or Tools › F3) it accounts for the radius (X+ edge → X = −Ø/2). Press the same key again
    to set 0 instead.
 3. Z: touch the top, **Shift + Z−** → Z = 0.
-4. Check with **Goto 0** (Jog F2): Z up to safe height, then XY to 0.
+4. Check with **Goto 0** (Jog F2): Z up to safe height, then XY to 0. A blue banner shows it
+   while it moves. **F2 Pause** holds it and **F1 Start** continues it, from any screen.
+   **F3 Reset** ends it. **Shift + F2** on Jog is *Safe Z*: Z up only.
 5. Several parts: **Jog F5 WCS** picks G55, G56…; on **Work** mark them **F4 In job**.
    Start then cuts **per tool**: everything the first tool does, on every JOB part in turn,
    then **one** tool change, then the second tool on every part, and so on. So 4 parts
@@ -137,9 +145,12 @@ A running program still pauses with F2 and resets with F3, Shift or not.
   a second, leaving more time for motion. After an E-stop or limit the view switches to
   ISO by itself.
 - **The preview** always fits and centres the whole picture: the program, the work zero's
-  axes, and small axes labelled G55, G56… at the zero of every other JOB part. A grid lies in
-  the work plane: 1 cm when the picture is under 10 cm, 5 cm up to 50 cm, 10 cm up to 1 m
-  (the step is shown bottom right).
+  axes, and small axes labelled G55, G56… at the zero of every other JOB part. The thin box
+  around the toolpath is the program's size (there is none without a program). The grid lies
+  on the **machine's Z floor** (the Z soft limit −) in the ISO view. Its coarse lines are 1 cm
+  when the picture is under 10 cm, 5 cm up to 50 cm and 10 cm up to 1 m. Its fine lines, barely
+  lighter than the background, are a tenth or a fifth of that. Both steps are shown bottom right.
+- **No program loaded**: the listing says so. Enter or Select picks nothing.
 - **M0 / M1**: the machine holds with a message; **F1 Start** continues.
 - **M6** (tool change): see § 3.7.
 - **F2 Pause** = feed hold (F1 resumes). **F3 Reset** stops; the lines done so far are
@@ -227,7 +238,7 @@ Two software boxes keep the machine inside its travel, without touching a switch
 
 | | In force | Set in *Settings › Homing & limits* |
 |---|---|---|
-| **Soft limits** | once the machine is **homed** (before that, positions mean nothing) | *X/Y/Z soft limit − / +*, switch: *Soft limits* |
+| **Soft limits** | once the machine is **homed** (before that, positions mean nothing). Default: the machine's **400 × 200 × 100 mm** (X 0…400, Y 0…200, Z −100…0 below the Z switch) | *X/Y/Z soft limit − / +*, switch: *Soft limits* |
 | **Bench limits** | **always**, homed or not: a work box, e.g. the part of the table you use, or a safe box on the bench while testing | *X/Y/Z bench limit − / +*, switch: *Bench limits* |
 
 When both are on, the tighter one counts. What they do:

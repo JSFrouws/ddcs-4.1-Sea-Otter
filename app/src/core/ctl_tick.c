@@ -31,26 +31,57 @@ void ctl_apply_axis_config(void)
 	fpga_init(&C.fp, cfg);
 }
 
-static void load_pos(double p[NAXES])
+/* The position file "<work>.pos": x y z a rest homed. It is rewritten 2 s after the machine
+ * comes to rest (rest = 1) and marked rest = 0 once when it starts moving, so after a power
+ * cut it is either the exact position at rest, or known to be stale. */
+static int load_pos(double p[NAXES], int *homed)
 {
 	const double photo[NAXES] = { 464.207, 274.491, -91.201, -1.0 };   /* last known (vendor screen) */
 	memcpy(p, photo, sizeof photo);
+	*homed = 0;
 	char path[300];
 	snprintf(path, sizeof path, "%s.pos", C.wd_path);
 	FILE *f = fopen(path, "r");
-	if (!f) return;
-	if (fscanf(f, "%lf %lf %lf %lf", &p[0], &p[1], &p[2], &p[3]) != 4) memcpy(p, photo, sizeof photo);
+	if (!f) return 0;
+	int rest = 0;
+	int n = fscanf(f, "%lf %lf %lf %lf %d %d", &p[0], &p[1], &p[2], &p[3], &rest, homed);
 	fclose(f);
+	if (n < 4) { memcpy(p, photo, sizeof photo); return 0; }
+	if (n < 6) { *homed = 0; rest = 1; }                 /* an older file: position only */
+	return rest;
+}
+
+static void pos_write(bool rest)
+{
+	char path[300], tmp[310];
+	snprintf(path, sizeof path, "%s.pos", C.wd_path);
+	snprintf(tmp, sizeof tmp, "%s.new", path);
+	FILE *f = fopen(tmp, "w");
+	if (!f) return;
+	fprintf(f, "%.4f %.4f %.4f %.4f %d %d\n", C.mo.pos[0], C.mo.pos[1], C.mo.pos[2], C.mo.pos[3], rest, rest && C.homed);
+	fflush(f); fsync(fileno(f)); fclose(f);
+	rename(tmp, path);                                   /* never a half-written file */
+}
+
+static void pos_track(void)
+{
+	static int written = -1, homed_w = -1;               /* 1 rest written, 0 moving written */
+	static uint64_t rest_since;
+	bool rest = motion_idle(&C.mo) && !C.mo.dry && C.m != M_HOMING && C.m != M_ESTOP;
+	if (!rest) {
+		rest_since = 0;
+		if (written != 0) { pos_write(false); written = 0; }
+		return;
+	}
+	if (!rest_since) rest_since = now_ms();
+	if ((written != 1 || homed_w != C.homed) && now_ms() - rest_since > 2000) { pos_write(true); written = 1; homed_w = C.homed; }
 }
 
 void ctl_save(void)
 {
 	settings_save(C.cfg_path);
 	workdata_save(C.wd_path);
-	char path[300];
-	snprintf(path, sizeof path, "%s.pos", C.wd_path);
-	FILE *f = fopen(path, "w");
-	if (f) { fprintf(f, "%.4f %.4f %.4f %.4f\n", C.mo.pos[0], C.mo.pos[1], C.mo.pos[2], C.mo.pos[3]); fclose(f); }
+	pos_write(motion_idle(&C.mo) && !C.mo.dry);
 }
 
 void ctl_init(bus_t *bus, bool sim, const char *cfg_path, const char *wd_path)
@@ -66,7 +97,7 @@ void ctl_init(bus_t *bus, bool sim, const char *cfg_path, const char *wd_path)
 	/* machine position: the FPGA's own counters if it has any (they survive app restarts while
 	 * the unit is powered - the vendor app restores them at boot too), else our saved file */
 	double p[NAXES];
-	load_pos(p);
+	int was_homed, rest = load_pos(p, &was_homed);
 	fpga_heartbeat(&C.fp);
 	fpga_positions(&C.fp, C.fpos);
 	bool have = false;
@@ -81,6 +112,12 @@ void ctl_init(bus_t *bus, bool sim, const char *cfg_path, const char *wd_path)
 	C.resume_line = C.work_done = -1; C.touch_axis = -1; C.limit_axis = -1;
 	C.rpm = SET.spindle_default;
 	C.m = M_IDLE;
+	/* user 2026-10-23: optionally keep "homed" over a restart. The drives were reset too (a
+	 * small clunk): expect ~1/100-1/50 turn, 0.05-0.1 mm on a 5 mm screw - re-home for precision */
+	if (SET.retain_homed && was_homed && rest) {
+		C.homed = true;
+		ctl_toast(false, "Homed state kept from before the restart (Settings) - re-home for full accuracy");
+	} else if (SET.retain_homed && was_homed) ctl_toast(true, "Not homed: the power went off while the machine was moving");
 	C.inputs = fpga_inputs(&C.fp);
 	for (int a = 0; a < NAXES; a++) {
 		C.lim_active[a] = switch_active(a);
@@ -400,6 +437,7 @@ void ctl_tick(double dt)
 		if (--C.countdown == 0) act(C_START, NULL, SRC_API);
 	}
 	agent_checks();
+	pos_track();
 	/* watchdog: without it the FPGA accepts bursts but never steps (measured); it also latches
 	 * the position counters, which we compare with the commanded steps whenever all is at rest */
 	if (now_ms() - hb >= 20) {

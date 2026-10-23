@@ -164,8 +164,8 @@ void test_machine(void)
 
 	/* --- soft limits after homing: a jog past the limit stops exactly AT it (the planner
 	 * brakes into the endpoint), the next one that way is refused --- */
-	arg_t sj = J(AX_X, -1, 45);
-	CHECK(can(C_JOG, &sj, SRC_PANEL) == NULL);      /* 50 - 45 = 5 < soft min 10: clamped, not refused */
+	arg_t sj = J(AX_X, -1, 55);
+	CHECK(can(C_JOG, &sj, SRC_PANEL) == NULL);      /* 50 - 55 = -5 < soft min 0: clamped, not refused */
 	CHECK(act(C_JOG, &sj, SRC_PANEL));
 	fx_until_idle(20000);
 	CHECK_NEAR(C.mo.pos[AX_X], SET.ax[AX_X].soft_min, 1e-6);
@@ -173,7 +173,54 @@ void test_machine(void)
 	arg_t back10 = J(AX_X, 1, 10);
 	CHECK(act(C_JOG, &back10, SRC_PANEL));
 	fx_until_idle(20000);
-	CHECK_NEAR(C.mo.pos[AX_X], 20, 1e-6);
+	CHECK_NEAR(C.mo.pos[AX_X], SET.ax[AX_X].soft_min + 10, 1e-6);
+
+	/* --- keep the homed state over a restart: off by default, and only from a position at rest --- */
+	{
+		settings_t d; settings_defaults(&d);
+		CHECK(!d.retain_homed);
+		CHECK(d.ax[AX_X].soft_max == 400 && d.ax[AX_Y].soft_max == 200 && d.ax[AX_Z].soft_min == -100);   /* 400 x 200 x 100 */
+		CHECK(C.homed);
+		double keep[NAXES]; memcpy(keep, C.mo.pos, sizeof keep);
+		fx_run(2500);                                     /* 2 s at rest: written as rest + homed */
+		fx_restart();
+		CHECK(!C.homed);                                  /* the setting is off */
+		SET.retain_homed = true; settings_save("t_settings.cfg");
+		fx_restart();
+		CHECK(C.homed && SET.retain_homed);
+		for (int a = 0; a < NAXES; a++) CHECK_NEAR(C.mo.pos[a], keep[a], 1e-3);
+		arg_t mv = J(AX_X, 1, 5);
+		act(C_JOG, &mv, SRC_PANEL); fx_run(100);          /* moving: the file says so at once */
+		fx_restart();
+		CHECK(!C.homed);                                  /* "power cut" mid-move: not trusted */
+		fx_until_idle(20000); fx_run(2500);
+		fx_restart();
+		CHECK(!C.homed);                                  /* and it stays lost until homed again */
+		C.homed = true;                                   /* (as if re-homed, for the tests below) */
+		SET.retain_homed = false; settings_save("t_settings.cfg");
+	}
+
+	/* --- Goto 0: Pause holds it, Start continues it, Reset ends it --- */
+	{
+		double s0[NAXES]; memcpy(s0, C.mo.pos, sizeof s0);
+		CHECK(act(C_GOTOZERO, NULL, SRC_PANEL) && C.m == M_MOVE);
+		fx_run(300);
+		CHECK(act(C_PAUSE, NULL, SRC_PANEL) && C.m == M_HOLD && C.hold_move);
+		fx_run(1500);
+		double h[NAXES]; memcpy(h, C.mo.pos, sizeof h);
+		fx_run(500);
+		CHECK_NEAR(C.mo.pos[AX_Z], h[AX_Z], 1e-9);       /* standing still on hold */
+		CHECK(act(C_START, NULL, SRC_PANEL) && C.m == M_MOVE);
+		fx_until_idle(60000);
+		CHECK(C.m == M_IDLE);
+		CHECK_NEAR(ctl_work(AX_X), 0, 1e-6);
+		CHECK_NEAR(ctl_work(AX_Y), 0, 1e-6);
+		arg_t back = J(AX_X, 1, 5); act(C_JOG, &back, SRC_PANEL); fx_until_idle(20000);
+		act(C_GOTOZERO, NULL, SRC_PANEL); fx_run(100); act(C_PAUSE, NULL, SRC_PANEL);
+		CHECK(act(C_STOP, NULL, SRC_PANEL) && C.m == M_IDLE && !C.hold_move);
+		fx_until_idle(20000);
+		(void)s0;
+	}
 
 	/* --- Reset stops a jog in progress (jogs run in IDLE) --- */
 	{
@@ -403,7 +450,7 @@ void test_machine(void)
 
 	/* --- multi-part job: G54 and G55 both marked, the program runs on each --- */
 	memcpy(WD.wcs[1].off, WD.wcs[0].off, sizeof WD.wcs[1].off);
-	WD.wcs[1].off[AX_X] += 100;
+	WD.wcs[1].off[AX_X] += 40;    /* inside the 400 mm X travel */
 	WD.wcs[0].job = WD.wcs[1].job = true;
 	act(C_START, NULL, SRC_PANEL);
 	fx_until_idle(120000);
@@ -459,7 +506,7 @@ void test_machine(void)
 
 		/* --- multi-part job per tool: G54 + G55, two tools -> T1 on both, ONE change, T2 on both --- */
 		memcpy(WD.wcs[1].off, WD.wcs[0].off, sizeof WD.wcs[1].off);
-		WD.wcs[1].off[AX_X] += 100;
+		WD.wcs[1].off[AX_X] += 40;    /* inside the 400 mm X travel */
 		WD.wcs[0].job = WD.wcs[1].job = true;
 		WD.loaded_tool = 1;
 		C.resume_line = -1; C.work_done = -1;
