@@ -136,6 +136,10 @@ A running program still pauses with F2 and resets with F3, Shift or not.
 - **F4 View** cycles **2D → ISO → CPU saver**. CPU saver hides the toolpath and redraws once
   a second, leaving more time for motion. After an E-stop or limit the view switches to
   ISO by itself.
+- **The preview** always fits and centres the whole picture: the program, the work zero's
+  axes, and small axes labelled G55, G56… at the zero of every other JOB part. A grid lies in
+  the work plane: 1 cm when the picture is under 10 cm, 5 cm up to 50 cm, 10 cm up to 1 m
+  (the step is shown bottom right).
 - **M0 / M1**: the machine holds with a message; **F1 Start** continues.
 - **M6** (tool change): see § 3.7.
 - **F2 Pause** = feed hold (F1 resumes). **F3 Reset** stops; the lines done so far are
@@ -297,7 +301,10 @@ positions, warm-up speed and time); your own macros can use them too.
 ## 6. Settings
 **Page R** → Settings. Left: groups, right: values. Quick press / Modify / Enter starts
 editing. On/off, lists and small numbers change in place with Y± (or hold + wheel); larger
-numbers open the digit editor. **Enter accepts, Cancel discards.** One step past the last
+numbers open the digit editor. **Enter accepts, Cancel discards.** For a value that may be
+negative, **Modify** flips the sign (or X− past the leading zero onto the ± cell, then Y±).
+While the editor is open, the keys that do nothing are greyed out. F2/F3 still pause/reset
+anything that moves (the edit is dropped). One step past the last
 value (or before the first) shows an orange **← back to the groups** line, and the group on
 the left gets an orange arrow: Enter or a quick press there goes back to the groups, one step
 the other way returns to the list. Scrolling to the end never leaves the group by itself, and
@@ -322,7 +329,7 @@ network client to start programs) · *Pendant › Reverse wheel direction* ·
 | Wheel, dead-man held, switch OFF | **Changes** the focused value; while running: overrides |
 | Wheel, dead-man held, switch X/Y/Z/4 | **Jogs** that axis 0.001 / 0.01 / 0.1 mm per count (refused while running) |
 | Quick press of the dead-man (switch OFF) | **Enter** on the focused item |
-| **Jog screen**: dead-man held, switch X/Y/Z/4 | That axis gets an amber **diamond** and the jog pane is focused: only then does the wheel jog |
+| **Jog screen**: dead-man held, switch X/Y/Z/4 | That axis's row lights up in a soft amber (on Jog and Run) and the jog pane is focused: only then does the wheel jog |
 | **Jog screen**: dead-man held, switch OFF | The **Jog setup** pane is focused: the wheel changes the setup (step, WCS, …), never jogs |
 
 The wheel never acts as a jog key. Before this fix, turning it on the Jog screen with the

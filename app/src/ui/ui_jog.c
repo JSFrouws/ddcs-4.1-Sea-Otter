@@ -5,6 +5,7 @@
 #include "ui.h"
 
 void dro_row(fb_t *fb, int x, int y, int w, int a, const font_t *big);
+void dro_pick(fb_t *fb, int x, int y, int w, int h);
 
 static const pkey_t JOGK[] = { K_XM, K_XP, K_YP, K_YM, K_CANCEL, K_ENTER, K_SEL, K_MOD };
 static const int JOGA[] = { AX_X, AX_X, AX_Y, AX_Y, AX_Z, AX_Z, AX_A, AX_A };
@@ -33,18 +34,14 @@ void jog_render(fb_t *fb)
 	gfx_panel(fb, x, top, w, h, ui_pane() == 0);
 	char b[128];
 	int pick = SET.pendant && C.pend.held ? C.pend.axis : -1;   /* the pendant's axis, while held */
-	snprintf(b, sizeof b, "JOG  ·  G%d WORK / MACHINE  ·  %s", 54 + WD.active, sh ? "ALT: TOUCH-OFF VALUES" : pick >= 0 ? "PENDANT: THE WHEEL JOGS THE MARKED AXIS" : "PER-DIRECTION STATUS");
+	snprintf(b, sizeof b, "JOG  ·  G%d WORK / MACHINE  ·  %s", 54 + WD.active, sh ? "ALT: TOUCH-OFF VALUES" : pick >= 0 ? "PENDANT: THE WHEEL JOGS THE LIT AXIS" : "PER-DIRECTION STATUS");
 	gfx_text(fb, &font_12, x + 10, top + 6, sh ? COL_AMBER : COL_DIM, b);
 	int rh = (h - 30) / 4;
 	for (int a = 0; a < NAXES; a++) {
 		int y = top + 26 + a * rh;
-		if (a == pick) {                                    /* the diamond: this axis is on the wheel */
-			int cx = x + 11, cy = y + 20;
-			gfx_tri(fb, cx - 6, cy, cx + 6, cy, cx, cy - 7, COL_AMBER);
-			gfx_tri(fb, cx - 6, cy, cx + 6, cy, cx, cy + 7, COL_AMBER);
-			gfx_hgrad(fb, x + 2, y - 2, 6, rh - 6, COL_AMBER, COL_PANE2);
-		}
-		dro_row(fb, x + 12, y, w - 162, a, &font_40);
+		if (a == pick) dro_pick(fb, x + 2, y - 4, w - 4, rh - 2);   /* this axis is on the wheel */
+		int cy = y + (rh - 4 - font_40.height) / 2 - 2;          /* centred in its row */
+		dro_row(fb, x, cy, w - 150, a, &font_40);
 		int cx = x + w - 12;
 		for (int d = 1; d >= -1; d -= 2) {
 			char t[48], v[24];
@@ -52,13 +49,13 @@ void jog_render(fb_t *fb)
 			if (sh) {
 				fmt_pos(v, sizeof v, touch_value(a, d));
 				snprintf(t, sizeof t, "ALT %c%s → %s", AXIS_CH[a], d > 0 ? "+" : "−", v);
-				chip(fb, cx, y + 14 + (d > 0 ? 0 : 22), t, COL_AMBER);
+				chip(fb, cx, y + (rh - 4 - 41) / 2 - 2 + (d > 0 ? 0 : 22), t, COL_AMBER);
 				continue;
 			}
 			arg_t j = { .axis = a, .dir = d, .dist = 0.001 };
 			bool lim = C.lim_dir[a] == d;
 			if (lim) snprintf(t, sizeof t, "%c%s LIMIT", AXIS_CH[a], d > 0 ? "+" : "−");
-			chip(fb, cx, y + 14 + (d > 0 ? 0 : 22), t, can(C_JOG, &j, SRC_PANEL) ? COL_RED : COL_GREEN);
+			chip(fb, cx, y + (rh - 4 - 41) / 2 - 2 + (d > 0 ? 0 : 22), t, can(C_JOG, &j, SRC_PANEL) ? COL_RED : COL_GREEN);
 		}
 		if (a < 3) gfx_fill(fb, x + 8, y + rh - 4, w - 16, 1, COL_EDGE);
 	}
@@ -85,7 +82,7 @@ void jog_render(fb_t *fb)
 		"Touch-off: Shift + the key you", "approached the part with.",
 		SET.edge_dia > 0 ? "With an edge Ø: axis = −dir·Ø/2;" : "No Ø set: the axis becomes 0.",
 		SET.edge_dia > 0 ? "same key again = 0 (centre)." : "", "Z touch-off always sets 0.",
-		"Pendant: hold + X Y Z 4 = marked, wheel jogs." };
+		"Pendant: hold + X Y Z 4 lights it, wheel jogs." };
 	for (size_t i = 0; i < ARRAY_LEN(hint); i++) gfx_text(fb, &font_12, sx + 12, top + 166 + (int)i * 19, i == 2 || i == 0 ? COL_TXT : COL_DIM, hint[i]);
 }
 

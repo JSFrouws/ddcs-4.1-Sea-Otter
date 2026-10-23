@@ -16,6 +16,13 @@ void dro_row(fb_t *fb, int x, int y, int w, int a, const font_t *big)
 	gfx_text_r(fb, &font_12, x + w - 12, y + big->ascent - 12, C.mo.dry ? COL_AMBER : COL_DIM, m);
 }
 
+/* the pendant's picked axis (dead-man held, switch on X/Y/Z/4): a subtle amber row tint -
+ * user 2026-10-23: a change of colour is noticed at once, no marker needed */
+void dro_pick(fb_t *fb, int x, int y, int w, int h)
+{
+	gfx_hgrad(fb, x, y, w, h, gfx_mix(COL_PANE2, COL_AMBER, 5), gfx_mix(COL_PANE2, COL_AMBER, 2));
+}
+
 /* All bars share one scale: full width = 200 %, so 100 % sits at the same x on every bar. The
  * overrides go to 300 % but the bar stops at 200 % (the number shows the rest, in amber);
  * Rapid tops out at 100 % and is drawn half width. */
@@ -72,7 +79,11 @@ void run_render(fb_t *fb)
 	char b[96];
 	snprintf(b, sizeof b, "G%d WORK  ·  MACHINE", 54 + WD.active);
 	gfx_text(fb, &font_12, x + 10, top + 6, COL_DIM, b);
-	for (int a = 0; a < NAXES; a++) dro_row(fb, x, top + 26 + a * 42, w, a, &font_28);
+	int pick = SET.pendant && C.pend.held ? C.pend.axis : -1;
+	for (int a = 0; a < NAXES; a++) {
+		if (a == pick) dro_pick(fb, x + 2, top + 24 + a * 42, w - 4, 40);
+		dro_row(fb, x, top + 26 + a * 42, w, a, &font_28);
+	}
 	int y = top + 26 + 4 * 42 + 6;
 	gfx_text(fb, &font_12, x + 10, y, COL_DIM, "OVERRIDES  ·  PENDANT OFF + HOLD");
 	feed_bar(fb, x + 12, y + 20, w - 24);

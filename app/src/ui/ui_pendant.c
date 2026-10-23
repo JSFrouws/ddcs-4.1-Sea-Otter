@@ -87,7 +87,7 @@ void ui_pendant(const pendant_t *pd, int counts)
 		U.pane[SCR_JOG] = pd->axis >= 0 ? 0 : 1;
 		U.dirty = true;
 	}
-	if (sel != last_sel && U.screen == SCR_JOG) U.dirty = true;   /* the axis diamond */
+	if (sel != last_sel) U.dirty = true;                          /* the lit axis row (Jog, Run) */
 	last_sel = sel;
 	if (detents) {
 		if (U.held) U.held_counts += detents > 0 ? detents : -detents;

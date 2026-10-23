@@ -90,6 +90,22 @@ void test_ui(void)
 	pkey_t e2[] = { K_XM, K_YM, K_ENTER };            /* 50.00 -> tens digit 5-1 = 4 -> 40.00 */
 	keys(e2, 3);
 	CHECK_NEAR(SET.edge_dia, 40, 1e-9);
+	/* a value that may be negative: X- past a leading zero reaches the sign, Modify flips it */
+	{
+		static double got; got = 0;
+		void cb(double v, int c) { (void)c; got = v; }
+		ui_editor_open("WCS test", 12.345, 3, "mm", 3, 99999, true, false, cb, 0);
+		snap("03b_editor_greyed_keys");
+		pkey_t s1[] = { K_XM, K_XM, K_XM, K_YP, K_ENTER };      /* cursor 2 -> 1 -> 0 (a '0') -> sign; flip */
+		keys(s1, 5);
+		CHECK_NEAR(got, -12.345, 1e-9);
+		ui_editor_open("WCS test", -5, 3, "mm", 3, 99999, true, false, cb, 0);
+		ui_key(K_MOD); ui_key(K_ENTER);
+		CHECK_NEAR(got, 5, 1e-9);
+		ui_editor_open("Edge", 3, 2, "mm", 2, 50, false, false, cb, 0);
+		ui_key(K_MOD); ui_key(K_ENTER);
+		CHECK_NEAR(got, 3, 1e-9);                                  /* no sign where it can't be negative */
+	}
 	ui_key(K_TAB);
 
 	/* jog keys move the machine; Mode back to Run; start -> Mode refuses Jog */
@@ -243,7 +259,16 @@ void test_ui(void)
 		for (int a = 0; a < NAXES; a++) CHECK_NEAR(C.mo.pos[a], p0[a], 1e-9);
 		q.axis = AX_Y; ui_pendant(&q, 0);                /* Y picked: jog pane, diamond */
 		CHECK(ui_pane() == 0);
-		C.pend = q; snap("12a_jog_pendant_axis"); C.pend = (pendant_t){ .axis = -1 };
+		C.pend = q; snap("12a_jog_pendant_axis");
+		{                                                /* Run: the same tint; a JOB part G55 gets its own small axes */
+			wcs_t keep = WD.wcs[1];
+			memcpy(WD.wcs[1].off, WD.wcs[0].off, sizeof WD.wcs[1].off); WD.wcs[1].off[AX_X] += 90; WD.wcs[1].off[AX_Y] += 10;
+			bool j0 = WD.wcs[0].job; WD.wcs[0].job = WD.wcs[1].job = true;
+			U.screen = SCR_RUN; U.view.iso = false; U.view.saver = false; snap("12b_run_pendant_axis_job");
+			U.view.iso = true; snap("12c_run_iso_job");
+			WD.wcs[1] = keep; WD.wcs[0].job = j0; U.view.iso = false; U.screen = SCR_JOG;
+		}
+		C.pend = (pendant_t){ .axis = -1 };
 		q.held = false; q.axis = -1; ui_pendant(&q, 0);
 		/* a continuous jog stops on any other key, and touch-off waits for a standstill */
 		ui_key(K_YP); fx_run(100);

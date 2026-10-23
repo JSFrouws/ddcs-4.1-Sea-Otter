@@ -1,5 +1,7 @@
 /* Digit editor: one digit at a time under an underline cursor, like the vendor software.
- *   X-/X+  cursor left/right (left of the highest digit adds one; then the sign cell)
+ *   X-/X+  cursor left/right (left of the highest digit adds one; left of a leading zero -
+ *          or of the 6th digit - is the sign cell, where Y+/Y- flip + / -)
+ *   Modify flips the sign from anywhere (values that may be negative)
  *   Y+/Y-  digit +1/-1, wrapping 0<->9 with no carry: 0.0, two left, Y+ -> 100.0; Y- -> 900.0
  *   Enter/Select accept, Cancel discard, ALT+ZERO clear.  Pendant: wheel = cursor,
  *   hold + wheel = digit, quick press = accept. */
@@ -48,10 +50,13 @@ void ui_editor_key(pkey_t k, bool sh)
 {
 	if (k == K_XM) {
 		if (U.ed.cur > 0) U.ed.cur--;
+		/* user 2026-10-23: the sign was only reachable after six digits - a leading zero
+		 * already there means the next step left is the sign, not yet another zero */
+		else if (U.ed.cur == 0 && U.ed.allow_neg && (U.ed.d[0] == '0' || U.ed.nint >= U.ed.maxint || U.ed.n >= 11)) U.ed.cur = -1;
 		else if (U.ed.cur == 0 && U.ed.nint < U.ed.maxint && U.ed.n < 11) { memmove(U.ed.d + 1, U.ed.d, (size_t)U.ed.n); U.ed.d[0] = '0'; U.ed.n++; U.ed.nint++; }
-		else if (U.ed.cur == 0 && U.ed.allow_neg) U.ed.cur = -1;
 	} else if (k == K_XP) { if (U.ed.cur < U.ed.n - 1) U.ed.cur++; }
 	else if (k == K_YM && sh) { memset(U.ed.d, '0', (size_t)U.ed.n); U.ed.neg = false; }
+	else if (k == K_MOD) { if (U.ed.allow_neg) U.ed.neg = !U.ed.neg; else ctl_toast(true, "This value can't be negative"); }
 	else if (k == K_YP || k == K_YM) ui_editor_turn(k == K_YP ? 1 : -1);
 	else if (k == K_ENTER || k == K_SEL) {
 		double v = value();
@@ -93,6 +98,7 @@ void ui_editor_render(fb_t *fb)
 		cx += cw;
 	}
 	gfx_text(fb, &font_20, cx + 12, ty + 18, COL_DIM, U.ed.unit);
-	gfx_text_c(fb, &font_12, x + w / 2, y + h - 44, COL_DIM, "X−/X+ digit   ·   Y+/Y− change   ·   Enter accept   ·   Cancel discard   ·   ALT+ZERO clear");
+	gfx_text_c(fb, &font_12, x + w / 2, y + h - 44, COL_DIM, U.ed.allow_neg ? "X−/X+ digit  ·  Y+/Y− change  ·  Modify = ± sign  ·  Enter accept  ·  Cancel discard"
+		: "X−/X+ digit   ·   Y+/Y− change   ·   Enter accept   ·   Cancel discard   ·   ALT+ZERO clear");
 	gfx_text_c(fb, &font_12, x + w / 2, y + h - 24, COL_DIM2, "pendant: wheel moves the cursor  ·  hold + wheel changes  ·  quick press accepts");
 }

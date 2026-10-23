@@ -122,9 +122,21 @@ static void softkeys(fb_t *fb, const sk_t sk[7])
 	gfx_coral(fb, 0, y - 7, SCR_W);                          /* and above the soft keys */
 	uint16_t lc = U.shift ? COL_AMBER : U.pagesel ? COL_CYAN : COL_TXT, fc = U.shift ? COL_AMBER : COL_CYAN;
 	if (U.pagesel) gfx_fill(fb, 0, y + 1, w * 7, SK_H - 1, RGB(0x0b, 0x3a, 0x52));   /* the screen menu is open */
+	/* user 2026-10-23: keys that do nothing right now (the digit editor is open) are greyed out
+	 * until barely visible; Pause / Reset stay lit while something moves */
+	bool moving = ctl_busy() || !motion_idle(&C.mo);
+	uint16_t off = RGB(0x1c, 0x3a, 0x60);
 	for (int i = 0; i < 8; i++) {
 		int x = i * w;
 		if (i) gfx_fill(fb, x, y + 6, 1, SK_H - 12, COL_EDGE);
+		bool dis = U.ed.on && i < 7 && !(moving && (i == 1 || i == 2));
+		if (dis) {
+			char f[4]; snprintf(f, sizeof f, "F%d", i + 1);
+			gfx_text_c(fb, &font_12, x + w / 2, y + 2, off, f);
+			gfx_text_c(fb, &font_16, x + w / 2, y + 15, off, sk[i].label ? sk[i].label : "—");
+			if (sk[i].sub) gfx_text_c(fb, &font_12, x + w / 2, y + 34, off, sk[i].sub);
+			continue;
+		}
 		if (i == 7) {                                     /* above GOTO 0: build info */
 			gfx_text_c(fb, &font_12, x + w / 2, y + 3, COL_DIM2, "BUILD");
 			gfx_text_c(fb, &font_12, x + w / 2, y + 17, COL_DIM, BUILD_DATE);
@@ -147,9 +159,10 @@ static void side_label(fb_t *fb, int cy, const char *key, const char *main, cons
 	gfx_hgrad(fb, x, y, w, h, a, b);
 	gfx_rect(fb, x, y, w + 1, h, style == 1 ? COL_AMBER : COL_EDGE2);
 	gfx_tri(fb, SCR_W - 9, cy - 6, SCR_W - 9, cy + 6, SCR_W - 3, cy, style == 1 ? COL_TXT : COL_CYAN);
-	gfx_text(fb, &font_12, x + 8, y + 4, style == 1 ? RGB(0xff, 0xe2, 0xad) : COL_CYAN, key);
-	gfx_text_fit(fb, &font_16, x + 8, y + 18, w - 22, COL_TXT, main);
-	gfx_text_fit(fb, &font_12, x + 8, y + 38, w - 22, style == 1 ? RGB(0xff, 0xe2, 0xad) : COL_DIM, sub);
+	uint16_t off = RGB(0x2a, 0x4a, 0x72);                  /* style 2: not available right now */
+	gfx_text(fb, &font_12, x + 8, y + 4, style == 1 ? RGB(0xff, 0xe2, 0xad) : style == 2 ? off : COL_CYAN, key);
+	gfx_text_fit(fb, &font_16, x + 8, y + 18, w - 22, style == 2 ? off : COL_TXT, main);
+	gfx_text_fit(fb, &font_12, x + 8, y + 38, w - 22, style == 1 ? RGB(0xff, 0xe2, 0xad) : style == 2 ? off : COL_DIM, sub);
 }
 
 static void side_strip(fb_t *fb)
@@ -167,9 +180,9 @@ static void side_strip(fb_t *fb)
 	else { snprintf(s1, sizeof s1, "ALT"); snprintf(s2, sizeof s2, "reverse Tab, last screen"); }
 	if (U.shift) { char t[96]; snprintf(t, sizeof t, "ON · %.80s", s2); snprintf(s2, sizeof s2, "%s", t); }
 	bool lock = ctl_busy() && U.screen != SCR_JOG;
-	side_label(fb, 166, "TAB", tab, tsub, 0);
+	side_label(fb, 166, "TAB", tab, tsub, U.ed.on ? 2 : 0);
 	side_label(fb, 309, "SHIFT", s1, s2, U.shift ? 1 : 0);
-	side_label(fb, 453, "MODE", U.screen == SCR_JOG ? "→ RUN" : lock ? "JOG locked" : "→ JOG", U.screen == SCR_JOG ? "auto" : "manual", lock ? 2 : 0);
+	side_label(fb, 453, "MODE", U.screen == SCR_JOG ? "→ RUN" : lock ? "JOG locked" : "→ JOG", U.screen == SCR_JOG ? "auto" : "manual", lock || U.ed.on ? 2 : 0);
 }
 
 static void toast(fb_t *fb)

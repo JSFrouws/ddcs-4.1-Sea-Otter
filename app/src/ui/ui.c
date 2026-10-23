@@ -86,6 +86,8 @@ void ui_key(pkey_t k)
 {
 	U.dirty = true;
 	bool sh = U.shift;
+	bool moving = ctl_busy() || !motion_idle(&C.mo);
+	if (U.ed.on && (k == K_F2 || k == K_F3) && moving) U.ed.on = false;   /* Pause / Reset always work: the edit is dropped */
 	if (U.ed.on) {
 		if (k == K_SHIFT) U.shift = !U.shift;
 		else { U.shift = false; ui_editor_key(k, sh); }
