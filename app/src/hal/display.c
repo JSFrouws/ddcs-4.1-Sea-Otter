@@ -48,6 +48,17 @@ void display_present_rows(display_t *d, int y0, int n)
 
 static uint32_t le32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
 
+void display_logo_caption(display_t *d, const char *text, const char *small)
+{
+	fb_t *f = &d->back;
+	gfx_noclip(f);
+	int x = 48, y = SCR_H - 92;
+	gfx_text(f, &font_28, x + 2, y + 2, COL_BG1, text);   /* a soft shadow keeps it readable */
+	gfx_text(f, &font_28, x, y, COL_TXT, text);
+	if (small && small[0]) gfx_text(f, &font_14, x + 1, y + 40, COL_DIM, small);
+	display_present(d);
+}
+
 bool display_logo(display_t *d, const char *path)
 {
 	FILE *f = fopen(path, "rb");

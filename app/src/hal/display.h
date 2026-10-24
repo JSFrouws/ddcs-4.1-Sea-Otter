@@ -19,5 +19,7 @@ void display_present_rows(display_t *d, int y0, int n);   /* part of a frame (no
  * once. Ordered dithering keeps dark gradients from banding on the 16-bit panel.
  * Returns false (screen untouched) if the file is missing or not in that format. */
 bool display_logo(display_t *d, const char *path);
+/* a line of text on the logo (bottom left, over the calm water), e.g. "Starting…" */
+void display_logo_caption(display_t *d, const char *text, const char *small);
 
 #endif

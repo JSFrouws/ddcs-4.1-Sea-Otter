@@ -117,7 +117,7 @@ static void slice_if_due(void) { if (now_ms() >= g_next) motion_slice(); }
 int main(int argc, char **argv)
 {
 	bool sim = false, nofb = false;
-	const char *bench_prog = NULL;
+	const char *bench_prog = NULL, *splash = NULL;
 	const char *fbdev = "/dev/fb0", *data = NULL, *progs = NULL, *usb = NULL;
 	int port = 0;
 	for (int i = 1; i < argc; i++) {
@@ -129,7 +129,19 @@ int main(int argc, char **argv)
 		else if (!strcmp(argv[i], "--data") && i + 1 < argc) data = argv[++i];
 		else if (!strcmp(argv[i], "--programs") && i + 1 < argc) progs = argv[++i];
 		else if (!strcmp(argv[i], "--usb") && i + 1 < argc) usb = argv[++i];
-		else { fprintf(stderr, "usage: %s [--sim] [--fb DEV|--no-fb] [--port N] [--data DIR] [--programs DIR] [--usb DIR]\n", argv[0]); return 2; }
+		else if (!strcmp(argv[i], "--splash") && i + 1 < argc) splash = argv[++i];
+		else { fprintf(stderr, "usage: %s [--sim] [--fb DEV|--no-fb] [--port N] [--data DIR] [--programs DIR] [--usb DIR] [--splash TEXT]\n", argv[0]); return 2; }
+	}
+	/* --splash TEXT: paint the logo with a caption and exit - the start script runs this first
+	 * thing at boot, so the logo shows while SSH, the network and the driver check start up
+	 * (the screen keeps it until the app draws over it) */
+	if (splash) {
+		display_t sd;
+		char lp[300];
+		snprintf(lp, sizeof lp, "%s/logo.bmp", data ? data : "/ddcsv4");
+		if (display_open(&sd, nofb ? NULL : fbdev) || !display_logo(&sd, lp)) return 1;
+		display_logo_caption(&sd, splash, "Sea Otter " BUILD_ID);
+		return 0;
 	}
 	bus_t *bus = sim ? NULL : bus_ioctl_open("/dev/motion");
 	if (!bus) {
@@ -173,7 +185,11 @@ int main(int argc, char **argv)
 	 * 2 s, a key press ends it early */
 	char logo[300];
 	snprintf(logo, sizeof logo, "%s/logo.bmp", data);
-	uint64_t splash_until = display_logo(&dsp, logo) ? now_ms() + 2000 : 0;
+	uint64_t splash_until = 0;
+	if (display_logo(&dsp, logo)) {                     /* the same picture the start script showed */
+		display_logo_caption(&dsp, "Starting…", "Sea Otter " BUILD_ID);
+		splash_until = now_ms() + 1500;
+	}
 	ctl_init(bus, sim, cfg, wd);
 	ui_init();
 	{                                                   /* written by the start script at boot */

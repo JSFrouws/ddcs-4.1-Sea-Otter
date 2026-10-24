@@ -41,11 +41,26 @@ void test_ui(void)
 		for (int i = 1; i < SCR_W * SCR_H && colours < 50; i += 997) colours += d.front[i] != d.front[i - 1];
 		CHECK(colours >= 50);
 		CHECK(d.frame_no == 1);
+		display_logo_caption(&d, "Starting…", "Sea Otter test");   /* the start script's splash */
+		CHECK(d.frame_no == 2);
+		{
+			mkdir("snapshots", 0755);
+			FILE *sf = fopen("snapshots/00a_boot_splash.ppm", "wb");
+			if (sf) {
+				fprintf(sf, "P6\n%d %d\n255\n", SCR_W, SCR_H);
+				for (int i = 0; i < SCR_W * SCR_H; i++) {
+					uint16_t v = d.back.px[i];
+					unsigned char c[3] = { (unsigned char)((v >> 8) & 0xF8), (unsigned char)((v >> 3) & 0xFC), (unsigned char)((v << 3) & 0xF8) };
+					fwrite(c, 1, 3, sf);
+				}
+				fclose(sf);
+			}
+		}
 		FILE *f = fopen("not_a_logo.bmp", "wb");
 		if (f) { fputs("BM this is not a 1024x600 bitmap", f); fclose(f); }
 		CHECK(!display_logo(&d, "not_a_logo.bmp"));
 		CHECK(!display_logo(&d, "missing.bmp"));
-		CHECK(d.frame_no == 1);
+		CHECK(d.frame_no == 2);
 		remove("not_a_logo.bmp");
 		free(d.back.px); free(d.front);
 	}
