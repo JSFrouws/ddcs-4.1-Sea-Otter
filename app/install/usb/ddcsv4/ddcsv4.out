@@ -13,7 +13,7 @@ echo "Sea Otter start script $(date)" > $LOG
 #     now the screen showed only the boot loader's text (user 2026-10-24) ---
 printf '\033[?25l' > /dev/tty0 2>/dev/null                  # no blinking console cursor on it
 echo 0 > /sys/class/graphics/fbcon/cursor_blink 2>/dev/null
-[ -x ./seaotter ] && ./seaotter --splash "Starting…" >> $LOG 2>&1
+[ -x ./seaotter ] && ./seaotter --splash "Starting…" >> $LOG 2>&1 && echo "logo shown at $(cut -d ' ' -f 1 /proc/uptime) s" >> $LOG
 
 # --- SSH password: ssh-password.txt holds one line, the new root password. It is applied
 #     and deleted at once (remove it from the stick too: it is copied again on every boot) ---
@@ -77,7 +77,7 @@ cat /tmp/seaotter-driver.txt >> $LOG
 # --- Sea Otter (restarted if it ever exits; a crash loop falls back to the vendor app) ---
 n=0
 while [ $n -lt 5 ]; do
-	echo "starting seaotter ($n)" >> $LOG
+	echo "starting seaotter ($n) at $(cut -d ' ' -f 1 /proc/uptime) s" >> $LOG
 	./seaotter > /tmp/seaotter.log 2>&1
 	n=$((n + 1))
 	sleep 2
