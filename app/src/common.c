@@ -1,5 +1,7 @@
 #define _GNU_SOURCE
 #include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/syscall.h>
 #include <time.h>
@@ -50,4 +52,23 @@ int dir_list(const char *dir, void (*fn)(const char *name, void *ctx), void *ctx
 		}
 	close(fd);
 	return n < 0 ? -1 : count;
+}
+
+int file_replace(const char *path, const char *data, size_t len)
+{
+	FILE *f = fopen(path, "rb");
+	if (f) {
+		char *old = malloc(len + 1);
+		size_t n = old ? fread(old, 1, len + 1, f) : 0;
+		bool same = old && n == len && !memcmp(old, data, len);
+		free(old); fclose(f);
+		if (same) return 0;
+	}
+	char tmp[512];
+	snprintf(tmp, sizeof tmp, "%s.new", path);
+	f = fopen(tmp, "wb");
+	if (!f) return -1;
+	bool ok = fwrite(data, 1, len, f) == len && !fflush(f) && !fsync(fileno(f));
+	if (fclose(f) || !ok) { remove(tmp); return -1; }
+	return rename(tmp, path);
 }

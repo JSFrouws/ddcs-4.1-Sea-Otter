@@ -17,6 +17,10 @@ uint64_t now_ms(void);
 /* Directory listing that works on the controller: the C library's opendir() fails there
  * with EINVAL (static glibc vs the 2.6.35 kernel - measured), plain open() + getdents64 work.
  * Calls fn(name, ctx) for each entry except "." and ".."; returns the count, -1 on error. */
+/* Replace a file safely: does nothing if it already holds exactly these bytes (no flash wear),
+ * else writes <path>.new, flushes it to flash and renames it over - a power cut leaves the old
+ * file or the new one, never an empty or half-written one. 0 ok / unchanged, -1 error. */
+int file_replace(const char *path, const char *data, size_t len);
 int dir_list(const char *dir, void (*fn)(const char *name, void *ctx), void *ctx);
 void clock_use_virtual(bool on);     /* tests: time only moves via clock_advance() */
 void clock_advance(uint32_t ms);

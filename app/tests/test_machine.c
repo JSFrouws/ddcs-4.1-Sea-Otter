@@ -175,6 +175,29 @@ void test_machine(void)
 	fx_until_idle(20000);
 	CHECK_NEAR(C.mo.pos[AX_X], SET.ax[AX_X].soft_min + 10, 1e-6);
 
+	/* --- config files: replaced in one step (never half-written by a power cut), and not
+	 * rewritten at all when nothing changed (flash wear) --- */
+	{
+		struct stat a, b;
+		CHECK(settings_save("t_settings.cfg") == 0 && workdata_save("t_work.cfg") == 0);
+		stat("t_settings.cfg", &a);
+		CHECK(settings_save("t_settings.cfg") == 0);
+		stat("t_settings.cfg", &b);
+		CHECK(a.st_ino == b.st_ino && a.st_mtime == b.st_mtime);    /* unchanged: untouched */
+		double keep = SET.jog_feed; SET.jog_feed = keep + 1;
+		CHECK(settings_save("t_settings.cfg") == 0);
+		stat("t_settings.cfg", &b);
+		CHECK(a.st_ino != b.st_ino);                                /* changed: a new file renamed over */
+		CHECK(access("t_settings.cfg.new", F_OK) != 0);             /* nothing left behind */
+		SET.jog_feed = 0; settings_load("t_settings.cfg");
+		CHECK_NEAR(SET.jog_feed, keep + 1, 1e-9);
+		SET.jog_feed = keep; settings_save("t_settings.cfg");
+		stat("t_work.cfg", &a);
+		CHECK(workdata_save("t_work.cfg") == 0);
+		stat("t_work.cfg", &b);
+		CHECK(a.st_ino == b.st_ino);
+	}
+
 	/* --- keep the homed state over a restart: off by default, and only from a position at rest --- */
 	{
 		settings_t d; settings_defaults(&d);

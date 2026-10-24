@@ -166,13 +166,16 @@ void setting_format(const setting_desc_t *d, char *b, size_t n)
 
 int settings_save(const char *path)
 {
-	FILE *f = fopen(path, "w");
+	char *buf = NULL; size_t len = 0;
+	FILE *f = open_memstream(&buf, &len);            /* built in memory, then replaced safely */
 	if (!f) return -1;
-	fprintf(f, "# pandora settings - key=value, unknown keys are ignored\n");
+	fprintf(f, "# Sea Otter settings - key=value, unknown keys are ignored\n");
 	for (int i = 0; i < NSETTINGS; i++)
 		fprintf(f, "%s=%.6g\n", SETTINGS[i].key, setting_get(&SETTINGS[i]));
 	fclose(f);
-	return 0;
+	int r = file_replace(path, buf, len);
+	free(buf);
+	return r;
 }
 
 int settings_load(const char *path)
@@ -210,7 +213,8 @@ void workdata_defaults(workdata_t *w)
 
 int workdata_save(const char *path)
 {
-	FILE *f = fopen(path, "w");
+	char *buf = NULL; size_t len = 0;
+	FILE *f = open_memstream(&buf, &len);            /* built in memory, then replaced safely */
 	if (!f) return -1;
 	fprintf(f, "active=%d\nloaded_tool=%d\n", WD.active, WD.loaded_tool);
 	for (int i = 0; i < NWCS; i++)
@@ -219,7 +223,9 @@ int workdata_save(const char *path)
 	for (int i = 0; i < NTOOLS; i++)
 		fprintf(f, "tool%d=%.4f %.4f %s\n", i + 1, WD.tool[i].dia, WD.tool[i].len, WD.tool[i].note);
 	fclose(f);
-	return 0;
+	int r = file_replace(path, buf, len);
+	free(buf);
+	return r;
 }
 
 int workdata_load(const char *path)
