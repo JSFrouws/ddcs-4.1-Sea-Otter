@@ -28,13 +28,13 @@ tools, I/O and settings — is an API call. Operator-side design:
 - **Remote START is on by default** (changed 2026-10-18; it was off). Whoever distrusts remote agents switches it off on the panel. `POST /run/start` (and `/run/resume-from`)
   return `202`, the panel counts down
   (default 5 s, setting `startDelay`) and panel **Reset** cancels it. When the owner switches
-  *Settings → Network & API → Allow remote START* off (only possible on the panel, not over
+  *Settings → API → Allow: START programs* off (only possible on the panel, not over
   the API), they return `403 {"error":"remote_start_disabled"}`. Resuming from
   HOLD is a start too. Everything else (load, home, jog, probe, offsets) is allowed
   with the lease.
 - **LAN tool, simple auth.** HTTP on the controller's own address
   (`192.168.1.200`, [network.md](network.md)), port `8080`. A bearer token set in
-  Settings → Network & API; the API can be switched off there. No cloud, no accounts.
+  Settings → API; the API can be switched off there. No cloud, no accounts.
 
 ## Transport
 

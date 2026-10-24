@@ -21,6 +21,10 @@ typedef struct {
 	/* tool changes: the M6 lines split the program into tool segments; segment 0 is before the
 	 * first M6, segment i starts at tc_line[i-1] (the M6 line itself) */
 	int ntc; int tc_line[PROG_MAX_TC]; int tc_tool[PROG_MAX_TC];
+	/* good places to go to (Run, Shift + F5): the program's sections (comment lines that
+	 * start a block, like CAM operation names) or, without those, every retract to the
+	 * safe height it uses most (the highest Z that occurs often) */
+	int *goto_line; int ngoto; bool goto_sections; float goto_z;
 	char err[128]; int err_line;
 	char warn[128];
 	bool loaded;

@@ -38,6 +38,10 @@ typedef struct {
 	bool pendant; int quick_ms, wheel_div;
 	bool wheel_reverse;        /* flip the raw count: on this pendant clockwise counts DOWN */
 	bool api; int api_port; bool remote_start; int start_delay; bool agent_msgs;
+	/* what the API may do, each on its own (panel only; user 2026-10-24: whatever can hurt
+	 * someone at the machine is off by default - start, jog, moves, spindle, coolant, keys) */
+	bool api_programs, api_offsets, api_tools, api_settings, api_panel, api_overrides;
+	bool api_jog, api_moves, api_spindle, api_coolant, api_drives, api_keys;
 	double park[3], tc[3];     /* macros: machine X Y Z of the park and tool-change positions */
 	double warm_rpm, warm_s;   /* macros: spindle warm-up */
 	int tc_mode;               /* M6: 0 pause + change by hand, 1 tool-change macro, 2 ignore */

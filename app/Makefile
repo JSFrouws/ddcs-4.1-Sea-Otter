@@ -21,7 +21,7 @@ CORE := src/common.c src/core/settings.c src/core/gcode.c src/core/motion.c src/
         src/core/machine.c src/core/ctl_tick.c \
         src/hal/fpga.c src/hal/fpga_vendor_init.c src/hal/bus_sim.c src/sim/fpga_sim.c
 UI   := src/ui/fonts.c src/ui/gfx.c src/ui/ui.c src/ui/ui_frame.c src/ui/ui_run.c src/ui/ui_jog.c \
-        src/ui/ui_files.c src/ui/ui_work.c src/ui/ui_macros.c src/ui/ui_settings.c src/ui/ui_view.c src/ui/ui_editor.c \
+        src/ui/ui_files.c src/ui/ui_work.c src/ui/ui_macros.c src/ui/ui_settings.c src/ui/ui_io.c src/ui/ui_view.c src/ui/ui_editor.c \
         src/ui/ui_pendant.c
 NET  := src/net/http.c src/net/api.c src/net/web_panel.c
 HAL  := src/hal/bus_ioctl.c src/hal/panel_tm1638.c src/hal/panel_sim.c src/hal/display.c

@@ -15,7 +15,7 @@ typedef enum {
 extern const char *const KEY_NAMES[K__N];      /* "F1", "TAB", ... (API / host panel) */
 pkey_t key_by_name(const char *s);
 
-typedef enum { SCR_RUN, SCR_JOG, SCR_FILES, SCR_WORK, SCR_TOOLS, SCR_SETTINGS, SCR_MACROS, SCR__N } scr_t;
+typedef enum { SCR_RUN, SCR_JOG, SCR_FILES, SCR_WORK, SCR_TOOLS, SCR_SETTINGS, SCR_MACROS, SCR_IO, SCR__N } scr_t;
 
 #define MAXFILES 64
 typedef struct {
@@ -23,7 +23,8 @@ typedef struct {
 	int pane[SCR__N];
 	bool shift;
 	bool pagesel; uint64_t pagesel_t;   /* Page R pressed: F1-F6 are the screens */
-	bool synth;                          /* the key comes from the pendant wheel, not a finger: never jogs */
+	bool synth;
+	bool goto_list;                      /* the Goto-line editor is open: list its sections beside it */                          /* the key comes from the pendant wheel, not a finger: never jogs */
 	struct {
 		bool on, neg, allow_neg, locks;
 		char label[64], unit[12];
@@ -36,6 +37,8 @@ typedef struct {
 	char files[MAXFILES][160]; int nfiles;
 	/* pendant */
 	bool held; uint64_t held_t; int held_counts, wheel_rem;
+	int32_t wheel_total;
+	uint32_t keys_raw;                   /* panel keys held right now, bit = pkey_t (I/O screen) */                 /* raw wheel counts since start (I/O screen, API) */
 	uint64_t last_render;
 	bool dirty;
 } ui_t;
@@ -89,6 +92,8 @@ void work_render(fb_t *fb); void work_key(pkey_t k, bool sh); void work_sk(sk_t 
 void tools_render(fb_t *fb); void tools_key(pkey_t k, bool sh); void tools_sk(sk_t sk[7]);
 void set_render(fb_t *fb);  void set_key(pkey_t k, bool sh);  void set_sk(sk_t sk[7]);
 void macros_render(fb_t *fb); void macros_key(pkey_t k, bool sh); void macros_sk(sk_t sk[7]);
+void io_render(fb_t *fb);    void io_key(pkey_t k, bool sh);    void io_sk(sk_t sk[7]);
+void run_goto_list(fb_t *fb);
 void ui_pendant_nav(int n);
 void ui_pendant_change(int n);
 void ui_pendant_click(void);

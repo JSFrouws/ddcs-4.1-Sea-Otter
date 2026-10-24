@@ -567,12 +567,16 @@ void test_machine(void)
 		SET.tc_mode = 0;
 	}
 
-	/* --- remote start: allowed by default, refused once the owner switches it off --- */
+	/* --- remote start: off by default (user 2026-10-24: whatever can hurt someone at the
+	 * machine is an explicit choice), allowed once switched on, refused again when off --- */
 	{
 		settings_t d;
 		settings_defaults(&d);
-		CHECK(d.remote_start);
+		CHECK(!d.remote_start && !d.api_jog && !d.api_moves && !d.api_spindle && !d.api_coolant && !d.api_keys && !d.api_drives);
+		CHECK(d.api && d.api_programs && d.api_offsets && d.api_tools && d.api_settings && d.api_overrides && d.api_panel);
 	}
+	CHECK(can(C_START, NULL, SRC_API) != NULL);
+	SET.remote_start = true;
 	CHECK(can(C_START, NULL, SRC_API) == NULL);
 	SET.remote_start = false;
 	CHECK(!act(C_START, NULL, SRC_API) && C.m == M_IDLE);

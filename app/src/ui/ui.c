@@ -16,10 +16,10 @@ const char *const UI_SRC_NAMES[3] = { "Local", "USB", "USB (2)" };
 /* user 2026-10-22: Page R turns F1-F6 into the screens; Files sits above View (F4). Jog is not
  * in the menu - Mode goes there directly. F2 / F3 stay Pause / Reset while anything moves. */
 const scr_t PAGE_KEYS[6] = { SCR_RUN, SCR_MACROS, SCR_TOOLS, SCR_FILES, SCR_WORK, SCR_SETTINGS };
-const char *const SCR_SHORT[SCR__N] = { "Run", "Jog", "Files", "Work", "Tools", "Settings", "Macros" };
+const char *const SCR_SHORT[SCR__N] = { "Run", "Jog", "Files", "Work", "Tools", "Settings", "Macros", "I/O" };
 static const char *const PANES[SCR__N][2] = {
 	{ "Toolpath", "Program" }, { "Jog keys", "Jog setup" }, { "File list", "Preview" },
-	{ "Offsets", "Probe" }, { "Tool table", NULL }, { "Groups", "Values" }, { "Macros", NULL } };
+	{ "Offsets", "Probe" }, { "Tool table", NULL }, { "Groups", "Values" }, { "Macros", NULL }, { "I/O", NULL } };
 
 pkey_t key_by_name(const char *s)
 {
@@ -97,6 +97,7 @@ void ui_key(pkey_t k)
 	U.shift = false;
 	if (C.mo.jog_dir) motion_jog_cont(&C.mo, 0, 0);   /* safety: any other key ends a continuous jog */
 	if (!(sh && U.screen == SCR_JOG)) C.touch_axis = -1;
+	if (k != K_F3) C.rewind_ask = 0;                   /* "back to line 1?" waits for Reset only */
 	bool ps = U.pagesel;
 	U.pagesel = false;                                 /* the screen menu closes on any key */
 	if (C.m == M_TOOL && C.tc_confirm) {               /* "back to the program?" is showing */
@@ -125,6 +126,7 @@ void ui_key(pkey_t k)
 	case SCR_TOOLS: tools_key(k, sh); break;
 	case SCR_SETTINGS: set_key(k, sh); break;
 	case SCR_MACROS: macros_key(k, sh); break;
+	case SCR_IO: io_key(k, sh); break;
 	default: break;
 	}
 }
@@ -157,6 +159,7 @@ void ui_render(fb_t *fb)
 	case SCR_TOOLS: tools_render(fb); tools_sk(sk); break;
 	case SCR_SETTINGS: set_render(fb); set_sk(sk); break;
 	case SCR_MACROS: macros_render(fb); macros_sk(sk); break;
+	case SCR_IO: io_render(fb); io_sk(sk); break;
 	default: break;
 	}
 	gfx_noclip(fb);
@@ -177,6 +180,7 @@ void ui_render(fb_t *fb)
 	if (C.m == M_ESTOP) sk[2] = (sk_t){ "Reset", "release E-stop" };
 	ui_frame(fb, sk);
 	ui_editor_render(fb);
+	run_goto_list(fb);
 	U.dirty = false;
 }
 

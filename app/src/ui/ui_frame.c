@@ -38,7 +38,7 @@ static void pill(fb_t *fb, int x, int y, const char *t, uint16_t c)
 
 static void topbar(fb_t *fb)
 {
-	static const char *const titles[SCR__N] = { "Run", "Jog", "Files", "Work zero & probe", "Tools", "Settings", "Macros" };
+	static const char *const titles[SCR__N] = { "Run", "Jog", "Files", "Work zero & probe", "Tools", "Settings", "Macros", "Inputs & outputs" };
 	gfx_vgrad(fb, 0, 0, SCR_W, TOP_H, RGB(0x16, 0x44, 0x7e), RGB(0x0d, 0x2c, 0x56));
 	gfx_fill(fb, 0, TOP_H - 1, SCR_W, 1, COL_EDGE2);
 	gfx_coral(fb, 0, TOP_H - 6, SCR_W);                     /* coral divider under the top bar */
@@ -68,7 +68,7 @@ static void topbar(fb_t *fb)
 int ui_banner_h(void)
 {
 	return (C.m == M_ESTOP || C.m == M_LIMIT || C.m == M_OFF || C.countdown || (C.m == M_HOLD && C.pause_msg[0]) || C.m == M_TOOL ||
-		(C.m == M_RUN && C.tc_state != TC_NONE) || (C.m == M_MOVE && C.move_name[0]) || C.driver_warn[0] || C.macro_on) ? 30 : 0;
+		(C.m == M_RUN && C.tc_state != TC_NONE) || (C.rewind_ask && now_ms() - C.rewind_ask < 5000) || (C.m == M_MOVE && C.move_name[0]) || C.driver_warn[0] || C.macro_on) ? 30 : 0;
 }
 
 static void banner(fb_t *fb)
@@ -101,6 +101,11 @@ static void banner(fb_t *fb)
 		char d[24] = "";
 		if (C.tc_tool >= 1 && C.tc_tool <= NTOOLS && WD.tool[C.tc_tool - 1].dia > 0) { char v[16]; fmt_tool(v, sizeof v, WD.tool[C.tc_tool - 1].dia); snprintf(d, sizeof d, " (Ø%s)", v); }
 		snprintf(b, sizeof b, "TOOL CHANGE  ·  put in T%d%s  ·  Mode = jog, touch off Z if needed  ·  F1 Start = back to the program  ·  F3 Reset stops", C.tc_tool, d);
+	}
+	else if (C.rewind_ask && now_ms() - C.rewind_ask < 5000) {
+		c0 = COL_AMBER; tc = COL_BLACK;
+		snprintf(b, sizeof b, "Go back to the BEGINNING (line 1)?  ·  Press RESET again to confirm  ·  any other key: stay at line %d",
+			(C.resume_line >= 0 ? C.resume_line : C.work_done) + 1);
 	}
 	else if (C.m == M_MOVE && C.move_name[0]) {
 		c0 = RGB(0x1c, 0x6f, 0xd0);

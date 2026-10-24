@@ -175,14 +175,44 @@ void test_ui(void)
 		U.screen = SCR_MACROS;
 	}
 	ui_key(K_F7); ui_key(K_F6); CHECK(U.screen == SCR_SETTINGS); snap("08_settings");
+	ui_key(K_F6); CHECK(U.screen == SCR_IO); snap("08f_io");      /* Settings F6: the I/O overview */
+	ui_key(K_F6); CHECK(U.screen == SCR_SETTINGS);
+	for (int g = 0; SETTING_GROUPS[g]; g++) if (!strcmp(SETTING_GROUPS[g], "API")) U.grp = g;
+	U.pane[SCR_SETTINGS] = 1; U.item = 0; snap("08g_settings_api"); U.pane[SCR_SETTINGS] = 0; U.grp = 0;
 	ui_key(K_F7); ui_key(K_F1); CHECK(U.screen == SCR_RUN);
 	/* Shift: second functions on F1-F6 (Run) */
 	ui_key(K_SHIFT); snap("08c_run_shift");
 	{
-		arg_t d = { .kind = 0, .delta = -30 }; act(C_OVERRIDE, &d, SRC_PANEL);
-		ui_key(K_F2); CHECK(C.mo.feed_ov == 100 && C.mo.spin_ov == 100 && !U.shift);
-		int arm = C.armed; ui_key(K_SHIFT); ui_key(K_F5); CHECK(C.armed == (arm + 2) % 3); C.armed = arm;
+		int w0 = WD.active;
+		ui_key(K_F2); CHECK(WD.active == (w0 + 1) % NWCS && !U.shift);   /* Shift + F2: next work offset */
+		WD.active = w0;
+		/* Shift + F5: go to a line, with the program's sections / retracts listed beside it */
+		const char *sp = "(header)\nG21 G90\n(Op 1 - face)\nG0 Z10\nG0 X0 Y0\nG1 Z-1 F300\nG1 X20\nG0 Z10\n(Op 2 - pocket)\nG0 X30\nG1 Z-2\nG1 Y20\nG0 Z10\nM30\n";
+		char keep[128]; snprintf(keep, sizeof keep, "%s", C.prog.name);
+		arg_t sl = { .path = "sections.nc", .text = sp, .len = strlen(sp) };
+		act(C_LOAD, &sl, SRC_PANEL);
+		CHECK(C.prog.goto_sections && C.prog.ngoto == 2 && C.prog.goto_line[0] == 2 && C.prog.goto_line[1] == 8);
+		U.prog_line = 8;
+		ui_key(K_SHIFT); ui_key(K_F5);
+		CHECK(U.ed.on && U.goto_list);
+		snap("08d_goto_line");
+		ui_key(K_ENTER);                                   /* line 9 = "(Op 2 - pocket)" */
+		CHECK(!U.ed.on && C.resume_line == 8);
+		/* back to line 1 only with a second Reset */
+		ui_key(K_F3); CHECK(C.resume_line == 8 && C.rewind_ask);
+		snap("08e_rewind_asks");
+		ui_key(K_YP); CHECK(C.resume_line == 8 && !C.rewind_ask);   /* any other key: stays */
+		ui_key(K_F3); ui_key(K_F3); CHECK(C.resume_line == -1 && C.work_done == -1);
+		/* without sections: the retracts to the most used safe height */
+		const char *rp = "G21 G90\nG0 Z10\nG0 X0 Y0\nG1 Z-1 F300\nG1 X20\nG0 Z10\nG0 X30\nG1 Z-2\nG0 Z10\nG0 X40\nG1 Z-1\nG0 Z3\nM30\n";
+		arg_t rl = { .path = "retracts.nc", .text = rp, .len = strlen(rp) };
+		act(C_LOAD, &rl, SRC_PANEL);
+		CHECK(!C.prog.goto_sections && C.prog.ngoto == 3 && C.prog.goto_line[0] == 1 && C.prog.goto_line[1] == 5 && C.prog.goto_line[2] == 8 && fabsf(C.prog.goto_z - 10) < 1e-4);
+		arg_t back = { .path = "demo.nc", .text = prog, .len = strlen(prog) };
+		act(C_LOAD, &back, SRC_PANEL);
+		(void)keep;
 		U.view.zoom = 3; ui_key(K_SHIFT); ui_key(K_F4); CHECK(U.view.zoom == 1);
+		U.pane[SCR_RUN] = 0;
 	}
 	U.view.iso = U.view.saver = false;
 	ui_key(K_F4);

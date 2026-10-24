@@ -156,16 +156,67 @@ void run_render(fb_t *fb)
 	gfx_text_fit(fb, &font_12, vx + 10, py + ph - 24, vw - 20, C.resume_line >= 0 ? COL_AMBER : COL_DIM, b);
 }
 
+/* going back to line 1 always takes a second Reset (user 2026-10-24): the first one asks */
+static bool rewind_asking(void) { return C.rewind_ask && now_ms() - C.rewind_ask < 5000; }
+static void rewind_press(void)
+{
+	if (ctl_busy() || C.m == M_TOOL) return;
+	if (rewind_asking()) {
+		C.resume_line = -1; C.work_done = -1; U.prog_line = 0; C.rewind_ask = 0;
+		ctl_toast(false, "Back to the beginning: Start begins at line 1");
+		return;
+	}
+	C.rewind_ask = now_ms();
+	ctl_toast(true, "Go back to the beginning (line 1)? Press Reset again to confirm");
+}
+
+/* Shift + F5: go to a line - the digit editor, with the program's sections (or its retracts
+ * to the usual safe height) listed beside it as likely places to continue from */
+static void goto_set(double v, int ctx)
+{
+	(void)ctx;
+	int n = (int)v;
+	if (n < 1 || n > C.prog.nlines) { ctl_toast(true, "Line %d is not in this program (1 - %d)", n, C.prog.nlines); return; }
+	if (ctl_busy() || C.m == M_TOOL) { ctl_toast(true, "Stop the program before choosing a line"); return; }
+	C.resume_line = n > 1 ? n - 1 : -1; C.work_done = n - 2;
+	U.prog_line = n - 1; U.pane[SCR_RUN] = 1;
+	ctl_toast(false, n > 1 ? "Start continues from line %d (state rebuilt, approach at safe Z)" : "Start begins at line %d", n);
+}
+
+void run_goto_list(fb_t *fb)
+{
+	if (!U.goto_list || !U.ed.on) { U.goto_list = false; return; }
+	int top = BODY_Y + 8, bot = SCR_H - SK_H - 8, x = 8, w = 210;
+	gfx_fill(fb, x, top, w, bot - top, RGB(0x06, 0x14, 0x2a));
+	gfx_rect(fb, x, top, w, bot - top, COL_EDGE2);
+	char b[64];
+	if (C.prog.goto_sections) snprintf(b, sizeof b, "SECTIONS");
+	else if (C.prog.ngoto) snprintf(b, sizeof b, "RETRACTS TO Z%.2f", C.prog.goto_z);
+	else snprintf(b, sizeof b, "NO SECTIONS FOUND");
+	gfx_text(fb, &font_12, x + 10, top + 6, COL_CYAN, b);
+	int rows = (bot - top - 34) / 19, n = C.prog.ngoto < rows ? C.prog.ngoto : rows;
+	for (int i = 0; i < n; i++) {
+		int y = top + 26 + i * 19, ln = C.prog.goto_line[i];
+		char num[16], t[160];
+		snprintf(num, sizeof num, "%d", ln + 1);
+		gfx_text_r(fb, &font_12, x + 52, y + 1, COL_AMBER, num);
+		program_line(&C.prog, ln, t, sizeof t);
+		gfx_text_fit(fb, &font_12, x + 60, y + 1, w - 68, COL_TXT, t);
+	}
+	if (C.prog.ngoto > n) { snprintf(b, sizeof b, "… %d more", C.prog.ngoto - n); gfx_text(fb, &font_12, x + 10, bot - 22, COL_DIM2, b); }
+}
+
 void run_sk(sk_t sk[7])
 {
 	if (U.shift) {                                       /* ALT: the second functions (amber) */
-		static char a1[24];
+		static char a1[24], a2[16];
 		snprintf(a1, sizeof a1, "from line %d", U.prog_line + 1);
+		snprintf(a2, sizeof a2, "→ G%d", 54 + (WD.active + 1) % NWCS);
 		sk[0] = (sk_t){ "Start", a1 };
-		sk[1] = (sk_t){ "100 %", "feed + spindle" };
-		sk[2] = (sk_t){ "Rewind", "to line 1" };
+		sk[1] = (sk_t){ "WCS", a2 };
+		sk[2] = (sk_t){ "Rewind", rewind_asking() ? "again = line 1" : "to line 1 (asks)" };
 		sk[3] = (sk_t){ "View", "fit / reset" };
-		sk[4] = (sk_t){ "TryCut", C.armed == ARM_RUN ? "← Simulate" : C.armed == ARM_TRYCUT ? "← Run" : "← TryCut" };
+		sk[4] = (sk_t){ "Goto line", "sections" };
 		sk[5] = (sk_t){ "Coolant", C.coolant & 1 ? "on" : "off" };
 		return;
 	}
@@ -178,7 +229,7 @@ void run_sk(sk_t sk[7])
 	snprintf(s5, sizeof s5, "armed: %s", ARMED[C.armed]);
 	sk[0] = (sk_t){ "Start", s1 };
 	sk[1] = (sk_t){ "Pause", "feed hold" };
-	sk[2] = (sk_t){ "Reset", C.resume_line >= 0 ? "clear resume" : C.agent.on ? "close agent card" : "stop" };
+	sk[2] = (sk_t){ "Reset", rewind_asking() ? "again = line 1" : C.resume_line >= 0 || C.work_done >= 0 ? "to line 1 (asks)" : C.agent.on ? "close agent card" : "stop" };
 	sk[3] = (sk_t){ "View", U.view.saver ? "→ 2D" : U.view.iso ? "→ CPU saver" : "→ ISO" };
 	sk[4] = (sk_t){ "TryCut", s5 };
 	sk[5] = (sk_t){ "Spindle", C.spindle ? "on" : "off" };
@@ -192,23 +243,23 @@ void run_key(pkey_t k, bool sh)
 			if (C.m == M_IDLE && C.prog.loaded && U.prog_line < C.prog.nlines) C.resume_line = U.prog_line > 0 ? U.prog_line : -1;
 			act(C_START, NULL, SRC_PANEL);
 			break;
-		case K_F2: {
-			arg_t f = { .kind = 0, .delta = 100 - C.mo.feed_ov }, s = { .kind = 1, .delta = 100 - C.mo.spin_ov };
-			act(C_OVERRIDE, &f, SRC_PANEL); act(C_OVERRIDE, &s, SRC_PANEL);
-			ctl_toast(false, "Feed and spindle back to 100 %%");
+		case K_F2:                                         /* user 2026-10-24: the coordinate system */
+			if (ctl_busy() || C.m == M_TOOL) { ctl_toast(true, "Change the WCS when idle"); break; }
+			WD.active = (WD.active + 1) % NWCS; workdata_save(C.wd_path);
+			ctl_toast(false, "Active work offset: G%d", 54 + WD.active);
+			break;
+		case K_F3: rewind_press(); break;
+		case K_F4: U.view.yaw = -30; U.view.pitch = 32; U.view.zoom = 1; U.view.panx = U.view.pany = 0; break;
+		case K_F5: {                                       /* go to a line */
+			if (!C.prog.loaded) { ctl_toast(true, "No program loaded - Page R, F4 Files"); break; }
+			if (ctl_busy() || C.m == M_TOOL) { ctl_toast(true, "Stop the program before choosing a line"); break; }
+			int dig = 1;
+			for (int n = C.prog.nlines; n >= 10; n /= 10) dig++;
+			char l[48]; snprintf(l, sizeof l, "Go to line (1 - %d)", C.prog.nlines);
+			ui_editor_open(l, U.prog_line + 1, 0, "", dig, C.prog.nlines, false, true, goto_set, 0);
+			U.goto_list = true;
 			break;
 		}
-		case K_F3:
-			if (ctl_busy()) break;
-			C.resume_line = -1; C.work_done = -1; U.prog_line = 0;
-			ctl_toast(false, "Rewound: Start begins at line 1");
-			break;
-		case K_F4: U.view.yaw = -30; U.view.pitch = 32; U.view.zoom = 1; U.view.panx = U.view.pany = 0; break;
-		case K_F5:
-			if (ctl_busy() || C.m == M_TOOL) { ctl_toast(true, "Arming can only change while idle"); break; }
-			C.armed = (C.armed + 2) % 3;
-			ctl_toast(false, "Armed: %s", C.armed == ARM_RUN ? "Run" : C.armed == ARM_TRYCUT ? "TryCut" : "Simulate");
-			break;
 		case K_F6: act(C_COOLANT, NULL, SRC_PANEL); break;
 		default: break;
 		}
@@ -227,7 +278,7 @@ void run_key(pkey_t k, bool sh)
 	case K_F1: act(C_START, NULL, SRC_PANEL); return;
 	case K_F2: act(C_PAUSE, NULL, SRC_PANEL); return;
 	case K_F3:
-		if (C.resume_line >= 0) { C.resume_line = -1; ctl_toast(false, "Resume point cleared"); }
+		if (C.resume_line >= 0 || C.work_done >= 0) rewind_press();
 		else if (C.agent.on && motion_idle(&C.mo)) { C.agent.on = false; ctl_toast(false, "Agent instructions closed"); }
 		else act(C_STOP, NULL, SRC_PANEL);
 		return;

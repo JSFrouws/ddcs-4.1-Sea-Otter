@@ -7,7 +7,7 @@ settings_t SET;
 workdata_t WD;
 
 const char *const SETTING_GROUPS[] = {
-	"Display", "Jog & touch-off", "Pendant", "Network & API", "Axes", "Homing & limits",
+	"Display", "Jog & touch-off", "Pendant", "API", "Axes", "Homing & limits",
 	"Spindle & outputs", "Tool change", "Macros", "I/O & diagnostics", NULL
 };
 const char *const HOME_ORDERS[] = { "Z X Y A", "Z X Y", "Z Y X A", "X Y Z A", NULL };
@@ -51,11 +51,23 @@ const setting_desc_t SETTINGS[] = {
 	{ "pendant.wheel_div", "Pendant", "Counts per wheel detent", "", ST_INT, O(wheel_div), 1, 8, 0, 0, 0, 0 },
 	{ "pendant.wheel_reverse", "Pendant", "Reverse wheel direction", "", ST_BOOL, O(wheel_reverse), 0, 1, 0, 0, 0, 0 },
 	{ "pendant.estop", "Pendant", "Pendant E-stop enabled", "", ST_BOOL, O(pendant_estop), 0, 1, 0, 0, 1, 0 },
-	{ "api.on", "Network & API", "API (HTTP, port below)", "", ST_BOOL, O(api), 0, 1, 0, 0, 0, 1 },
-	{ "api.port", "Network & API", "API port", "", ST_INT, O(api_port), 1, 65535, 0, 0, 0, 1 },
-	{ "api.remote_start", "Network & API", "Allow remote START (agents, scripts)", "", ST_BOOL, O(remote_start), 0, 1, 0, 0, 0, 1 },
-	{ "api.start_delay", "Network & API", "Remote start countdown", "s", ST_INT, O(start_delay), 0, 30, 0, 0, 0, 1 },
-	{ "api.agent_msgs", "Network & API", "Show agent instructions on panel", "", ST_BOOL, O(agent_msgs), 0, 1, 0, 0, 0, 0 },
+	{ "api.on", "API", "ENABLE the REST API endpoint (HTTP)", "", ST_BOOL, O(api), 0, 1, 0, 0, 0, 1 },
+	{ "api.port", "API", "Port (restart to apply)", "", ST_INT, O(api_port), 1, 65535, 0, 0, 0, 1 },
+	{ "api.programs", "API", "Allow: send / load programs, arm, rewind", "", ST_BOOL, O(api_programs), 0, 1, 0, 0, 0, 1 },
+	{ "api.offsets", "API", "Allow: work offsets and touch-off", "", ST_BOOL, O(api_offsets), 0, 1, 0, 0, 0, 1 },
+	{ "api.tools", "API", "Allow: tool table, tool in the spindle", "", ST_BOOL, O(api_tools), 0, 1, 0, 0, 0, 1 },
+	{ "api.settings", "API", "Allow: change settings", "", ST_BOOL, O(api_settings), 0, 1, 0, 0, 0, 1 },
+	{ "api.overrides", "API", "Allow: feed / spindle overrides", "", ST_BOOL, O(api_overrides), 0, 1, 0, 0, 0, 1 },
+	{ "api.panel", "API", "Allow: messages, checklists, screens on the panel", "", ST_BOOL, O(api_panel), 0, 1, 0, 0, 0, 1 },
+	{ "api.agent_msgs", "API", "Show agent checklists on the Run screen", "", ST_BOOL, O(agent_msgs), 0, 1, 0, 0, 0, 0 },
+	{ "api.remote_start", "API", "Allow: START programs, macros, tool-change return", "", ST_BOOL, O(remote_start), 0, 1, 0, 0, 0, 1 },
+	{ "api.start_delay", "API", "Remote start countdown", "s", ST_INT, O(start_delay), 0, 30, 0, 0, 0, 1 },
+	{ "api.jog", "API", "Allow: jog", "", ST_BOOL, O(api_jog), 0, 1, 0, 0, 0, 1 },
+	{ "api.moves", "API", "Allow: home, Goto 0, Safe Z", "", ST_BOOL, O(api_moves), 0, 1, 0, 0, 0, 1 },
+	{ "api.spindle", "API", "Allow: spindle on / off", "", ST_BOOL, O(api_spindle), 0, 1, 0, 0, 0, 1 },
+	{ "api.coolant", "API", "Allow: coolant on / off", "", ST_BOOL, O(api_coolant), 0, 1, 0, 0, 0, 1 },
+	{ "api.drives", "API", "Allow: drives ON (OFF is always allowed)", "", ST_BOOL, O(api_drives), 0, 1, 0, 0, 0, 1 },
+	{ "api.keys", "API", "Allow: panel keys (browser panel, key presses)", "", ST_BOOL, O(api_keys), 0, 1, 0, 0, 0, 1 },
 	AXROWS(0, "X"), AXROWS(1, "Y"), AXROWS(2, "Z"), AXROWS(3, "A"),
 	{ "home.order", "Homing & limits", "Home order", "", ST_ENUM, O(home_order), 0, 3, 0, HOME_ORDERS, 1, 0 },
 	{ "limits.soft", "Homing & limits", "Soft limits (when homed)", "", ST_BOOL, O(soft_limits), 0, 1, 0, 0, 1, 0 },
@@ -120,7 +132,12 @@ void settings_defaults(settings_t *s)
 	s->pos_dec = 3; s->tool_dec = 2; s->view_iso = 0; s->edge_dia = 0;
 	s->pendant = true; s->quick_ms = 400; s->wheel_div = 4;
 	s->wheel_reverse = true;   /* user, 2026-10-18: clockwise (numbers up) must move + and increase values */
-	s->api = true; s->api_port = 8080; s->remote_start = true; s->start_delay = 5;   /* user 2026-10-18: on by default, can be switched off */ s->agent_msgs = true;
+	s->api = true; s->api_port = 8080; s->start_delay = 5; s->agent_msgs = true;
+	/* user 2026-10-24: reading, programs, offsets, tools, settings, overrides and panel
+	 * messages on; anything that can hurt someone at the machine off until chosen on the panel */
+	s->api_programs = s->api_offsets = s->api_tools = s->api_settings = s->api_overrides = s->api_panel = true;
+	s->remote_start = false;
+	s->api_jog = s->api_moves = s->api_spindle = s->api_coolant = s->api_drives = s->api_keys = false;
 }
 
 double setting_get(const setting_desc_t *d)

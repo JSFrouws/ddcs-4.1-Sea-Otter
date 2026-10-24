@@ -143,11 +143,11 @@ const char *can(cmd_t c, const arg_t *a, src_t src)
 	static char why[128];
 	static const arg_t none;
 	if (!a) a = &none;
-	if (src == SRC_API && !SET.api) return "API is switched off (Settings > Network & API)";
+	if (src == SRC_API && !SET.api) return "API is switched off (Settings > API)";
 	if (!(ALLOW[C.m] & B(c))) return WHY[C.m];
 	switch (c) {
 	case C_START:
-		if (src == SRC_API && !SET.remote_start) return "remote START is disabled on the panel (403)";
+		if (src == SRC_API && !SET.remote_start) return "remote START is switched off on the panel (Settings > API) (403)";
 		if (C.m == M_IDLE && !C.prog.loaded) return "No program loaded - Files > Load";
 		if (C.m == M_IDLE && !motion_idle(&C.mo)) return "Wait for the jog to finish";
 		if (C.m == M_IDLE && C.armed != ARM_SIM) { const char *w = program_outside(); if (w) return w; }
@@ -482,8 +482,10 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		tc_clear();
 		if (from == M_HOLD && C.hold_move) ctl_toast(false, "%s stopped", C.move_name);
 		else if (from == M_RUN || from == M_HOLD || from == M_TOOL) {
+			/* user 2026-10-24: never back to line 1 by itself - Start continues where it stopped */
 			C.work_done = C.mo.line;
-			ctl_toast(false, "Stopped at line %d - work done is remembered; Program > Select resumes", C.work_done + 1);
+			if (!C.macro_on && C.mo.line > 0) C.resume_line = C.mo.line;
+			ctl_toast(false, "Stopped at line %d - Start continues there; Reset twice goes back to line 1", C.work_done + 1);
 		} else if (from == M_LIMIT) ctl_toast(false, "Program cleared - limit still active, jog off the switch");
 		C.feeding = false; C.countdown = 0; C.pause_msg[0] = 0; C.hold_move = false;
 		all_off(); finish_sim();
@@ -516,7 +518,10 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		break;
 	case C_ESTOP_IN:
 		motion_stop(&C.mo, !SET.graceful_stop); C.feeding = false; all_off(); finish_sim(); tc_clear();
-		if (from == M_RUN || from == M_TOOL || (from == M_HOLD && !C.hold_move)) C.work_done = C.mo.line;
+		if (from == M_RUN || from == M_TOOL || (from == M_HOLD && !C.hold_move)) {
+			C.work_done = C.mo.line;
+			if (!C.macro_on && C.mo.line > 0) C.resume_line = C.mo.line;
+		}
 		motion_hold(&C.mo, false); C.hold_move = false;
 		macro_end();
 		ctl_toast(true, "E-STOP: %s", C.stop_cause[0] ? C.stop_cause : "E-stop input");
@@ -530,7 +535,7 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 	}
 	case C_LIMIT_HIT:
 		motion_stop(&C.mo, !SET.graceful_stop);   /* brakes past the switch: the overshoot is v^2/2a */
-		if (from == M_RUN || from == M_TOOL) C.work_done = C.mo.line;
+		if (from == M_RUN || from == M_TOOL) { C.work_done = C.mo.line; if (!C.macro_on && C.mo.line > 0) C.resume_line = C.mo.line; }
 		C.feeding = false; all_off(); finish_sim(); tc_clear();
 		macro_end();
 		C.limit_axis = a->axis; C.limit_dir = a->dir;

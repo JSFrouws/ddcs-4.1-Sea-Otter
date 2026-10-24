@@ -25,7 +25,7 @@ static const char *inapplicable(const setting_desc_t *d)
 {
 	const char *k = d->key;
 	if (!strncmp(k, "api.", 4) && strcmp(k, "api.on") && !SET.api) return "API is off";
-	if (!strcmp(k, "api.start_delay") && !SET.remote_start) return "remote START is off";
+	if (!strcmp(k, "api.start_delay") && !SET.remote_start) return "START is off";
 	if (!strncmp(k, "pendant.", 8) && strcmp(k, "pendant.on") && !SET.pendant) return "no pendant fitted";
 	if (!strcmp(k, "estop.level_high") && !SET.estop_port) return "no E-stop input";
 	if (!strncmp(k, "axis.", 5) && strstr(k, ".soft_m") && !SET.soft_limits) return "soft limits are off";
@@ -51,7 +51,7 @@ static void io_page(fb_t *fb, int x, int y, int w)
 		int col = i / 9, row = i % 9, xx = x + 12 + col * (w / 2), yy = y + row * 24;
 		bool high = (C.inputs >> i) & 1;
 		const char *fn = "";
-		for (int a = 0; a < 3; a++) if (SET.ax[a].limit_port == i + 1) fn = a == 0 ? "X limit/home" : a == 1 ? "Y limit/home" : "Z limit/home";
+		for (int a = 0; a < 3; a++) if (SET.ax[a].home_port == i + 1) fn = a == 0 ? "X limit/home" : a == 1 ? "Y limit/home" : "Z limit/home";
 		if (SET.estop_port == i + 1) fn = "E-stop";
 		if (i >= 9 && i <= 12) fn = i == 9 ? "X drive alarm" : i == 10 ? "Y drive alarm" : i == 11 ? "Z drive alarm" : "A drive alarm";
 		if (i >= 14) fn = "ext. key";
@@ -99,7 +99,9 @@ void set_render(fb_t *fb)
 		: "%s  ·  QUICK PRESS / MODIFY / ENTER STARTS EDITING  ·  CANCEL BACK", SETTING_GROUPS[U.grp]);
 	gfx_text(fb, &font_12, vx + 10, top + 6, COL_DIM, hd);
 	if (!strcmp(SETTING_GROUPS[U.grp], "I/O & diagnostics")) {
-		io_page(fb, vx, top + 28, vw);
+		gfx_text(fb, &font_16, vx + 12, top + 34, COL_TXT, "F6  I/O  opens the live overview of every input and output,");
+		gfx_text(fb, &font_16, vx + 12, top + 58, COL_TXT, "the pendant, the panel keys and the FPGA counters.");
+		io_page(fb, vx, top + 100, vw);
 		if (back) gfx_text(fb, &font_16, vx + 12, bot - 50, COL_AMBER, "←  back to the groups  ·  Enter / quick press");
 		return;
 	}
@@ -131,7 +133,9 @@ void set_render(fb_t *fb)
 		}
 		setting_format(it[i], v, sizeof v);
 		const char *na = inapplicable(it[i]);
-		gfx_text_fit(fb, &font_14, vx + 12, y, vw - 230, na ? COL_DIM2 : COL_TXT, it[i]->label);
+		bool master = !strcmp(it[i]->key, "api.on");      /* the switch everything else depends on */
+		if (master) gfx_fill(fb, vx + 8, y + 22, vw - 16, 1, COL_CYAN);
+		gfx_text_fit(fb, master ? &font_16 : &font_14, vx + 12, y - (master ? 1 : 0), vw - 230, na ? COL_DIM2 : master ? COL_CYAN : COL_TXT, it[i]->label);
 		if (na) gfx_text_r(fb, &font_12, vx + vw - 110, y + 2, COL_DIM2, na);
 		else if (it[i]->machine) gfx_text(fb, &font_12, vx + vw - 210, y + 2, COL_DIM2, "idle only");
 		uint16_t vc = na ? COL_DIM2 : it[i]->type == ST_BOOL ? (setting_get(it[i]) ? COL_GREEN : COL_DIM) : COL_TXT;
@@ -143,9 +147,10 @@ void set_render(fb_t *fb)
 		gfx_rect(fb, vx + 2, y - 4, vw - 4, 25, COL_AMBER);
 		gfx_text(fb, &font_16, vx + 12, y - 1, COL_AMBER, "←  back to the groups  ·  Enter / quick press");
 	}
-	if (!strcmp(SETTING_GROUPS[U.grp], "Network & API"))
-		gfx_text_fit(fb, &font_12, vx + 12, bot - 44, vw - 24, COL_DIM,
-			"Every panel action is also an API call. START over the API is on by default (switch it off here); the panel counts down first and Reset cancels.");
+	if (!strcmp(SETTING_GROUPS[U.grp], "API"))
+		gfx_text_fit(fb, &font_12, vx + 12, bot - 44, vw - 24, SET.api ? COL_DIM : COL_AMBER, SET.api
+			? "Reading (status, offsets, tools, programs) and Pause / Stop are always allowed. These switches can only be changed here, never over the API."
+			: "The API is OFF: nothing on the network can read or control this machine. Switch it on above, then pick what it may do.");
 	gfx_text_fit(fb, &font_12, vx + 12, bot - 24, vw - 24, COL_DIM2, "Changes apply at once and are saved; F2 restores this machine's original values.");
 }
 
@@ -155,6 +160,7 @@ void set_sk(sk_t sk[7])
 	sk[1] = (sk_t){ "Defaults", "machine" };
 	sk[2] = (sk_t){ "Edit", inl.on ? "accept" : "value" };
 	sk[3] = (sk_t){ "Export", "to USB" };
+	sk[5] = (sk_t){ "I/O", "live overview" };
 }
 
 static void set_num(double v, int ctx)
@@ -171,11 +177,13 @@ static void changed(const setting_desc_t *d)
 	if (!strncmp(d->key, "axis.", 5) && !ctl_busy() && motion_idle(&C.mo)) ctl_apply_axis_config();
 	if (!strcmp(d->key, "api.remote_start"))
 		ctl_toast(false, SET.remote_start ? "Remote START allowed - the panel counts down %d s first, Reset cancels" : "Remote START off - only the panel starts programs", SET.start_delay);
+	if (!strcmp(d->key, "api.on")) ctl_toast(!SET.api, SET.api ? "REST API on - port %d" : "REST API off - nothing on the network can read or control this machine", SET.api_port);
 }
 
 void set_key(pkey_t k, bool sh)
 {
 	if (k == K_F1) { ctl_save(); ctl_toast(false, "Settings saved"); return; }
+	if (k == K_F6) { inl.on = false; ui_goto(SCR_IO); return; }
 	if (k == K_F2) {
 		if (ctl_busy()) { ctl_toast(true, "Restore defaults when idle"); return; }
 		settings_defaults(&SET); ctl_apply_axis_config(); settings_save(C.cfg_path);

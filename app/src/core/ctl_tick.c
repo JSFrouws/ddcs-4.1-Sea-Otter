@@ -34,6 +34,8 @@ void ctl_apply_axis_config(void)
 /* The position file "<work>.pos": x y z a rest homed. It is rewritten 2 s after the machine
  * comes to rest (rest = 1) and marked rest = 0 once when it starts moving, so after a power
  * cut it is either the exact position at rest, or known to be stale. */
+static char resume_path[256]; static int resume_at;   /* the program line from the position file */
+
 static int load_pos(double p[NAXES], int *homed)
 {
 	const double photo[NAXES] = { 464.207, 274.491, -91.201, -1.0 };   /* last known (vendor screen) */
@@ -45,6 +47,8 @@ static int load_pos(double p[NAXES], int *homed)
 	if (!f) return 0;
 	int rest = 0;
 	int n = fscanf(f, "%lf %lf %lf %lf %d %d", &p[0], &p[1], &p[2], &p[3], &rest, homed);
+	resume_path[0] = 0; resume_at = 0;
+	if (n == 6 && fscanf(f, " prog %d %255[^\n]", &resume_at, resume_path) != 2) resume_path[0] = 0;
 	fclose(f);
 	if (n < 4) { memcpy(p, photo, sizeof photo); return 0; }
 	if (n < 6) { *homed = 0; rest = 1; }                 /* an older file: position only */
@@ -59,22 +63,34 @@ static void pos_write(bool rest)
 	FILE *f = fopen(tmp, "w");
 	if (!f) return;
 	fprintf(f, "%.4f %.4f %.4f %.4f %d %d\n", C.mo.pos[0], C.mo.pos[1], C.mo.pos[2], C.mo.pos[3], rest, rest && C.homed);
+	/* and roughly where the program was (user 2026-10-24: after a power cut, come back there):
+	 * the line running, or the resume point; 0 = just the program */
+	const program_t *pg = C.macro_on ? &C.saved_prog : &C.prog;
+	if (pg->loaded && pg->path[0] == '/') {
+		int line = C.macro_on ? C.saved_resume : (C.m == M_RUN || C.m == M_HOLD || C.m == M_TOOL) ? C.mo.line : C.resume_line;
+		fprintf(f, "prog %d %s\n", line > 0 ? line : 0, pg->path);
+	}
 	fflush(f); fsync(fileno(f)); fclose(f);
 	rename(tmp, path);                                   /* never a half-written file */
 }
 
 static void pos_track(void)
 {
-	static int written = -1, homed_w = -1;               /* 1 rest written, 0 moving written */
+	static int written = -1, homed_w = -1, resume_w = -2;   /* 1 rest written, 0 moving written */
+	static const char *text_w;
 	static uint64_t rest_since;
 	bool rest = motion_idle(&C.mo) && !C.mo.dry && C.m != M_HOMING && C.m != M_ESTOP;
+	static uint64_t run_w;                               /* while a program runs: its line once a minute */
+	if (C.m == M_RUN && now_ms() - run_w > 60000) { run_w = now_ms(); pos_write(false); written = 0; }
 	if (!rest) {
 		rest_since = 0;
 		if (written != 0) { pos_write(false); written = 0; }
 		return;
 	}
 	if (!rest_since) rest_since = now_ms();
-	if ((written != 1 || homed_w != C.homed) && now_ms() - rest_since > 2000) { pos_write(true); written = 1; homed_w = C.homed; }
+	if ((written != 1 || homed_w != C.homed || resume_w != C.resume_line || text_w != C.prog.text) && now_ms() - rest_since > 2000) {
+		pos_write(true); written = 1; homed_w = C.homed; resume_w = C.resume_line; text_w = C.prog.text;
+	}
 }
 
 void ctl_save(void)
@@ -118,6 +134,13 @@ void ctl_init(bus_t *bus, bool sim, const char *cfg_path, const char *wd_path)
 		C.homed = true;
 		ctl_toast(false, "Homed state kept from before the restart (Settings) - re-home for full accuracy");
 	} else if (SET.retain_homed && was_homed) ctl_toast(true, "Not homed: the power went off while the machine was moving");
+	/* the program it was on, and roughly where (never started by itself) */
+	if (resume_path[0] && program_load(&C.prog, resume_path) == 0) {
+		if (resume_at > 0 && resume_at < C.prog.nlines) {
+			C.resume_line = resume_at; C.work_done = resume_at - 1;
+			ctl_toast(false, "Back after a restart: %s, Start continues near line %d - check it first", C.prog.name, resume_at + 1);
+		} else ctl_toast(false, "Back after a restart: %s loaded", C.prog.name);
+	}
 	C.inputs = fpga_inputs(&C.fp);
 	for (int a = 0; a < NAXES; a++) {
 		C.lim_active[a] = switch_active(a);
@@ -360,7 +383,8 @@ static void inputs(void)
 	bool es = ext || pend;
 	if (es && C.m != M_ESTOP) {
 		snprintf(C.stop_cause, sizeof C.stop_cause, ext && pend ? "pendant E-stop + external E-stop (IN%02d)"
-			: pend ? "the pendant E-stop" : "the external E-stop (IN%02d)", SET.estop_port);
+			: pend ? ((C.pend.raw & 0x3FF) == 0x3FF ? "the pendant E-stop - every pendant line reads high: unplugged, loose cable or no power?" : "the pendant E-stop")
+			: "the external E-stop (IN%02d)", SET.estop_port);
 		act(C_ESTOP_IN, NULL, SRC_MACHINE);
 	}
 	if (!es && C.m == M_ESTOP) act(C_ESTOP_OUT, NULL, SRC_MACHINE);

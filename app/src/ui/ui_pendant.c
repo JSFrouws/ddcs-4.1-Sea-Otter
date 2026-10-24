@@ -71,6 +71,7 @@ void ui_pendant_click(void)
 
 void ui_pendant(const pendant_t *pd, int counts)
 {
+	U.wheel_total += counts;
 	if (!SET.pendant) return;
 	int div = SET.wheel_div > 0 ? SET.wheel_div : 4;
 	if (SET.wheel_reverse) counts = -counts;     /* clockwise = +, everywhere: jog, values, lists */

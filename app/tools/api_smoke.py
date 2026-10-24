@@ -41,6 +41,11 @@ def check(name, cond, info=""):
     print(f"{'PASS' if cond else 'FAIL'}  {name}  {info}")
 
 
+def off(c, r):
+    """403 not_allowed: that API action is switched off on the panel (Settings > API)"""
+    return c == 403 and r.get("error") == "not_allowed"
+
+
 st = call("status")[1]
 print("state", st["state"], "backend", st["backend"])
 offs0 = call("offsets")[1]
@@ -68,7 +73,12 @@ c, r = call("panel/screen", {"screen": "files"}); check("POST panel/screen", c =
 call("panel/screen", {"screen": "run"})
 c, r = call("panel/toast", {"text": "API smoke test running"}); check("POST panel/toast", c == 200)
 
-moving_ok = st["state"] == "IDLE"
+perm = {k: settings0.get(k, 1) for k in ("api.jog", "api.moves", "api.spindle", "api.coolant")}
+for path, body, key in [("jog", {"axis": "X", "dist": 1}, "api.jog"), ("move/gotozero", {"zOnly": True}, "api.moves"),
+                        ("machine/spindle", {"on": True}, "api.spindle"), ("machine/coolant", {"on": True}, "api.coolant")]:
+    if not perm[key]:
+        c, r = call(path, body); check(f"{path} refused while {key} is off", off(c, r), r.get("detail", ""))
+moving_ok = st["state"] == "IDLE" and all(perm.values())
 if moving_ok:
     c, r = call("machine/spindle", {"on": True, "rpm": 3000}); s = call("status")[1]
     check("POST machine/spindle on", c == 200 and s["spindle"]["on"] and s["spindle"]["rpm"] == 3000)
@@ -84,7 +94,8 @@ if moving_ok:
     check("POST move/gotozero zOnly (Safe Z)", c == 200 and abs(s2["machine"]["x"] - s0["machine"]["x"]) < 1e-3, f"Z work {s2['work']['z']}")
 else:
     print(f"(state {st['state']}: moves, spindle and coolant skipped)")
-    c, r = call("jog", {"axis": "X", "dist": 1}); check(f"POST jog refused in {st['state']}", c == 409, r.get("detail", ""))
+    if perm["api.jog"]:
+        c, r = call("jog", {"axis": "X", "dist": 1}); check(f"POST jog refused in {st['state']}", c == 409, r.get("detail", ""))
 
 c, r = call("settings/defaults", {}) if False else (200, {})   # not run: it would reset this machine's settings
 

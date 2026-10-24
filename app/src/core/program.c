@@ -10,7 +10,7 @@
 
 void program_free(program_t *p)
 {
-	free(p->text); free(p->line_off); free(p->pv);
+	free(p->text); free(p->line_off); free(p->pv); free(p->goto_line);
 	memset(p, 0, sizeof *p);
 }
 
@@ -57,7 +57,24 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 	add_pv(p, last, off, 0, true, true);
 	for (int a = 0; a < 3; a++) { p->lo[a] = 1e30f; p->hi[a] = -1e30f; p->mlo[a] = 1e30f; p->mhi[a] = -1e30f; }
 	int r;
+	/* retracts: a rapid move up to a Z (work) - counted per height, the lines kept */
+	enum { RMAX = 20000, ZMAX = 64 };
+	int *rl = malloc(sizeof(int) * RMAX); float *rz = malloc(sizeof(float) * RMAX); int nr = 0;
+	float zv[ZMAX]; int zc[ZMAX], nz = 0;
+	double lastz = start[AX_Z] - off[AX_Z];
 	while ((r = gc_next(&g, &op)) > 0) {
+		if (op.kind == OP_LINE) {
+			double z = op.end[AX_Z] - off[AX_Z];
+			if (op.rapid && z > lastz + 0.01 && rl && rz && nr < RMAX) {
+				float zr = (float)(floor(z * 100 + 0.5) / 100);
+				rl[nr] = op.line; rz[nr++] = zr;
+				int k = 0;
+				while (k < nz && zv[k] != zr) k++;
+				if (k == nz && nz < ZMAX) { zv[nz] = zr; zc[nz++] = 0; }
+				if (k < nz) zc[k]++;
+			}
+			lastz = z;
+		}
 		if (op.kind == OP_DWELL) p->est_s += op.value;
 		if (op.kind == OP_PAUSE && op.ival == PAUSE_TOOL && (!p->ntc || p->tc_line[p->ntc - 1] != op.line)) {
 			if (p->ntc < PROG_MAX_TC) { p->tc_line[p->ntc] = op.line; p->tc_tool[p->ntc] = (int)op.value; }
@@ -83,6 +100,33 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 	}
 	if (p->lo[0] > p->hi[0]) for (int a = 0; a < 3; a++) p->lo[a] = p->hi[a] = 0;
 	if (p->mlo[0] > p->mhi[0]) for (int a = 0; a < 3; a++) p->mlo[a] = p->mhi[a] = 0;   /* no moves at all */
+	/* goto points: sections if the program has them, else the retracts to its usual safe height */
+	{
+		enum { GMAX = 400 };
+		p->goto_line = malloc(sizeof(int) * GMAX);
+		int prev_comment = 1;                                /* the header block doesn't count */
+		for (int i = 0; p->goto_line && i < p->nlines && p->ngoto < GMAX; i++) {
+			const char *s = p->text + p->line_off[i];
+			while (*s == ' ' || *s == '\t') s++;
+			bool comment = *s == '(' || *s == ';';
+			int letters = 0;
+			for (const char *c = s; *c && *c != '\n' && letters < 3; c++) if ((*c >= 'A' && *c <= 'Z') || (*c >= 'a' && *c <= 'z')) letters++;
+			if (comment && !prev_comment && letters >= 3) p->goto_line[p->ngoto++] = i;
+			if (*s != '\n' && *s != '\r' && *s) prev_comment = comment;
+		}
+		p->goto_sections = p->ngoto >= 2;
+		if (!p->goto_sections && p->goto_line) {
+			p->ngoto = 0;
+			int best = -1;                                   /* most frequent; ties: the highest */
+			for (int k = 0; k < nz; k++) if (best < 0 || zc[k] > zc[best] || (zc[k] == zc[best] && zv[k] > zv[best])) best = k;
+			if (best >= 0 && zc[best] >= 2) {
+				p->goto_z = zv[best];
+				for (int i = 0; i < nr && p->ngoto < GMAX; i++)
+					if (rz[i] == zv[best] && (!p->ngoto || p->goto_line[p->ngoto - 1] != rl[i])) p->goto_line[p->ngoto++] = rl[i];
+			}
+		}
+	}
+	free(rl); free(rz);
 	if (p->ntc > PROG_MAX_TC) {                             /* too many to cut per tool: whole program per part */
 		p->ntc = 0;
 		snprintf(p->warn, sizeof p->warn, "more than %d tool changes - a multi-part job runs the whole program per part", PROG_MAX_TC);

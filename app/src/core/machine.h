@@ -63,6 +63,7 @@ typedef struct {
 	double tc_off[NWCS][NAXES];     /* work offsets when the change began (Z touch-off = new tool length) */
 	char *tc_text; gc_t tc_gc;      /* the tool-change macro, expanded */
 	int resume_line, work_done;
+	uint64_t rewind_ask;            /* Reset pressed once to go back to line 1: when (it needs a second press) */
 	int touch_axis, touch_dir;     /* last touch-off (same key again = 0) */
 	bool touched[NAXES];
 	int countdown; uint64_t countdown_t;

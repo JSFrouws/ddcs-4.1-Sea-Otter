@@ -77,7 +77,7 @@ Jog isn't in the menu: **Mode** goes there directly. While something moves, F2 a
 
 | Screen | F1 | F2 | F3 | F4 | F5 | F6 |
 |---|---|---|---|---|---|---|
-| Run | Start from the line picked in the listing | Feed + spindle back to 100 % | Rewind (next Start = line 1) | View: fit / reset | Arm the previous mode | Coolant on/off |
+| Run | Start from the line picked in the listing | **WCS**: next work offset (G54 → G55 …) | Rewind to line 1 (asks first) | View: fit / reset | **Goto line** (below) | Coolant on/off |
 | Jog | Home | **Safe Z** (Z up only) | Drives | Step size back | WCS back | Coolant on/off |
 | Work | | | | **Job: none** (clears every JOB mark) | | |
 
@@ -157,9 +157,23 @@ A running program still pauses with F2 and resets with F3, Shift or not.
   remembered.
 
 ### 3.6 Resume after a stop
-Run → **Tab** → Program. Pick the line (**Y±** one line, **X±** ten), **Select**. The bar
-shows what Start will restore (WCS, F, S, tool, coolant) and how it approaches: Z up, XY
-across, then down. **F1 Start**.
+**Start continues where the program stopped.** After Reset, an E-stop or a limit, the
+stopped line becomes the resume point. Start rebuilds the state there (WCS, F, S, tool,
+coolant) and approaches it: Z up, XY across, then down.
+
+- **Back to the beginning** takes **two** Resets. The first asks *"Go back to the
+  BEGINNING (line 1)?"* in an amber banner. A second Reset within 5 s confirms; any other key keeps
+  the line.
+- **Another line**: Run → **Tab** → Program, pick it (**Y±** one line, **X±** ten), **Select**.
+  Or **Shift + F5 Goto line**: type the line number in the digit editor. Beside it, a list
+  shows good places to continue from. These are the program's **sections** (comment lines that start a
+  block, like CAM operation names). Without sections, it lists the **retracts to its usual
+  safe height** (the highest Z it goes up to most often), each with its line number. Enter goes
+  there, Cancel doesn't.
+- **After a restart or a power cut** the program comes back loaded, with the resume point
+  near where it was. While a program runs, Sea Otter saves its line once a minute, so the
+  resume point can be up to a minute behind. Check the line before you press Start. It never starts
+  by itself.
 
 ### 3.7 Tool change (M6)
 *Settings › Tool change › On M6* chooses what an `M6 T…` in the program does:
@@ -328,9 +342,20 @@ the pendant alone can do everything.
 
 Useful ones: *Display › Default toolpath view* (2D / ISO / CPU saver) ·
 *Jog & touch-off › Safe Z* · *Homing & limits › Controlled stop* ·
-*Network & API › Allow remote START* (on by default; switch off if you don't want a
-network client to start programs) · *Pendant › Reverse wheel direction* ·
+*API* (below) · *Pendant › Reverse wheel direction* ·
 *Tool change* (§ 3.7: by hand / macro / ignore, where, return speed).
+
+**API** (*Settings › API*): the first line, **ENABLE the REST API endpoint**, switches the
+whole network API on or off. Under it, each kind of action can be allowed or not. Reading,
+programs, offsets, tools, settings, overrides and panel messages are on. **Starting programs,
+jogging, moves (home, Goto 0, Safe Z), spindle, coolant, drives on and panel keys are off**
+until you switch them on here. These switches can only be changed on the panel. Details:
+[api-reference.md](api-reference.md#permissions).
+
+**I/O overview** (Settings, **F6**): every input IN01–IN18 with its level, what is wired to it
+and whether that function is active (amber). Also shown: the outputs, the spindle voltage, the pendant
+(E-stop, dead-man, axis switch, multiplier, wheel counts, raw register), the panel keys held
+right now, the LEDs and the FPGA position counters. **F6** or **Cancel** goes back to Settings.
 
 ## 7. The pendant (optional)
 
@@ -342,17 +367,24 @@ network client to start programs) · *Pendant › Reverse wheel direction* ·
 | Quick press of the dead-man (switch OFF) | **Enter** on the focused item |
 | **Jog screen**: dead-man held, switch X/Y/Z/4 | That axis's row lights up in a soft amber (on Jog and Run) and the jog pane is focused: only then does the wheel jog |
 | **Jog screen**: dead-man held, switch OFF | The **Jog setup** pane is focused: the wheel changes the setup (step, WCS, …), never jogs |
+| Pendant E-stop | Same as the panel E-stop (§ 4.2) |
 
 The wheel never acts as a jog key. Before this fix, turning it on the Jog screen with the
 switch on OFF and the step on *continuous* started a Y jog that kept going. Also: any key
 press ends a continuous jog, and touch-off waits until the axis stands still.
-| Pendant E-stop | Same as the panel E-stop (§ 4.2) |
+
+**Pendant dead, E-stop "pressed"?** If every pendant line reads high (I/O screen: raw
+`0x3FF`), the pendant is unplugged, its cable is loose or it has no power. The E-stop line then
+reads "pressed" too, and the banner says so. Nothing in the software can bring the buttons
+back, because they all read "not pressed". The motion controller itself also refuses to step while
+that line reads "pressed" (measured 2026-10-24), whatever *Pendant › Pendant E-stop enabled* says.
+Check the plug and the cable.
 
 ## 8. Network
 The controller serves a browser panel and the API on port 8080
 (`http://<controller-ip>:8080/`). Every panel action is also an API call; see
-[api-reference.md](api-reference.md). Programs can be uploaded and started remotely. A remote
-start always counts down on the panel first, and Reset cancels it.
+[api-reference.md](api-reference.md). What the network may do is set in *Settings › API*
+(§ 6). A remote start, once allowed, counts down on the panel first, and Reset cancels it.
 
 ## 9. Known limits (2026-10-21)
 - **Not yet tested with drives or motors connected**, nor with real limit/home switches

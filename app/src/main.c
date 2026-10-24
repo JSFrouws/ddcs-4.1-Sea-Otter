@@ -34,6 +34,7 @@ static uint64_t signature(void)
 	}
 	MIX(C.m); MIX(C.msg_t); MIX(C.countdown); MIX(C.spindle); MIX(C.coolant); MIX(C.mo.feed_ov);
 	MIX(C.mo.spin_ov); MIX(C.homed); MIX(C.inputs); MIX(C.pend.held); MIX(C.pend.axis); MIX(C.work_done); MIX(C.agent.on);
+	if (U.screen == SCR_IO) { MIX(C.pend.raw); MIX(U.wheel_total); MIX(U.keys_raw); MIX(C.fp.outputs); for (int a = 0; a < NAXES; a++) MIX(C.fpos[a]); }
 	MIX(now_ms() / 1000);                                  /* toasts expire, banners blink */
 	for (int i = 0; i < C.agent.n; i++) MIX(C.agent.step[i].done);
 	return h;
@@ -222,6 +223,8 @@ int main(int argc, char **argv)
 			if (t - last_scan >= 20) {                          /* keys: 50 Hz, debounced over two scans */
 				last_scan = t;
 				uint32_t k = panel->scan(panel) | panel->sim_keys;   /* + keys from the browser panel */
+				U.keys_raw = 0;                                   /* held keys, by key (I/O screen) */
+				for (int bb = 0; bb < 32; bb++) if ((k >> bb) & 1) { int key = panel_bit_to_key(bb); if (key > 0 && key < 32) U.keys_raw |= 1u << key; }
 				if (k == keys_cand && k != keys_prev) {
 					uint32_t down = k & ~keys_prev, up = keys_prev & ~k;
 					for (int b = 0; b < 32; b++) {

@@ -24,6 +24,7 @@ typedef struct {
 	int axis;           /* -1 = OFF (also positions 5/6, which have no wires), 0..3 = X Y Z 4 */
 	int mult;           /* 1, 10, 100 (only valid while held) */
 	bool estop;         /* pendant E-stop pressed */
+	uint16_t raw;       /* register 0x3D as read (I/O screen, API) */
 } pendant_t;
 
 void fpga_attach(fpga_t *f, bus_t *b);

@@ -85,7 +85,7 @@ uint32_t fpga_inputs(fpga_t *f)
 pendant_t fpga_pendant(fpga_t *f)
 {
 	uint16_t v = bus_r(f->bus, FR_PENDANT);
-	pendant_t p = { .axis = -1, .mult = 1 };
+	pendant_t p = { .axis = -1, .mult = 1, .raw = v };
 	p.estop = (v & PD_ESTOP) != 0;
 	if (!(v & PD_X1)) p.mult = 1, p.held = true;
 	else if (!(v & PD_X10)) p.mult = 10, p.held = true;

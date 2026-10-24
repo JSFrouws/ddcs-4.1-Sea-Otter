@@ -18,17 +18,18 @@ answers on the network straight away:
 3. Open `http://192.168.1.200:8080/` in a browser for the live panel, or call
    `http://192.168.1.200:8080/api/v1/status`.
 
-The API is **on by default**, and so is remote START (with a 5 s countdown on the panel).
-The panel's owner can switch either off in *Settings › Network & API*; those two settings can
-only be changed on the panel itself. SSH (the `connecting/` folder) is only for working on
-the controller's files, not for the API.
+The API is **on by default**, with everything that can't hurt anyone at the machine allowed.
+Starting programs, jogging, moves, the spindle, coolant, drives-on and panel keys are **off**
+until the panel's owner switches them on, one by one, in *Settings › API* (see
+[Permissions](#permissions)). SSH (the `connecting/` folder) is only for working on the
+controller's files, not for the API.
 
 **Quick start** (curl; any language with HTTP works the same):
 ```sh
 C=http://192.168.1.200:8080/api/v1
 curl $C/status                                                     # where is it, what is it doing
 curl -X POST --data-binary @part.nc "$C/program/upload?name=part.nc" # send a program and load it
-curl -X POST -d '{"mode":"tryCut"}' $C/run/start                   # 5 s countdown, then a dry run
+curl -X POST -d '{"mode":"tryCut"}' $C/run/start                   # 5 s countdown, then a dry run (needs "START" on)
 curl -X POST $C/run/pause                                          # feed hold
 curl -X POST $C/run/start                                          # continue
 curl -X POST $C/machine/stop                                       # stop anything, always works
@@ -36,13 +37,40 @@ curl -X POST $C/machine/stop                                       # stop anythi
 `app/tools/api_smoke.py` calls every endpoint once and checks the answers; it is also a
 worked example in Python.
 
+## Permissions
+
+*Settings › API* on the panel decides what the network may do. These switches can only be
+changed on the panel, never over the API. A switched-off action answers
+`403 {"error":"not_allowed","detail":"Jogging over the API is switched off on the panel (Settings > API > api.jog)","setting":"api.jog"}`.
+
+| Setting | Default | Allows |
+|---|---|---|
+| `api.on` **ENABLE the REST API endpoint** | on | Anything at all. Off: every call answers 403 `api_off` |
+| `api.port` | 8080 | The port (applies after a restart) |
+| `api.programs` | on | `program/upload`, `program/load`, `run/arm`, `run/rewind` |
+| `api.offsets` | on | `offsets/…` (incl. touch-off) |
+| `api.tools` | on | `tools/…` |
+| `api.settings` | on | `PUT settings`, `settings/defaults` |
+| `api.overrides` | on | `overrides` |
+| `api.panel` | on | `panel/toast`, `panel/instructions`, `panel/screen` |
+| `api.remote_start` | **off** | `run/start`, `run/resume-from`, `move/macro`, and Start during a tool change |
+| `api.jog` | **off** | `jog` |
+| `api.moves` | **off** | `machine/home`, `move/gotozero` (Goto 0 / Safe Z) |
+| `api.spindle` | **off** | `machine/spindle` |
+| `api.coolant` | **off** | `machine/coolant` |
+| `api.drives` | **off** | `machine/drives {"on":true}` (switching them **off** is always allowed) |
+| `api.keys` | **off** | `key`, i.e. the clickable keys of the browser panel (it stays a live view) |
+
+**Always allowed** (with the API on): every GET (status, offsets, tools, programs, macros,
+settings, the screen) and the safety calls `run/pause`, `run/stop`, `machine/stop`, drives off.
+
 ## Basics
 
 | | |
 |---|---|
 | Base URL | `http://<controller-ip>:8080/api/v1/` (port: setting `api.port`, default 8080) |
 | Format | JSON request bodies (flat objects), JSON responses |
-| Auth | **None.** Anyone on the network can use it. It's meant for a trusted local network. Switch it off on the panel: *Settings › Network & API › API* |
+| Auth | **None.** Anyone on the network can use it. It's meant for a trusted local network. Switch it off, or limit what it may do, on the panel: *Settings › API* (see [Permissions](#permissions)) |
 | Switched off | Every `/api/v1/` call answers `403 {"error":"api_off"}` |
 | Same rules as the panel | Every call that moves or changes the machine goes through the same state machine as a panel key. A call the panel would refuse is refused here with the same reason |
 
@@ -123,6 +151,8 @@ Everything in one snapshot. Poll it (e.g. every 0.5–1 s).
 | `macro` | The macro armed or running (empty: none; `program` is then the macro) |
 | `tool` | `{"loaded":3,"changeTo":4,"confirm":false}`: the tool in, the tool an M6 asks for (0 = no change going on), and whether the first `run/start` of a tool change was given (the return move is shown on the panel; the next `run/start` goes) |
 | `jobPart` | Multi-part job: the work offset the feeder is on (`"G55"`), empty otherwise |
+| `inputs` | IN01–IN18 as read, bit 0 = IN01 (1 = high). What each one is: the I/O screen, or the settings |
+| `pendant` | `{"raw":1023,"held":false,"axis":-1,"mult":1,"estop":true,"wheel":0}`: register 0x3D, dead-man, axis switch (−1 OFF), multiplier, E-stop, wheel counts since start. `raw` 0x3FF = every line high: pendant unplugged, loose cable or no power (it then reads as E-stop pressed) |
 | `backend` | `real` (the unit's FPGA) or `sim` (simulator) |
 
 ### GET `offsets`
@@ -219,7 +249,7 @@ curl -X POST --data-binary @part.nc "http://192.168.1.200:8080/api/v1/program/up
 
 | Method | Path | Body | Does |
 |---|---|---|---|
-| POST | `panel/screen` | `{"screen":"files"}` | Show a screen: `run`, `jog`, `files`, `work`, `tools`, `settings`, `macros` (Jog is refused while something moves) |
+| POST | `panel/screen` | `{"screen":"files"}` | Show a screen: `run`, `jog`, `files`, `work`, `tools`, `settings`, `macros`, `io` (Jog is refused while something moves) |
 | POST | `panel/toast` | `{"text":"Coffee break - back at 3"}` | Show a message on the panel (max 63 characters) |
 | POST | `panel/instructions` | see below | Show a checklist card on the Run screen (an agent preparing a job) |
 | DELETE | `panel/instructions` | – | Remove the card |
@@ -256,7 +286,8 @@ steps are ticked by the operator on the panel. Up to 8 steps.
 | Program listing | `GET program` · `GET program/lines` |
 | Macros: pick and run | `GET macros` · `move/macro` |
 | Tool change: back to the program | `run/start` (twice) |
-| Settings: every value · defaults | `GET`/`PUT settings` · `settings/defaults` |
+| Settings: every value · defaults | `GET`/`PUT settings` · `settings/defaults` (except `api.*`, panel only) |
+| I/O overview | `GET status` (`inputs`, `pendant`, outputs via `spindle` / `coolant`), `panel/screen {"screen":"io"}` |
 | Screens · any key | `panel/screen` · `key` |
 | Messages, checklists for the operator | `panel/toast` · `panel/instructions` |
 | The screen itself | `GET /frame` (raw image), `/` (live browser panel) |
@@ -267,7 +298,7 @@ steps are ticked by the operator on the panel. Up to 8 steps.
 |---|---|
 | Releasing an **E-stop** | An E-stop is a physical button; it is released at the machine. The API reports it (`state` `ESTOP`) |
 | **Continuous jog** (jog while a key is held) | Over a network a lost "key released" message would leave the axis running. `jog` moves a fixed distance instead |
-| Switching the **API** or **remote START** on/off | They decide who may control the machine, so only the panel can change them (403 `read_only`) |
+| Changing any **API permission** (`api.*`) | They decide who may control the machine, so only the panel can change them (403 `read_only`) |
 | The **pendant** | It is a hand-held device at the machine |
 | Skipping the start **countdown** | A remote start gives the operator `api.start_delay` seconds (default 5) to see it coming and press Reset. Only the panel can set that to 0 |
 
@@ -305,11 +336,13 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `pendant.wheel_div` | Pendant | Counts per wheel detent |  | whole number, 1 to 8 |  |
 | `pendant.wheel_reverse` | Pendant | Reverse wheel direction |  | on/off |  |
 | `pendant.estop` | Pendant | Pendant E-stop enabled |  | on/off | yes |
-| `api.on` | Network & API | API (HTTP, port below) *(panel only, read-only over the API)* |  | on/off |  |
-| `api.port` | Network & API | API port *(panel only, read-only over the API)* |  | whole number, 1 to 65535 |  |
-| `api.remote_start` | Network & API | Allow remote START (agents, scripts) *(panel only, read-only over the API)* |  | on/off |  |
-| `api.start_delay` | Network & API | Remote start countdown *(panel only, read-only over the API)* | s | whole number, 0 to 30 |  |
-| `api.agent_msgs` | Network & API | Show agent instructions on panel |  | on/off |  |
+| `api.on` | API | ENABLE the REST API endpoint (HTTP) *(panel only)* |  | on/off |  |
+| `api.port` | API | Port, restart to apply *(panel only)* |  | whole number, 1 to 65535 |  |
+| `api.programs` · `api.offsets` · `api.tools` · `api.settings` · `api.overrides` · `api.panel` | API | Allow … (see [Permissions](#permissions)) *(panel only)* |  | on/off, default on |  |
+| `api.agent_msgs` | API | Show agent checklists on the Run screen *(panel only)* |  | on/off |  |
+| `api.remote_start` | API | Allow: START programs, macros, tool-change return *(panel only)* |  | on/off, default off |  |
+| `api.start_delay` | API | Remote start countdown *(panel only)* | s | whole number, 0 to 30 |  |
+| `api.jog` · `api.moves` · `api.spindle` · `api.coolant` · `api.drives` · `api.keys` | API | Allow … (see [Permissions](#permissions)) *(panel only)* |  | on/off, default off |  |
 | `axis.<X|Y|Z|A>.steps` | Axes | steps/mm |  | number, 1 to 100000 | yes |
 | `axis.<X|Y|Z|A>.max_vel` | Axes | max speed | mm/min | number, 1 to 30000 | yes |
 | `axis.<X|Y|Z|A>.accel` | Axes | acceleration | mm/s² | number, 1 to 10000 | yes |

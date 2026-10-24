@@ -106,8 +106,8 @@ Rules this gives, without any per-screen special cases:
   automatically ([operator-ux.md](operator-ux.md) § Limit policy).
 - Machine settings (jog feed, safe Z…) are marked "idle only" and need
   `editSetting`; display settings (decimals, view) can change any time.
-- Remote START needs `Settings › Network & API › Allow remote START` (on by
-  default, switch it off there), then counts down on the panel (default 5 s, Reset cancels).
+- Remote START needs `Settings › API › Allow: START programs` (off by default since
+  2026-10-24; switch it on there), then counts down on the panel (default 5 s, Reset cancels).
 
 ## Numbers: the digit editor
 
@@ -240,7 +240,7 @@ An agent (or any script) talks to the API ([ethernet-api.md](ethernet-api.md)):
    panel, through the same state machine.
 3. **Start**: `POST /run/start` is accepted as **202** (remote START is on by default),
    the panel shows `REMOTE START in 5 s` (configurable) and **Reset cancels**. An owner who
-   distrusts remote agents switches *Settings › Network & API › Allow remote START* off;
+   distrusts remote agents switches *Settings › API › Allow: START programs* off;
    then the request gets **403 remote start disabled** and the card tells the operator to
    press **Start**. Either way the state machine still requires IDLE (or HOLD for
    a resume) and a loaded program.
