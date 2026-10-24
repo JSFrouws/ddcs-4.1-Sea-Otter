@@ -3,6 +3,7 @@
  * 409 when the state refuses it, 403 for START while remote start is disabled. */
 #include <ctype.h>
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,7 @@
 extern const char WEB_PANEL[];
 extern const unsigned WEB_PANEL_LEN;
 extern const char *UI_SRC_DIRS[3];
+extern const char *const UI_SRC_NAMES[3];
 
 extern uint32_t bus_errors, bus_retries;
 extern int bus_last_errno;
@@ -189,6 +191,115 @@ static void run_start(const char *b, http_resp_t *r)
 	doit(r, C_START, NULL);
 }
 
+/* a growing JSON body for the list answers */
+typedef struct { char *o; size_t k, cap; } jbuf_t;
+static void jb(jbuf_t *j, const char *fmt, ...)
+{
+	va_list ap;
+	for (;;) {
+		va_start(ap, fmt);
+		int n = vsnprintf(j->o + j->k, j->cap - j->k, fmt, ap);
+		va_end(ap);
+		if (n >= 0 && j->k + (size_t)n < j->cap) { j->k += (size_t)n; return; }
+		j->cap *= 2; j->o = realloc(j->o, j->cap);
+	}
+}
+static void jb_send(http_resp_t *r, jbuf_t *j) { r->body = j->o; r->len = j->k; r->status = 200; r->type = "application/json"; }
+
+/* the value of ?name=... in a query string */
+static bool qarg(const char *q, const char *name, char *out, size_t n)
+{
+	size_t l = strlen(name);
+	for (const char *s = q; s && *s; ) {
+		if (!strncmp(s, name, l) && s[l] == '=') {
+			size_t i = 0; s += l + 1;
+			while (*s && *s != '&' && i + 1 < n) out[i++] = *s++;
+			out[i] = 0; return true;
+		}
+		s = strchr(s, '&'); if (s) s++;
+	}
+	return false;
+}
+
+static void get_offsets(http_resp_t *r)
+{
+	jbuf_t j = { malloc(1024), 0, 1024 };
+	jb(&j, "{\"active\":\"G%d\",\"wcs\":{", 54 + WD.active);
+	for (int i = 0; i < NWCS; i++)
+		jb(&j, "%s\"G%d\":{\"x\":%.4f,\"y\":%.4f,\"z\":%.4f,\"a\":%.4f,\"job\":%s}", i ? "," : "", 54 + i,
+			WD.wcs[i].off[0], WD.wcs[i].off[1], WD.wcs[i].off[2], WD.wcs[i].off[3], WD.wcs[i].job ? "true" : "false");
+	jb(&j, "}}");
+	jb_send(r, &j);
+}
+
+static void get_tools(http_resp_t *r)
+{
+	jbuf_t j = { malloc(1024), 0, 1024 };
+	jb(&j, "{\"loaded\":%d,\"tools\":[", WD.loaded_tool);
+	for (int i = 0; i < NTOOLS; i++) {
+		char n[64]; json_escape(n, sizeof n, WD.tool[i].note);
+		jb(&j, "%s{\"t\":%d,\"dia\":%.4f,\"len\":%.4f,\"note\":\"%s\"}", i ? "," : "", i + 1, WD.tool[i].dia, WD.tool[i].len, n);
+	}
+	jb(&j, "]}");
+	jb_send(r, &j);
+}
+
+static int prog_ext(const char *n)
+{
+	const char *e = strrchr(n, '.');
+	return e && (!strcasecmp(e, ".nc") || !strcasecmp(e, ".ngc") || !strcasecmp(e, ".tap") || !strcasecmp(e, ".gcode") || !strcasecmp(e, ".txt"));
+}
+static void add_prog(const char *name, void *ctx)
+{
+	jbuf_t *j = ctx;
+	if (name[0] == '.' || !prog_ext(name)) return;
+	char n[200]; json_escape(n, sizeof n, name);
+	jb(j, "%s\"%s\"", j->o[j->k - 1] == '[' ? "" : ",", n);
+}
+
+/* GET programs?source=local|usb: the program files in /local (CNCDISK share) or on the USB stick */
+static void get_programs(const http_req_t *q, http_resp_t *r)
+{
+	char src[16] = "local";
+	qarg(q->query, "source", src, sizeof src);
+	int s = !strcasecmp(src, "usb") ? 1 : 0;
+	jbuf_t j = { malloc(2048), 0, 2048 };
+	jb(&j, "{\"source\":\"%s\",\"dir\":\"%s\",\"files\":[", s ? "usb" : "local", UI_SRC_DIRS[s]);
+	int n = dir_list(UI_SRC_DIRS[s], add_prog, &j);
+	if (n < 0 && s == 1) dir_list(UI_SRC_DIRS[2], add_prog, &j);   /* the stick's other mount point */
+	jb(&j, "]}");
+	jb_send(r, &j);
+}
+
+/* GET program: what is loaded; GET program/lines?from=1&count=50: its text */
+static void get_program(const http_req_t *q, http_resp_t *r, bool lines)
+{
+	jbuf_t j = { malloc(4096), 0, 4096 };
+	char nm[300], er[260], wn[260];
+	json_escape(nm, sizeof nm, C.prog.name); json_escape(er, sizeof er, C.prog.err); json_escape(wn, sizeof wn, C.prog.warn);
+	if (!lines) {
+		jb(&j, "{\"loaded\":%s,\"name\":\"%s\",\"lines\":%d,\"error\":\"%s\",\"warning\":\"%s\",\"estimateS\":%.0f,"
+			"\"box\":{\"min\":[%.3f,%.3f,%.3f],\"max\":[%.3f,%.3f,%.3f]},\"tools\":[",
+			C.prog.loaded ? "true" : "false", nm, C.prog.nlines, er, wn, C.prog.est_s,
+			C.prog.lo[0], C.prog.lo[1], C.prog.lo[2], C.prog.hi[0], C.prog.hi[1], C.prog.hi[2]);
+		for (int i = 0; i < C.prog.ntc && i < PROG_MAX_TC; i++) jb(&j, "%s{\"line\":%d,\"tool\":%d}", i ? "," : "", C.prog.tc_line[i] + 1, C.prog.tc_tool[i]);
+		jb(&j, "],\"resumeLine\":%d,\"workDone\":%d,\"macro\":%s}", C.resume_line + 1, C.work_done + 1, C.macro_on ? "true" : "false");
+	} else {
+		char v[16];
+		int from = qarg(q->query, "from", v, sizeof v) ? atoi(v) : 1, count = qarg(q->query, "count", v, sizeof v) ? atoi(v) : 50;
+		from = CLAMP(from, 1, C.prog.nlines ? C.prog.nlines : 1); count = CLAMP(count, 1, 1000);
+		jb(&j, "{\"name\":\"%s\",\"from\":%d,\"lines\":[", nm, from);
+		for (int i = from - 1; i < from - 1 + count && i < C.prog.nlines; i++) {
+			char t[260], e[600];
+			program_line(&C.prog, i, t, sizeof t);
+			json_escape(e, sizeof e, t);
+			jb(&j, "%s\"%s\"", i == from - 1 ? "" : ",", e);
+		}
+		jb(&j, "]}");
+	}
+	jb_send(r, &j);
+}
+
 void api_handle(const http_req_t *q, http_resp_t *r)
 {
 	const char *p = q->path, *b = q->body;
@@ -222,6 +333,13 @@ void api_handle(const http_req_t *q, http_resp_t *r)
 		k += (size_t)snprintf(o + k, cap - k, "]}");
 		r->body = o; r->len = k; r->status = 200; r->type = "application/json";
 		return;
+	}
+	if (!post && !del) {
+		if (!strcmp(p, "offsets")) { get_offsets(r); return; }
+		if (!strcmp(p, "tools")) { get_tools(r); return; }
+		if (!strcmp(p, "programs")) { get_programs(q, r); return; }
+		if (!strcmp(p, "program")) { get_program(q, r, false); return; }
+		if (!strcmp(p, "program/lines")) { get_program(q, r, true); return; }
 	}
 	if (!strcmp(p, "settings")) { put_settings(b, r); return; }
 	if (!post && !del) { resp_text(r, 404, "text/plain", "not found"); return; }
@@ -271,7 +389,20 @@ void api_handle(const http_req_t *q, http_resp_t *r)
 		a.dir = v < 0 ? -1 : 1; a.dist = fabs(v);
 		doit(r, C_JOG, &a); return;
 	}
-	if (!strcmp(p, "move/gotozero")) { doit(r, C_GOTOZERO, NULL); return; }
+	if (!strcmp(p, "move/gotozero")) { bool z = false; jbool(b, "zOnly", &z); a.kind = z ? 1 : 0; doit(r, C_GOTOZERO, &a); return; }
+	if (!strcmp(p, "machine/spindle")) {                 /* {"on":true,"rpm":12000} - by hand, like F6 */
+		bool on = !C.spindle; jbool(b, "on", &on);
+		if (jnum(b, "rpm", &v)) C.rpm = CLAMP(v, 0, SET.spindle_max);
+		if (on != C.spindle) { doit(r, C_SPINDLE, NULL); return; }
+		resp_text(r, 200, "application/json", "{\"ok\":true,\"state\":\"%s\",\"spindle\":%s,\"rpm\":%.0f}", STATE_NAMES[C.m], C.spindle ? "true" : "false", C.rpm);
+		return;
+	}
+	if (!strcmp(p, "machine/coolant")) {                 /* {"on":true}: the M8 output */
+		bool on = !(C.coolant & 1); jbool(b, "on", &on);
+		if (on != (bool)(C.coolant & 1)) { doit(r, C_COOLANT, NULL); return; }
+		resp_text(r, 200, "application/json", "{\"ok\":true,\"state\":\"%s\",\"coolant\":%d}", STATE_NAMES[C.m], C.coolant);
+		return;
+	}
 	if (!strcmp(p, "move/macro")) {                    /* {"macro":"Park"} (name or file) -> armed and started */
 		char mname[96];
 		if (!jstr(b, "macro", mname, sizeof mname)) { resp_text(r, 400, "application/json", "{\"error\":\"need macro (its name or file)\"}"); return; }
@@ -304,15 +435,69 @@ void api_handle(const http_req_t *q, http_resp_t *r)
 		workdata_save(C.wd_path);
 		resp_text(r, 200, "application/json", "{\"ok\":true}"); return;
 	}
+	if (!strncmp(p, "tools/T", 7)) {                    /* {"dia":6,"len":58.33,"note":"6 mm flat"} */
+		int t = atoi(p + 7);
+		if (t < 1 || t > NTOOLS) { resp_text(r, 404, "application/json", "{\"error\":\"no such tool (T1-T%d)\"}", NTOOLS); return; }
+		if (can(C_EDIT_TABLE, NULL, SRC_API)) { refuse(r, C_EDIT_TABLE, NULL); return; }
+		tool_t *tl = &WD.tool[t - 1];
+		if (jnum(b, "dia", &v)) tl->dia = CLAMP(v, 0, 999);
+		if (jnum(b, "len", &v)) tl->len = CLAMP(v, 0, 999);
+		char note[sizeof tl->note];
+		if (jstr(b, "note", note, sizeof note)) snprintf(tl->note, sizeof tl->note, "%s", note);
+		workdata_save(C.wd_path);
+		resp_text(r, 200, "application/json", "{\"ok\":true}"); return;
+	}
+	if (!strcmp(p, "tools/loaded")) {                   /* {"tool":3}: the tool now in the spindle */
+		if (!jnum(b, "tool", &v) || v < 0 || v > NTOOLS) { resp_text(r, 400, "application/json", "{\"error\":\"need tool 0-%d\"}", NTOOLS); return; }
+		if (ctl_busy() || C.m == M_TOOL) { refuse(r, C_EDIT_TABLE, NULL); return; }
+		WD.loaded_tool = (int)v; workdata_save(C.wd_path);
+		resp_text(r, 200, "application/json", "{\"ok\":true,\"loaded\":%d}", WD.loaded_tool); return;
+	}
+	if (!strcmp(p, "settings/defaults")) {               /* the panel's Settings F2 */
+		if (can(C_EDIT_SETTING, NULL, SRC_API) || ctl_busy()) { refuse(r, C_EDIT_SETTING, NULL); return; }
+		bool api = SET.api; int port = SET.api_port;
+		settings_defaults(&SET); SET.api = api; SET.api_port = port;   /* never lock the caller out */
+		ctl_apply_axis_config(); settings_save(C.cfg_path);
+		ctl_toast(false, "Settings restored to the defaults (over the network)");
+		resp_text(r, 200, "application/json", "{\"ok\":true}"); return;
+	}
+	if (!strcmp(p, "run/arm")) {                         /* {"mode":"tryCut"}: what Start will do, without starting */
+		char mode[16] = "";
+		if (!jstr(b, "mode", mode, sizeof mode)) { resp_text(r, 400, "application/json", "{\"error\":\"need mode: run, tryCut or simulate\"}"); return; }
+		if (ctl_busy() || C.m == M_TOOL) { refuse(r, C_START, NULL); return; }   /* like the panel's F5 */
+		C.armed = !strcasecmp(mode, "tryCut") ? ARM_TRYCUT : !strcasecmp(mode, "simulate") ? ARM_SIM : ARM_RUN;
+		resp_text(r, 200, "application/json", "{\"ok\":true,\"armed\":\"%s\"}", (const char *[]){ "run", "tryCut", "simulate" }[C.armed]); return;
+	}
+	if (!strcmp(p, "run/rewind")) {                      /* forget the resume point and the work done */
+		if (ctl_busy() || C.m == M_TOOL) { refuse(r, C_START, NULL); return; }
+		C.resume_line = -1; C.work_done = -1;
+		resp_text(r, 200, "application/json", "{\"ok\":true}"); return;
+	}
+	if (!strcmp(p, "panel/screen")) {                     /* {"screen":"files"} */
+		static const char *const names[SCR__N] = { "run", "jog", "files", "work", "tools", "settings", "macros" };
+		int sc = -1;
+		if (jstr(b, "screen", s, sizeof s)) for (int i = 0; i < SCR__N; i++) if (!strcasecmp(s, names[i])) sc = i;
+		if (sc < 0) { resp_text(r, 400, "application/json", "{\"error\":\"screen: run, jog, files, work, tools, settings or macros\"}"); return; }
+		ui_goto((scr_t)sc); U.dirty = true;
+		resp_text(r, 200, "application/json", "{\"ok\":true,\"screen\":\"%s\"}", names[U.screen]); return;
+	}
 	if (!strcmp(p, "program/upload")) { upload(q, r); return; }
 	if (!strcmp(p, "program/load")) {
-		char path[320];
-		if (!jstr(b, "name", s, sizeof s) || strchr(s, '/')) { resp_text(r, 400, "application/json", "{\"error\":\"need a file name\"}"); return; }
-		snprintf(path, sizeof path, "%s/%s", UI_SRC_DIRS[0], s);
+		char path[400], nm[160], src[16] = "local";
+		if (!jstr(b, "name", nm, sizeof nm) || strchr(nm, '/')) { resp_text(r, 400, "application/json", "{\"error\":\"need a file name\"}"); return; }
+		jstr(b, "source", src, sizeof src);                 /* "local" (CNCDISK share, default) or "usb" */
+		int sd = !strcasecmp(src, "usb") ? 1 : 0;
+		snprintf(path, sizeof path, "%s/%s", UI_SRC_DIRS[sd], nm);
+		FILE *tf = fopen(path, "rb");
+		if (!tf && sd == 1) snprintf(path, sizeof path, "%s/%s", UI_SRC_DIRS[2], nm);   /* the stick's other mount point */
+		if (tf) fclose(tf);
+		else if (!(tf = fopen(path, "rb"))) { resp_text(r, 404, "application/json", "{\"error\":\"no such file\",\"detail\":\"%s not found in %s\"}", nm, UI_SRC_DIRS[sd]); return; }
+		else fclose(tf);
 		a.path = path;
 		if (can(C_LOAD, &a, SRC_API)) { refuse(r, C_LOAD, &a); return; }
 		act(C_LOAD, &a, SRC_API);
-		resp_text(r, C.prog.loaded ? 200 : 400, "application/json", "{\"ok\":%s,\"lines\":%d}", C.prog.loaded ? "true" : "false", C.prog.nlines); return;
+		char e[200]; json_escape(e, sizeof e, C.prog.err);
+		resp_text(r, C.prog.loaded ? 200 : 400, "application/json", "{\"ok\":%s,\"lines\":%d,\"detail\":\"%s\"}", C.prog.loaded ? "true" : "false", C.prog.nlines, C.prog.loaded ? "" : e); return;
 	}
 	if (!strcmp(p, "run/start")) { run_start(b, r); return; }
 	if (!strcmp(p, "run/pause")) { doit(r, C_PAUSE, NULL); return; }

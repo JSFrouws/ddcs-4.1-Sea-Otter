@@ -1,9 +1,40 @@
 # Sea Otter API reference
 
-The HTTP API that Sea Otter (`app/`) actually implements, endpoint by endpoint, as of build
-local-83 (2026-10-21). [ethernet-api.md](ethernet-api.md) is the wider design: it also
-lists endpoints that are planned but not built yet. **This file is the contract:** if an
-endpoint is not here, it doesn't exist yet.
+The HTTP API that Sea Otter (`app/`) implements, endpoint by endpoint, as of 2026-10-24
+(build local-137). Everything the panel can do, the API can do too, under the same safety
+rules. The few exceptions are on purpose; see [Not over the API](#not-over-the-api-on-purpose).
+[ethernet-api.md](ethernet-api.md) is the older, wider design. **This file is the
+contract:** if an endpoint is not here, it doesn't exist.
+
+## Out of the box
+
+**The API needs no setup, and no SSH.** Install Sea Otter with the USB package and it
+answers on the network straight away:
+
+1. Connect the controller's Ethernet port to your network (or straight to a PC).
+2. It has the fixed address **192.168.1.200** (mask 255.255.255.0). To change that, or to use
+   DHCP, edit `network.conf` in the package before installing ([usb-install.md](usb-install.md)).
+   A PC talking to it straight needs an address in the same range, e.g. 192.168.1.65.
+3. Open `http://192.168.1.200:8080/` in a browser for the live panel, or call
+   `http://192.168.1.200:8080/api/v1/status`.
+
+The API is **on by default**, and so is remote START (with a 5 s countdown on the panel).
+The panel's owner can switch either off in *Settings › Network & API*; those two settings can
+only be changed on the panel itself. SSH (the `connecting/` folder) is only for working on
+the controller's files, not for the API.
+
+**Quick start** (curl; any language with HTTP works the same):
+```sh
+C=http://192.168.1.200:8080/api/v1
+curl $C/status                                                     # where is it, what is it doing
+curl -X POST --data-binary @part.nc "$C/program/upload?name=part.nc" # send a program and load it
+curl -X POST -d '{"mode":"tryCut"}' $C/run/start                   # 5 s countdown, then a dry run
+curl -X POST $C/run/pause                                          # feed hold
+curl -X POST $C/run/start                                          # continue
+curl -X POST $C/machine/stop                                       # stop anything, always works
+```
+`app/tools/api_smoke.py` calls every endpoint once and checks the answers; it is also a
+worked example in Python.
 
 ## Basics
 
@@ -94,6 +125,28 @@ Everything in one snapshot. Poll it (e.g. every 0.5–1 s).
 | `jobPart` | Multi-part job: the work offset the feeder is on (`"G55"`), empty otherwise |
 | `backend` | `real` (the unit's FPGA) or `sim` (simulator) |
 
+### GET `offsets`
+The work offsets: `{"active":"G54","wcs":{"G54":{"x":375.846,"y":220.2215,"z":-162.7505,"a":0,"job":true},"G55":{…},…}}`.
+The values are the machine position of each zero; `job` marks the parts of a multi-part job.
+
+### GET `tools`
+The tool table and the tool in the spindle: `{"loaded":3,"tools":[{"t":1,"dia":3.175,"len":52.41,"note":"1/8\" downcut"},…]}` (T1–T12).
+
+### GET `programs` · `programs?source=usb`
+The program files Sea Otter can load: `{"source":"local","dir":"/local","files":["bracket.nc",…]}`.
+`local` is the CNCDISK network share (default), `usb` the USB stick. Extensions `.nc .ngc .tap .gcode .txt`.
+
+### GET `program`
+The loaded program: `{"loaded":true,"name":"part.nc","lines":4928,"error":"","warning":"","estimateS":1260,"box":{"min":[x,y,z],"max":[x,y,z]},"tools":[{"line":3,"tool":1},…],"resumeLine":0,"workDone":812,"macro":false}`.
+`box` = the cutting moves in work coordinates. `tools` = the M6 tool changes (1-based line).
+`resumeLine` / `workDone` = 0 when there is none.
+
+### GET `program/lines?from=1&count=50`
+The program text: `{"name":"part.nc","from":1,"lines":["G21 G90","G0 Z5",…]}` (up to 1000 lines per call).
+
+### GET `macros`
+See [Moving](#moving).
+
 ### GET `settings`
 All settings as `{"key": value, …}` (on/off as 0/1, choices as their index). The keys are
 listed in [Settings keys](#settings-keys) below.
@@ -107,13 +160,15 @@ listed in [Settings keys](#settings-keys) below.
 | POST | `machine/stop` | – | Stops whatever moves (program, move, jog, homing) and cancels a start countdown. Always answers 200: `{"ok":true,"state":"IDLE","fpgaAtStop":{"x":…}}`, with the FPGA counters read at the moment of the stop. With `motion.graceful_stop` on (default) the machine brakes along the path (no lost steps, ≈ 1 mm run-on at full speed) |
 | POST | `machine/drives` | `{"on":true}` / `{"on":false}` | Drives on / off. Off is always immediate |
 | POST | `machine/home` | – | Home all axes in the configured order (Reset or `machine/stop` stops it) |
+| POST | `machine/spindle` | `{"on":true,"rpm":12000}` (`rpm` optional) | Spindle on/off by hand, like F6. Idle only: a program switches it with M3/M5 |
+| POST | `machine/coolant` | `{"on":true}` | The flood output (M8) on/off by hand, like Shift + F6. Also while a program runs |
 
 ## Moving
 
 | Method | Path | Body | Does |
 |---|---|---|---|
 | POST | `jog` | `{"axis":"X","dist":-0.5}` | Relative jog in mm (negative = minus direction), at the jog feed. A jog past a soft/bench limit is shortened to end exactly on it (decelerating into it). Refused while running, when already at the limit that way, or into a tripped limit switch |
-| POST | `move/gotozero` | – | Z up to safe height, then X Y to the active work zero |
+| POST | `move/gotozero` | – or `{"zOnly":true}` | Z up to safe height, then X Y to the active work zero. `zOnly`: Z up only (*Safe Z*). `run/pause` holds it (state HOLD), `run/start` continues, `machine/stop` ends it |
 | POST | `move/macro` | `{"macro":"Park"}` | Arm a macro (by its name or its file name, see `GET macros`) and start it: same rules as `run/start` — **202** with the panel countdown, **403** if remote START is off. While it runs, `run/pause`, `run/start` and `run/stop` / `machine/stop` act on it; afterwards the loaded program is back. **409** e.g. `"Park: home first"` for a `(needs: homed)` macro; **400** if the file has an error (`detail`) |
 | GET | `macros` | – | The macro files found: `{"armed":"","macros":[{"name":"Park","info":"…","file":"/ddcsv4/macro-park.nc","needsHomed":true,"source":"package"},…]}` — `source` `package` (app folder) or `share` (CNCDISK `macros` folder) |
 
@@ -123,14 +178,25 @@ listed in [Settings keys](#settings-keys) below.
 |---|---|---|---|
 | POST | `offsets/touch-off` | `{"axis":"X","dir":1,"diameter":12}` | Touch-off at the current position, like Shift + axis key on the panel: axis = −dir·Ø/2 (`diameter` optional; it also becomes the panel's edge Ø). `dir` −1 / +1 |
 | POST | `offsets/active` | `{"wcs":"G55"}` | Make G54…G59 the active work offset |
-| POST | `offsets/G54` … `offsets/G59` | `{"x":120.5,"y":80,"z":-30.2,"job":true}` | Set offset values (machine position of that zero; any subset) and the multi-part "job" flag |
+| POST | `offsets/G54` … `offsets/G59` | `{"x":120.5,"y":80,"z":-30.2,"job":true}` | Set offset values (machine position of that zero; any subset) and the multi-part "job" flag. Several JOB parts: Start cuts each tool on every part before the next tool change |
+
+## Tools
+
+| Method | Path | Body | Does |
+|---|---|---|---|
+| POST | `tools/T1` … `tools/T12` | `{"dia":6,"len":58.33,"note":"6 mm flat 3F"}` (any subset) | Edit the tool table |
+| POST | `tools/loaded` | `{"tool":3}` | Tell Sea Otter which tool is in the spindle now (0 = none). An M6 for that tool then doesn't stop. Not while a program runs |
+
+A tool change in a program (M6) is handled as set in *Settings › Tool change*: by hand (state
+`TOOL`), by a macro, or ignored. By hand: jog and `offsets/touch-off` work during it, then
+`run/start` twice (the first shows the way back on the panel, the second goes).
 
 ## Programs
 
 | Method | Path | Body | Does |
 |---|---|---|---|
 | POST | `program/upload?name=part.nc` | the raw G-code text (not JSON) | Saves the file in `/local` (the CNCDISK share) and loads it. 400 with `detail` and `line` if it doesn't parse |
-| POST | `program/load` | `{"name":"part.nc"}` | Load a file that is already in `/local`. 4 s for 64 000 lines; the panel freezes for that time |
+| POST | `program/load` | `{"name":"part.nc"}` · `{"name":"part.nc","source":"usb"}` | Load a file that is already on the controller (`GET programs` lists them): the CNCDISK share (default) or the USB stick. 404 if the file isn't there, 400 with `detail` if it doesn't parse. 4 s for 64 000 lines; the panel freezes for that time |
 
 Example upload with curl:
 ```sh
@@ -142,7 +208,9 @@ curl -X POST --data-binary @part.nc "http://192.168.1.200:8080/api/v1/program/up
 | Method | Path | Body | Does |
 |---|---|---|---|
 | POST | `run/start` | `{"mode":"run"}` · `"tryCut"` · `"simulate"` (optional) | Start the loaded program. From IDLE: **202**, the panel counts down `api.start_delay` s first (Reset on the panel cancels). From HOLD: resumes at once. From TOOL (a tool change): the first call only shows the return move on the panel (`tool.confirm` becomes true), the second goes back in a straight line at `tool.return_pct` of rapid and continues. **403** if remote START is off on the panel. **409** if the program leaves the soft/bench limits on any work offset it would run on (`detail` names axis, side and distance; Simulate is allowed) |
-| POST | `run/pause` | – | Feed hold (RUN → HOLD) |
+| POST | `run/arm` | `{"mode":"tryCut"}` | What Start will do, without starting: `run`, `tryCut` (spindle off, Z at the clearance level) or `simulate` (nothing moves). Like the panel's F5 |
+| POST | `run/pause` | – | Feed hold (RUN → HOLD); also holds a Goto 0 |
+| POST | `run/rewind` | – | Forget the resume point and the work done: the next Start begins at line 1 |
 | POST | `run/stop` | – | Stop the program (409 when nothing runs; `machine/stop` always works) |
 | POST | `run/resume-from` | `{"line":846,"mode":"run"}` | Restore the modal state of that line (1-based) and continue from it: Z up, XY across, down. Same countdown / 403 rules as `run/start` |
 | POST | `overrides` | `{"feed":110,"spindle":95}` | Set feed / spindle override in %, 0–300 (any subset). Answers `{"feed":110,"rapid":100,"spindle":95}` |
@@ -151,6 +219,7 @@ curl -X POST --data-binary @part.nc "http://192.168.1.200:8080/api/v1/program/up
 
 | Method | Path | Body | Does |
 |---|---|---|---|
+| POST | `panel/screen` | `{"screen":"files"}` | Show a screen: `run`, `jog`, `files`, `work`, `tools`, `settings`, `macros` (Jog is refused while something moves) |
 | POST | `panel/toast` | `{"text":"Coffee break - back at 3"}` | Show a message on the panel (max 63 characters) |
 | POST | `panel/instructions` | see below | Show a checklist card on the Run screen (an agent preparing a job) |
 | DELETE | `panel/instructions` | – | Remove the card |
@@ -169,6 +238,38 @@ curl -X POST --data-binary @part.nc "http://192.168.1.200:8080/api/v1/program/up
 Each step is ticked off by itself when its `check` becomes true: `homed`,
 `loaded:<file>`, `touched:<axes>` (touch-off done on those axes), `running`. `operator`
 steps are ticked by the operator on the panel. Up to 8 steps.
+
+## Complete control: the panel and its API calls
+
+| On the panel | Over the API |
+|---|---|
+| Start / Pause / Reset | `run/start` · `run/pause` · `run/stop` or `machine/stop` |
+| Arm Run / TryCut / Simulate (F5) | `run/arm`, or `mode` in `run/start` |
+| Resume from a line · Rewind | `run/resume-from` · `run/rewind` |
+| Feed / spindle overrides | `overrides` |
+| Spindle (F6) · Coolant (Shift + F6) | `machine/spindle` · `machine/coolant` |
+| Drives on/off · Home | `machine/drives` · `machine/home` |
+| Jog · Goto 0 · Safe Z | `jog` · `move/gotozero` · `move/gotozero {"zOnly":true}` |
+| Touch-off · active WCS · offsets table · JOB marks | `offsets/touch-off` · `offsets/active` · `offsets/G54…G59` · `GET offsets` |
+| Tools table · tool in the spindle | `tools/T1…T12` · `tools/loaded` · `GET tools` |
+| Files: list, load | `GET programs` · `program/load` · `program/upload` (send a new one) |
+| Program listing | `GET program` · `GET program/lines` |
+| Macros: pick and run | `GET macros` · `move/macro` |
+| Tool change: back to the program | `run/start` (twice) |
+| Settings: every value · defaults | `GET`/`PUT settings` · `settings/defaults` |
+| Screens · any key | `panel/screen` · `key` |
+| Messages, checklists for the operator | `panel/toast` · `panel/instructions` |
+| The screen itself | `GET /frame` (raw image), `/` (live browser panel) |
+
+## Not over the API (on purpose)
+
+| What | Why |
+|---|---|
+| Releasing an **E-stop** | An E-stop is a physical button; it is released at the machine. The API reports it (`state` `ESTOP`) |
+| **Continuous jog** (jog while a key is held) | Over a network a lost "key released" message would leave the axis running. `jog` moves a fixed distance instead |
+| Switching the **API** or **remote START** on/off | They decide who may control the machine, so only the panel can change them (403 `read_only`) |
+| The **pendant** | It is a hand-held device at the machine |
+| Skipping the start **countdown** | A remote start gives the operator `api.start_delay` seconds (default 5) to see it coming and press Reset. Only the panel can set that to 0 |
 
 ## Simulator only
 
