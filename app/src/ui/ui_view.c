@@ -50,9 +50,10 @@ static void P(const proj_t *p, double x, double y, double z, int *sx, int *sy)
 static struct {
 	uint16_t *px;
 	int x0, y0, x1, y1;                  /* cached rect (clipped) */
-	double key[17];
+	double key[19];
 	bool done_mode;
 	int cur, vi;                         /* "done" painted up to line cur; next vertex vi */
+	int pick, pvi;                       /* "picked" (orange) painted below line pick; next vertex pvi */
 	bool valid;
 } vc;
 
@@ -79,11 +80,13 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 	int cur = done_mode ? ctl_cur_line() : -1;
 	double jobs = WD.active * 1e6;                      /* the other JOB parts' zeros are drawn too */
 	for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) jobs += (i + 1) * 7 + WD.wcs[i].off[0] * 3 + WD.wcs[i].off[1] * 5 + WD.wcs[i].off[2] * 11;
-	double key[17] = { x0, y0, x1, y1, mini, U.view.iso, U.view.yaw, U.view.pitch, U.view.zoom, U.view.panx, U.view.pany,
-		(double)(uintptr_t)pg->text, pg->npv, pg->loaded, U.screen, U.pane[U.screen], jobs };   /* panel focus can tint the background */
+	double key[19] = { x0, y0, x1, y1, mini, U.view.iso, U.view.yaw, U.view.pitch, U.view.zoom, U.view.panx, U.view.pany,
+		(double)(uintptr_t)pg->text, pg->npv, pg->loaded, U.screen, U.pane[U.screen], jobs, running, running ? C.run_from : -1 };   /* panel focus can tint the background */
 	if (x1 <= x0 || y1 <= y0) return;
 	if (!vc.px) vc.px = malloc(SCR_W * SCR_H * 2);
-	bool same = vc.px && vc.valid && !memcmp(key, vc.key, sizeof key) && vc.done_mode == done_mode && cur >= vc.cur;
+	int pick = ui_pick_line();
+	/* scrolling down only paints more orange onto the cache; scrolling up redraws it */
+	bool same = vc.px && vc.valid && !memcmp(key, vc.key, sizeof key) && vc.done_mode == done_mode && cur >= vc.cur && pick >= vc.pick;
 	if (!same) {
 		draw_view(fb, x, y, w, h, mini);                  /* full draw, without the tool marker */
 		if (!vc.px) return;
@@ -91,6 +94,8 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 		memcpy(vc.key, key, sizeof key); vc.done_mode = done_mode; vc.cur = cur; vc.valid = true;
 		vc.vi = 0;
 		while (vc.vi < pg->npv && pg->pv[vc.vi].line <= cur) vc.vi++;
+		vc.pick = pick; vc.pvi = 0;
+		while (vc.pvi < pg->npv && pg->pv[vc.pvi].line < pick) vc.pvi++;
 		cache_io(fb, true);
 	} else {
 		cache_io(fb, false);
@@ -111,6 +116,22 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 			cache_io(fb, true);
 			gfx_clip(fb, sx0, sy0, sx1, sy1);
 		}
+		if (pick > vc.pick) {                            /* scrolled further down: more orange */
+			gfx_clip(fb, x0, y0, x1, y1);
+			proj_t p;
+			view_proj(&p, x, y, w, h);
+			int ax, ay, bx, by;
+			for (int i = vc.pvi; i < pg->npv && pg->pv[i].line < pick; i++, vc.pvi++) {
+				if (!i) continue;
+				pv_t *a = &pg->pv[i - 1], *v = &pg->pv[i];
+				P(&p, a->x, a->y, a->z, &ax, &ay); P(&p, v->x, v->y, v->z, &bx, &by);
+				if (v->rapid) gfx_dash(fb, ax, ay, bx, by, COL_PICK); else gfx_line(fb, ax, ay, bx, by, COL_PICK, !mini ? 2 : 1);
+				if ((i & 511) == 511 && ui_yield) ui_yield();
+			}
+			vc.pick = pick;
+			cache_io(fb, true);
+			gfx_clip(fb, sx0, sy0, sx1, sy1);
+		}
 	}
 	if (!mini) {                                         /* tool marker + view name: never cached */
 		gfx_clip(fb, x0, y0, x1, y1);
@@ -121,6 +142,17 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 		P(&p, C.mo.pos[0] - o[0], C.mo.pos[1] - o[1], C.mo.pos[2] - o[2], &ax, &ay);
 		if (p.iso) { P(&p, C.mo.pos[0] - o[0], C.mo.pos[1] - o[1], C.mo.pos[2] - o[2] + 8, &bx, &by); gfx_line(fb, ax, ay, bx, by, COL_TXT, 3); }
 		gfx_disc(fb, ax, ay, 4, COL_TXT);
+		if (pick >= 0 && pg->npv) {                      /* where the picked line takes the machine */
+			int lo = 0, hi = pg->npv - 1;                /* last vertex with line <= pick */
+			while (lo < hi) { int m = (lo + hi + 1) / 2; if (pg->pv[m].line <= pick) lo = m; else hi = m - 1; }
+			pv_t *t = &pg->pv[lo];
+			int tx, ty;
+			P(&p, t->x, t->y, t->z, &tx, &ty);
+			gfx_circle(fb, tx, ty, 7, COL_AMBER); gfx_circle(fb, tx, ty, 6, COL_AMBER);
+			gfx_disc(fb, tx, ty, 3, COL_AMBER);
+			char lb[24]; snprintf(lb, sizeof lb, "line %d", pick + 1);
+			gfx_text(fb, &font_12, tx + 10, ty - 8, COL_AMBER, lb);
+		}
 		const char *named = !p.iso ? "2D plan" : U.view.pitch >= 90 ? "X-Y top view (limit)" : U.view.pitch <= 0 && U.view.yaw >= 0 ? "X-Z side view (limit)"
 			: U.view.pitch <= 0 && U.view.yaw <= -90 ? "Y-Z side view (limit)" : "isometric wireframe";
 		char b[96];
@@ -172,6 +204,7 @@ void view_proj(proj_t *p, int x, int y, int w, int h)
 	double lo[3], hi[3], d[NWCS][3];
 	int idx[NWCS];
 	prog_box(lo, hi);
+	if (C.prog.loaded && C.prog.mhi[2] > hi[2] && C.prog.mhi[2] - hi[2] < 500) hi[2] = C.prog.mhi[2];   /* its retracts too */
 	for (int a = 0; a < 3; a++) { lo[a] = fmin(lo[a], 0); hi[a] = fmax(hi[a], 0); }
 	int nj = job_zeros(idx, d);
 	for (int k = 0; k < nj; k++) for (int a = 0; a < 3; a++) { lo[a] = fmin(lo[a], d[k][a]); hi[a] = fmax(hi[a], d[k][a]); }
@@ -275,6 +308,7 @@ static void draw_view(fb_t *fb, int x, int y, int w, int h, bool mini)
 	/* toolpath */
 	int cur = ctl_cur_line(), lx = 0, ly = 0;
 	bool running = C.m == M_RUN || C.m == M_HOLD;
+	int pick = ui_pick_line(), from = running || C.m == M_TOOL ? C.run_from : 0;
 	for (int i = 0; i < pg->npv; i++) {
 		/* a big program's toolpath takes longer than one 40 ms motion slice to draw:
 		 * let motion run in between (measured: 45-55 ms for a 5000-line 3D program) */
@@ -283,9 +317,11 @@ static void draw_view(fb_t *fb, int x, int y, int w, int h, bool mini)
 		int sx, sy;
 		P(&p, v->x, v->y, v->z, &sx, &sy);
 		if (i && (abs(sx - lx) + abs(sy - ly) >= 1 || i == pg->npv - 1)) {
-			bool done = (running || C.work_done >= 0) && v->line <= cur;
-			if (v->rapid) gfx_dash(fb, lx, ly, sx, sy, RGB(0x3c, 0x7c, 0xa8));
-			else gfx_line(fb, lx, ly, sx, sy, done ? COL_TEAL : RGB(0xc2, 0xd6, 0xf0), done && !mini ? 2 : 1);
+			bool done = (running || C.work_done >= 0) && v->line <= cur && v->line >= from;
+			bool pk = v->line < pick, skip = v->line < from;
+			uint16_t c = pk ? COL_PICK : skip ? COL_SKIP : done ? COL_TEAL : RGB(0xc2, 0xd6, 0xf0);
+			if (v->rapid) gfx_dash(fb, lx, ly, sx, sy, pk ? COL_PICK : skip ? COL_SKIP : RGB(0x3c, 0x7c, 0xa8));
+			else gfx_line(fb, lx, ly, sx, sy, c, (done || pk) && !mini ? 2 : 1);
 		}
 		if (i == 0 || abs(sx - lx) + abs(sy - ly) >= 1) { lx = sx; ly = sy; }
 	}

@@ -170,6 +170,11 @@ coolant) and approaches it: Z up, XY across, then down.
   block, like CAM operation names). Without sections, it lists the **retracts to its usual
   safe height** (the highest Z it goes up to most often), each with its line number. Enter goes
   there, Cancel doesn't.
+- **What you skip shows in orange.** While no program runs, the lines before the picked one
+  (the one you scroll to in the Program pane, or the resume point) are dark orange, in the
+  listing and in the toolpath. A ringed orange dot marks where the picked line's move ends,
+  so you see where Start will go. Once the program runs, the skipped part stays a dimmer
+  brown, and what is cut turns teal as before.
 - **After a restart or a power cut** the program comes back loaded, with the resume point
   near where it was. While a program runs, Sea Otter saves its line once a minute, so the
   resume point can be up to a minute behind. Check the line before you press Start. It never starts
@@ -338,6 +343,8 @@ the pendant alone can do everything.
 - **Grey values don't apply** right now, and the reason is shown (e.g. "API is off"). They
   can't be edited until the setting they depend on is changed.
 - Values marked **idle only** (machine settings) can't change while anything moves.
+- **F5 Hint** shows a few sentences on what the focused setting does, in a box on the
+  right (it moves out of the way of the focused row). F5 again hides it.
 - **F2** restores this machine's original values. **F4** exports the settings to USB.
 
 Useful ones: *Display › Default toolpath view* (2D / ISO / CPU saver) ·
@@ -372,6 +379,9 @@ right now, the LEDs and the FPGA position counters. **F6** or **Cancel** goes ba
 The wheel never acts as a jog key. Before this fix, turning it on the Jog screen with the
 switch on OFF and the step on *continuous* started a Y jog that kept going. Also: any key
 press ends a continuous jog, and touch-off waits until the axis stands still.
+**While an edit box is open** (the digit editor, Goto line, a setting being changed, the
+tool-change question), the axis switch is ignored. The wheel then works as with the switch
+on OFF: it edits, and nothing moves.
 
 **Pendant dead, E-stop "pressed"?** If every pendant line reads high (I/O screen: raw
 `0x3FF`), the pendant is unplugged, its cable is loose or it has no power. The E-stop line then

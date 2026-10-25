@@ -17,7 +17,7 @@ PIPELINE_ID ?= local-$(BUILDNO)
 BUILD_DATE := $(shell date +%Y-%m-%d)
 DEFS := -DBUILD_ID='"$(PIPELINE_ID)"' -DBUILD_DATE='"$(BUILD_DATE)"'
 
-CORE := src/common.c src/core/settings.c src/core/gcode.c src/core/motion.c src/core/program.c src/core/macro.c \
+CORE := src/common.c src/core/settings.c src/core/settings_hints.c src/core/gcode.c src/core/motion.c src/core/program.c src/core/macro.c \
         src/core/machine.c src/core/ctl_tick.c \
         src/hal/fpga.c src/hal/fpga_vendor_init.c src/hal/bus_sim.c src/sim/fpga_sim.c
 UI   := src/ui/fonts.c src/ui/gfx.c src/ui/ui.c src/ui/ui_frame.c src/ui/ui_run.c src/ui/ui_jog.c \

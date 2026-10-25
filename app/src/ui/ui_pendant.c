@@ -12,6 +12,17 @@
 #include "ui.h"
 
 /* a key made by the wheel: U.synth tells the jog screen it is not a finger on a jog key */
+/* An edit dialog is up (digit editor, inline setting edit, the tool-change question): the
+ * axis switch is ignored and the wheel works as with the switch on OFF - so turning it
+ * edits the value and never jogs (user 2026-10-25: X was picked, the wheel jogged). */
+bool ui_edit_modal(void)
+{
+	extern bool set_inline_active(void);
+	return U.ed.on || set_inline_active() || (C.m == M_TOOL && C.tc_confirm);
+}
+
+int ui_pend_axis(void) { return SET.pendant && C.pend.held && !ui_edit_modal() ? C.pend.axis : -1; }
+
 static void synth_key(pkey_t k) { U.synth = true; ui_key(k); U.synth = false; }
 static void nav_key(int n, pkey_t up, pkey_t down) { synth_key(n > 0 ? down : up); }
 
@@ -80,12 +91,13 @@ void ui_pendant(const pendant_t *pd, int counts)
 	U.wheel_rem -= detents * div;
 	static int held_axis = -1;                   /* the switch is only readable while held */
 	if (pd->held && !U.held) { U.held = true; U.held_t = now_ms(); U.held_counts = 0; }
-	if (pd->held) held_axis = pd->axis;
+	int axis = ui_edit_modal() ? -1 : pd->axis;      /* see ui_edit_modal */
+	if (pd->held) held_axis = axis;
 	/* jog screen: the axis switch picks the pane (axis -> jog keys, OFF -> jog setup) */
 	static int last_sel = -2;
-	int sel = pd->held ? pd->axis : -2;
+	int sel = pd->held ? axis : -2;
 	if (sel != last_sel && pd->held && U.screen == SCR_JOG && !U.ed.on) {
-		U.pane[SCR_JOG] = pd->axis >= 0 ? 0 : 1;
+		U.pane[SCR_JOG] = axis >= 0 ? 0 : 1;
 		U.dirty = true;
 	}
 	if (sel != last_sel) U.dirty = true;                          /* the lit axis row (Jog, Run) */
@@ -93,8 +105,8 @@ void ui_pendant(const pendant_t *pd, int counts)
 	if (detents) {
 		if (U.held) U.held_counts += detents > 0 ? detents : -detents;
 		if (!pd->held) ui_pendant_nav(detents);
-		else if (pd->axis >= 0) {
-			arg_t a = { .axis = pd->axis, .dir = detents > 0 ? 1 : -1, .kind = 1,
+		else if (axis >= 0) {
+			arg_t a = { .axis = axis, .dir = detents > 0 ? 1 : -1, .kind = 1,
 				.dist = (detents > 0 ? detents : -detents) * (pd->mult == 100 ? 0.1 : pd->mult == 10 ? 0.01 : 0.001) };
 			act(C_JOG, &a, SRC_PANEL);
 		} else ui_pendant_change(detents);

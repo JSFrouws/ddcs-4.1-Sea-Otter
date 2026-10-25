@@ -77,6 +77,7 @@ void setting_set(const setting_desc_t *d, double v);   /* clamps */
 const setting_desc_t *setting_find(const char *key);
 int setting_decimals(const setting_desc_t *d);
 void setting_format(const setting_desc_t *d, char *buf, size_t n);
+const char *setting_hint(const char *key);    /* F5 on the Settings screen; NULL = none (a test keeps that from happening) */
 
 /* ---- work offsets and tools (persisted separately: they change daily) ---- */
 #define NWCS 6

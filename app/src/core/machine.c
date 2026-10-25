@@ -287,6 +287,7 @@ static void tc_resume(void)
 
 static void start_program(src_t src)
 {
+	C.run_from = C.resume_line > 0 ? C.resume_line : 0;   /* the view shows what was skipped */
 	gc_begin(&C.gc, C.prog.text, C.prog.len, C.mo.pos);
 	C.gc.apply_g10 = C.armed != ARM_SIM;
 	C.run_mode = C.armed;

@@ -33,6 +33,50 @@ static const char *inapplicable(const setting_desc_t *d)
 	return NULL;
 }
 
+static bool show_hint;                             /* F5: the hint for the focused setting */
+
+/* text wrapped into lines of at most w pixels; returns the number of lines drawn */
+static int wrap(fb_t *fb, const font_t *f, int x, int y, int w, int lh, uint16_t c, const char *s, int maxl)
+{
+	char line[200];
+	int n = 0;
+	while (*s && n < maxl) {
+		size_t len = 0, best = 0;
+		while (s[len]) {
+			size_t e = len;
+			while (s[e] && s[e] != ' ') e++;
+			if (e >= sizeof line) break;
+			memcpy(line, s, e); line[e] = 0;
+			if (gfx_text_w(f, line) > w && best) break;
+			best = e;
+			if (!s[e]) break;
+			len = e + 1;
+		}
+		if (!best) best = strlen(s) < sizeof line - 1 ? strlen(s) : sizeof line - 1;
+		memcpy(line, s, best); line[best] = 0;
+		if (fb) gfx_text(fb, f, x, y + n * lh, c, line);
+		n++;
+		s += best;
+		while (*s == ' ') s++;
+	}
+	return n;
+}
+
+/* top right; at the bottom right instead when the focused row (fy) would be under it */
+static void hint_box(fb_t *fb, int vx, int vw, int top, int low, int fy, const setting_desc_t *d)
+{
+	const char *h = d ? setting_hint(d->key) : "Pick a setting on the right: F5 shows what it does.";
+	if (!h) return;
+	int w = 380, x = vx + vw - w - 8, y = top + 24;
+	int n = wrap(NULL, &font_14, 0, 0, w - 24, 18, 0, h, 8);
+	int bh = 34 + n * 18 + 8;
+	if (fy >= 0 && fy + 26 > y && fy < y + bh) y = low - bh - 4;
+	gfx_fill(fb, x, y, w, bh, RGB(0x05, 0x14, 0x2b));
+	gfx_rect(fb, x, y, w, bh, COL_CYAN);
+	gfx_text_fit(fb, &font_12, x + 12, y + 8, w - 24, COL_CYAN, d ? d->label : "Hints");
+	wrap(fb, &font_14, x + 12, y + 30, w - 24, 18, COL_TXT, h, 8);
+}
+
 static int ngroups(void) { int n = 0; while (SETTING_GROUPS[n]) n++; return n; }
 
 /* settings of the current group, by index */
@@ -42,34 +86,6 @@ static int group_items(const setting_desc_t **out, int max)
 	for (int i = 0; i < NSETTINGS && n < max; i++)
 		if (!strcmp(SETTINGS[i].group, SETTING_GROUPS[U.grp])) out[n++] = &SETTINGS[i];
 	return n;
-}
-
-static void io_page(fb_t *fb, int x, int y, int w)
-{
-	char b[220];
-	for (int i = 0; i < 18; i++) {
-		int col = i / 9, row = i % 9, xx = x + 12 + col * (w / 2), yy = y + row * 24;
-		bool high = (C.inputs >> i) & 1;
-		const char *fn = "";
-		for (int a = 0; a < 3; a++) if (SET.ax[a].home_port == i + 1) fn = a == 0 ? "X limit/home" : a == 1 ? "Y limit/home" : "Z limit/home";
-		if (SET.estop_port == i + 1) fn = "E-stop";
-		if (i >= 9 && i <= 12) fn = i == 9 ? "X drive alarm" : i == 10 ? "Y drive alarm" : i == 11 ? "Z drive alarm" : "A drive alarm";
-		if (i >= 14) fn = "ext. key";
-		snprintf(b, sizeof b, "IN%02d", i + 1);
-		gfx_text(fb, &font_14, xx, yy, COL_TXT, b);
-		gfx_text(fb, &font_12, xx + 48, yy + 2, COL_DIM, fn);
-		gfx_text_r(fb, &font_12, xx + w / 2 - 30, yy + 2, high ? COL_DIM2 : COL_AMBER, high ? "open" : "CLOSED");
-	}
-	y += 9 * 24 + 8;
-	snprintf(b, sizeof b, "Pendant: %s  ·  axis %s  ·  ×%d  ·  E-stop %s", C.pend.held ? "hold pressed" : "hold released",
-		C.pend.axis < 0 ? "OFF" : (const char *[]){ "X", "Y", "Z", "4" }[C.pend.axis], C.pend.mult, C.pend.estop ? "PRESSED" : "ok");
-	gfx_text(fb, &font_14, x + 12, y, COL_TXT, b);
-	snprintf(b, sizeof b, "Outputs OUT1-3: %d %d %d  ·  spindle PWM %s  ·  FPGA 0x%04x  ·  %s backend",
-		C.fp.outputs & 1, (C.fp.outputs >> 1) & 1, (C.fp.outputs >> 2) & 1, C.spindle ? "on" : "off", fpga_version(&C.fp), C.sim ? "SIMULATED" : "real");
-	gfx_text(fb, &font_14, x + 12, y + 22, COL_DIM, b);
-	snprintf(b, sizeof b, "Position check vs FPGA counters: %u checks, %u faults (X %d  Y %d  Z %d  A %d steps)  ·  reversals waited %u  ·  bursts %u",
-		C.pos_checks, C.pos_faults, C.pos_err[0], C.pos_err[1], C.pos_err[2], C.pos_err[3], C.mo.deferred, C.fp.bursts);
-	gfx_text(fb, &font_12, x + 12, y + 44, COL_DIM2, b);
 }
 
 void set_render(fb_t *fb)
@@ -101,12 +117,14 @@ void set_render(fb_t *fb)
 	if (!strcmp(SETTING_GROUPS[U.grp], "I/O & diagnostics")) {
 		gfx_text(fb, &font_16, vx + 12, top + 34, COL_TXT, "F6  I/O  opens the live overview of every input and output,");
 		gfx_text(fb, &font_16, vx + 12, top + 58, COL_TXT, "the pendant, the panel keys and the FPGA counters.");
-		io_page(fb, vx, top + 100, vw);
 		if (back) gfx_text(fb, &font_16, vx + 12, bot - 50, COL_AMBER, "←  back to the groups  ·  Enter / quick press");
 		return;
 	}
 	const setting_desc_t **it = items;
-	int n = nitems, rows = (h - 40) / 26 - 1;          /* one row kept for the "back" line */
+	bool note = !strcmp(SETTING_GROUPS[U.grp], "API");
+	int foot = 30 + (note ? 38 : 0);                   /* the notes at the bottom keep their own room */
+	int fy = -1;                                        /* y of the focused row (the hint box avoids it) */
+	int n = nitems, rows = (h - 40 - foot) / 26 - 1;   /* one row kept for the "back" line */
 	if (back && U.item < 0) {                           /* before the first: the back line on top */
 		int y = top + 28;
 		gfx_fill(fb, vx + 2, y - 4, vw - 4, 25, RGB(0x3a, 0x2c, 0x10));
@@ -118,6 +136,7 @@ void set_render(fb_t *fb)
 	for (int i = first; i < n && i < first + rows; i++) {
 		int y = top + 28 + (i - first) * 26;
 		bool f = ui_pane() == 1 && i == U.item;
+		if (f) fy = y - 4;
 		if (f) { gfx_hgrad(fb, vx + 2, y - 4, vw - 4, 25, RGB(0x1f, 0x5a, 0x86), COL_PANE2); gfx_fill(fb, vx + 2, y - 4, 3, 25, COL_CYAN); }
 		char v[64];
 		bool editing = f && inl.on && inl.d == it[i];
@@ -147,10 +166,11 @@ void set_render(fb_t *fb)
 		gfx_rect(fb, vx + 2, y - 4, vw - 4, 25, COL_AMBER);
 		gfx_text(fb, &font_16, vx + 12, y - 1, COL_AMBER, "←  back to the groups  ·  Enter / quick press");
 	}
-	if (!strcmp(SETTING_GROUPS[U.grp], "API"))
-		gfx_text_fit(fb, &font_12, vx + 12, bot - 44, vw - 24, SET.api ? COL_DIM : COL_AMBER, SET.api
+	if (show_hint) hint_box(fb, vx, vw, top, bot - foot, fy, ui_pane() == 1 && U.item >= 0 && U.item < nitems ? items[U.item] : NULL);
+	if (note)
+		wrap(fb, &font_12, vx + 12, bot - 60, vw - 24, 16, SET.api ? COL_DIM : COL_AMBER, SET.api
 			? "Reading (status, offsets, tools, programs) and Pause / Stop are always allowed. These switches can only be changed here, never over the API."
-			: "The API is OFF: nothing on the network can read or control this machine. Switch it on above, then pick what it may do.");
+			: "The API is OFF: nothing on the network can read or control this machine. Switch it on above, then pick what it may do.", 2);
 	gfx_text_fit(fb, &font_12, vx + 12, bot - 24, vw - 24, COL_DIM2, "Changes apply at once and are saved; F2 restores this machine's original values.");
 }
 
@@ -160,6 +180,7 @@ void set_sk(sk_t sk[7])
 	sk[1] = (sk_t){ "Defaults", "machine" };
 	sk[2] = (sk_t){ "Edit", inl.on ? "accept" : "value" };
 	sk[3] = (sk_t){ "Export", "to USB" };
+	sk[4] = (sk_t){ "Hint", show_hint ? "hide" : "show" };
 	sk[5] = (sk_t){ "I/O", "live overview" };
 }
 
@@ -184,6 +205,7 @@ void set_key(pkey_t k, bool sh)
 {
 	if (k == K_F1) { ctl_save(); ctl_toast(false, "Settings saved"); return; }
 	if (k == K_F6) { inl.on = false; ui_goto(SCR_IO); return; }
+	if (k == K_F5) { show_hint = !show_hint; return; }
 	if (k == K_F2) {
 		if (ctl_busy()) { ctl_toast(true, "Restore defaults when idle"); return; }
 		settings_defaults(&SET); ctl_apply_axis_config(); settings_save(C.cfg_path);

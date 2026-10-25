@@ -94,6 +94,14 @@ void set_render(fb_t *fb);  void set_key(pkey_t k, bool sh);  void set_sk(sk_t s
 void macros_render(fb_t *fb); void macros_key(pkey_t k, bool sh); void macros_sk(sk_t sk[7]);
 void io_render(fb_t *fb);    void io_key(pkey_t k, bool sh);    void io_sk(sk_t sk[7]);
 void run_goto_list(fb_t *fb);
+bool ui_edit_modal(void);                           /* an edit dialog is up: the pendant never jogs */
+int ui_pend_axis(void);
+/* not running: the line picked in the listing (scrolled to, or the resume point); -1 = none.
+ * Lines before it are drawn dark orange in the listing and the toolpath, and a dot marks
+ * where that line's move ends. */
+int ui_pick_line(void);
+#define COL_PICK RGB(0xd0, 0x7c, 0x34)           /* lines before the picked one (not running) */
+#define COL_SKIP RGB(0x7a, 0x52, 0x2e)           /* lines a running program skipped (resumed further on) */                             /* the pendant's axis in use (held, no dialog), else -1 */
 void ui_pendant_nav(int n);
 void ui_pendant_change(int n);
 void ui_pendant_click(void);

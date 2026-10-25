@@ -33,7 +33,7 @@ void jog_render(fb_t *fb)
 	bool sh = U.shift && ui_pane() == 0;
 	gfx_panel(fb, x, top, w, h, ui_pane() == 0);
 	char b[128];
-	int pick = SET.pendant && C.pend.held ? C.pend.axis : -1;   /* the pendant's axis, while held */
+	int pick = ui_pend_axis();                               /* the pendant's axis, while held */
 	snprintf(b, sizeof b, "JOG  ·  G%d WORK / MACHINE  ·  %s", 54 + WD.active, sh ? "ALT: TOUCH-OFF VALUES" : pick >= 0 ? "PENDANT: THE WHEEL JOGS THE LIT AXIS" : "PER-DIRECTION STATUS");
 	gfx_text(fb, &font_12, x + 10, top + 6, sh ? COL_AMBER : COL_DIM, b);
 	int rh = (h - 30) / 4;

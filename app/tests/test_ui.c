@@ -178,7 +178,16 @@ void test_ui(void)
 	ui_key(K_F6); CHECK(U.screen == SCR_IO); snap("08f_io");      /* Settings F6: the I/O overview */
 	ui_key(K_F6); CHECK(U.screen == SCR_SETTINGS);
 	for (int g = 0; SETTING_GROUPS[g]; g++) if (!strcmp(SETTING_GROUPS[g], "API")) U.grp = g;
-	U.pane[SCR_SETTINGS] = 1; U.item = 0; snap("08g_settings_api"); U.pane[SCR_SETTINGS] = 0; U.grp = 0;
+	U.pane[SCR_SETTINGS] = 1; U.item = 0; snap("08g_settings_api");
+	for (int i = 0; i < NSETTINGS; i++) {                           /* F5: every setting has a hint */
+		const char *h = setting_hint(SETTINGS[i].key);
+		if (!h) printf("  no hint for %s\n", SETTINGS[i].key);
+		CHECK(h && strlen(h) > 20);
+	}
+	ui_key(K_F5); U.item = 1; snap("08h_settings_hint");
+	for (int i = 0; i < 40; i++) ui_key(K_YM);                     /* to the bottom: the back line clears the notes */
+	snap("08i_settings_api_bottom");
+	ui_key(K_F5); U.pane[SCR_SETTINGS] = 0; U.grp = 0;
 	ui_key(K_F7); ui_key(K_F1); CHECK(U.screen == SCR_RUN);
 	/* Shift: second functions on F1-F6 (Run) */
 	ui_key(K_SHIFT); snap("08c_run_shift");
@@ -195,9 +204,24 @@ void test_ui(void)
 		U.prog_line = 8;
 		ui_key(K_SHIFT); ui_key(K_F5);
 		CHECK(U.ed.on && U.goto_list);
+		{                                                  /* user 2026-10-25: X picked on the pendant while the editor is up: */
+			double x0 = C.mo.pos[AX_X];                    /* the wheel edits the number, nothing moves */
+			pendant_t q = { .held = true, .axis = AX_X, .mult = 1 };
+			char before[12]; memcpy(before, U.ed.d, sizeof before);
+			ui_pendant(&q, 0); ui_pendant(&q, -8);
+			fx_run(300);
+			CHECK_NEAR(C.mo.pos[AX_X], x0, 1e-9);
+			CHECK(memcmp(before, U.ed.d, sizeof before) != 0 && ui_pend_axis() == -1);
+			q.held = false; ui_pendant(&q, 0);
+			memcpy(U.ed.d, before, sizeof before);
+		}
 		snap("08d_goto_line");
 		ui_key(K_ENTER);                                   /* line 9 = "(Op 2 - pocket)" */
 		CHECK(!U.ed.on && C.resume_line == 8);
+		/* not running: the lines before the picked one turn orange, a dot marks where it leads */
+		CHECK(ui_pick_line() == 8);
+		U.pane[SCR_RUN] = 0; CHECK(ui_pick_line() == 8);              /* the resume point, pane or not */
+		U.view.iso = true; snap("08j_pick_orange_dot"); U.view.iso = false; U.pane[SCR_RUN] = 1;
 		/* back to line 1 only with a second Reset */
 		ui_key(K_F3); CHECK(C.resume_line == 8 && C.rewind_ask);
 		snap("08e_rewind_asks");

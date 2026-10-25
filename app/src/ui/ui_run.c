@@ -70,6 +70,13 @@ static void agent_card(fb_t *fb, int x, int y, int w)
 	}
 }
 
+int ui_pick_line(void)
+{
+	if (!C.prog.loaded || C.m == M_RUN || C.m == M_HOLD || C.m == M_TOOL || C.macro_on) return -1;
+	if (U.screen == SCR_RUN && ui_pane() == 1) return CLAMP(U.prog_line, 0, C.prog.nlines - 1);
+	return C.resume_line;
+}
+
 void run_render(fb_t *fb)
 {
 	int top = BODY_Y + ui_banner_h() + 8, bot = SCR_H - SK_H - 8, h = bot - top;
@@ -79,7 +86,7 @@ void run_render(fb_t *fb)
 	char b[96];
 	snprintf(b, sizeof b, "G%d WORK  ·  MACHINE", 54 + WD.active);
 	gfx_text(fb, &font_12, x + 10, top + 6, COL_DIM, b);
-	int pick = SET.pendant && C.pend.held ? C.pend.axis : -1;
+	int pick = ui_pend_axis();
 	for (int a = 0; a < NAXES; a++) {
 		if (a == pick) dro_pick(fb, x + 2, top + 24 + a * 42, w - 4, 40);
 		dro_row(fb, x, top + 26 + a * 42, w, a, &font_28);
@@ -137,6 +144,7 @@ void run_render(fb_t *fb)
 	}
 	int anchor = ui_pane() == 1 ? U.prog_line : cl;
 	int first = CLAMP(anchor - 2, 0, C.prog.nlines > 6 ? C.prog.nlines - 6 : 0);
+	int pk = ui_pick_line(), from = C.m == M_RUN || C.m == M_HOLD || C.m == M_TOOL ? C.run_from : 0;
 	for (int i = 0; i < 6 && first + i < C.prog.nlines; i++) {
 		int n = first + i, ly = py + 6 + i * 20;
 		bool cur = n == cl && (C.m == M_RUN || C.m == M_HOLD), done = n < cl || (C.work_done >= 0 && n <= C.work_done && !cur);
@@ -147,7 +155,8 @@ void run_render(fb_t *fb)
 		snprintf(ln, sizeof ln, "%d", n + 1);
 		gfx_text_r(fb, &font_mono, vx + 52, ly, COL_DIM2, ln);
 		program_line(&C.prog, n, t, sizeof t);
-		gfx_text_fit(fb, &font_mono, vx + 62, ly, vw - 72, t[0] == '(' ? COL_TEAL : done ? COL_DIM : COL_TXT, t);
+		uint16_t tc = n < pk ? COL_PICK : n < from ? COL_SKIP : t[0] == '(' ? COL_TEAL : done ? COL_DIM : COL_TXT;
+		gfx_text_fit(fb, &font_mono, vx + 62, ly, vw - 72, tc, t);
 	}
 	gfx_fill(fb, vx + 1, py + ph - 30, vw - 2, 1, COL_EDGE);
 	if (C.resume_line >= 0) snprintf(b, sizeof b, "Resume @ line %d  ·  Start restores the modal state and approaches at safe Z", C.resume_line + 1);
