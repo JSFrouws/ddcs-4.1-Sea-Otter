@@ -10,6 +10,8 @@
 #define FPGA_SUSTAIN_SPS (FPGA_MAX_SPS * 0.8)
 /* steps in one burst, at most: whatever is in flight can't be recalled by a stop */
 #define BURST_MAX_S 0.030
+/* longest kinematic step inside one tick (see motion_tick) */
+#define MOTION_SUBSTEP 0.010
 
 int rapid_override(int feed_ov) { return feed_ov < 100 ? feed_ov : 100; }
 
@@ -467,7 +469,18 @@ void motion_tick(motion_t *m, double dt)
 {
 	m->hw_busy = m->dry ? 0 : fpga_moving(m->f);
 	if (m->home.on) run_home(m, dt);
-	else { run_lines(m, dt); run_simple(m, dt); }
+	else {
+		/* the path in steps of at most 10 ms, however long this tick was: the braking and
+		 * S-curve decisions are taken per step, so a late tick (a screen redraw) no longer
+		 * makes the machine brake early - measured: a 32 ms tick every 18 made a 1200-segment
+		 * engraving 2.4 % slower than at steady 10 ms ticks. Still one burst per tick. */
+		for (double left = dt; left > 1e-9; ) {
+			double step = left > MOTION_SUBSTEP ? MOTION_SUBSTEP : left;
+			run_lines(m, step);
+			left -= step;
+		}
+		run_simple(m, dt);
+	}
 	if (emit(m, dt) && !m->dry) {
 		fpga_status_sweep(m->f);      /* as the vendor app does after its bursts */
 		m->hw_busy = fpga_moving(m->f);

@@ -29,6 +29,11 @@
  * and the S-curve's ends; worst: drilling cycles, 3.6 %). 5 % + 1 s covers that. */
 #define EST_MARGIN 1.05             /* x total ... */
 #define EST_MARGIN_S 1.0            /* ... + this, in seconds */
+/* once the exact replay is done (program_t.exact_cum): in the simulator the replay matches the
+ * real run to the 10 ms tick (it can't see the tick between Start and the first move); on the
+ * unit the FPGA adds a little (measured: see docs/app-architecture.md). Hence a tiny margin. */
+#define EST_XMARGIN 1.003
+#define EST_XMARGIN_S 0.05
 
 /* work on the loaded program's estimate for about budget_ms (call every tick); true = done */
 bool est_background(int budget_ms);

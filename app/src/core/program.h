@@ -20,10 +20,9 @@ typedef struct {
 	double est_s;                /* run time at 100 %, margin included (core/estimate.h); 0 until est_cum is there */
 	float *est_cum;              /* seconds before each line, per override level: [line * EST_NLV + level];
 	                                NULL while it is still being worked out */
+	float *exact_cum;            /* seconds before each line at 100 %, from replaying the program through
+	                                the real motion executor (dry): exact; NULL until that is done */
 	uint32_t gen;                /* load counter: which program this is */
-	/* the first move (work coordinates): a real run starts from wherever the machine is,
-	 * the estimate from work zero at safe Z - the difference is added when it is shown */
-	bool has_first, first_rapid; double first_end[NAXES], first_feed;
 	/* tool changes: the M6 lines split the program into tool segments; segment 0 is before the
 	 * first M6, segment i starts at tc_line[i-1] (the M6 line itself) */
 	int ntc; int tc_line[PROG_MAX_TC]; int tc_tool[PROG_MAX_TC];

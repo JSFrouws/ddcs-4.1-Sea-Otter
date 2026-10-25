@@ -49,11 +49,12 @@ void test_estimate(void)
 		CHECK(C.prog.est_cum != NULL);                      /* ... within a few ticks for a small one */
 		double v = 10, A = SET.ax[AX_X].accel, J = SET.ax[AX_X].jerk, ae = A * v / (v + A * A / J);
 		/* the program first goes from its start (work zero, safe Z) to X0 Z5: 0 mm, then 100 mm */
-		CHECK_NEAR(est_span(&C.prog, 0, C.prog.nlines, 100), 100 / v + v / ae, 0.01);
-		CHECK_NEAR(est_span(&C.prog, 0, C.prog.nlines, 50), 2 * (100 / v + v / ae), 0.02);   /* below 100 %: x 1/override */
+		/* the replayed executor: the formula plus a few 10 ms ticks (start, the end event) */
+		CHECK_NEAR(est_span(&C.prog, 0, C.prog.nlines, 100), 100 / v + v / ae + 0.03, 0.02);
+		CHECK_NEAR(est_span(&C.prog, 0, C.prog.nlines, 50), 2 * est_span(&C.prog, 0, C.prog.nlines, 100), 0.05);   /* below 100 %: x 1/override */
 		double t200 = est_span(&C.prog, 0, C.prog.nlines, 200), t150 = est_span(&C.prog, 0, C.prog.nlines, 150);
 		double vc = fmin(20, fmin(SET.ax[AX_X].max_vel / 60, FPGA_MAX_SPS * 0.8 / SET.ax[AX_X].steps_per_mm));   /* 200 % is above the FPGA's sustained rate */
-		CHECK_NEAR(t200, 100 / vc + vc / ae, 0.02);                    /* (a_eff stays the planner's, from the programmed F) */
+		CHECK_NEAR(t200, 100 / vc + vc / ae, 0.1);                    /* (a_eff stays the planner's, from the programmed F) */
 		CHECK(t150 > t200 && t150 < est_span(&C.prog, 0, C.prog.nlines, 100));
 		CHECK(C.prog.est_s > est_span(&C.prog, 0, C.prog.nlines, 100));                    /* the margin */
 	}
@@ -71,7 +72,7 @@ void test_estimate(void)
 		double r = est / t;
 		printf("  %-10s run %6.2f s  estimate %6.2f s  (%+.1f %%)\n", P[i].name, t, est, (r - 1) * 100);
 		CHECK(t > 0 && est >= t);                               /* never shorter than the run */
-		CHECK(r < 1.25);                                        /* and not wildly longer */
+		CHECK(r < 1.02);                                        /* and exact to ~1 % (the replay) */
 		if (r < 1 + worst_under) worst_under = r - 1;
 		if (r - 1 > worst_over) worst_over = r - 1;
 	}
@@ -85,7 +86,7 @@ void test_estimate(void)
 		n += (size_t)snprintf(big + n, cap - n, "G0 Z5\nM30\n");
 		double est, t = run_time("surface.nc", big, &est);
 		printf("  %-10s run %6.2f s  estimate %6.2f s  (%+.1f %%)\n", "surface.nc", t, est, (est / t - 1) * 100);
-		CHECK(t > 0 && est >= t && est / t < 1.25);
+		CHECK(t > 0 && est >= t && est / t < 1.02);
 		free(big);
 	}
 
@@ -144,6 +145,75 @@ void test_estimate(void)
 		CHECK(far >= ms / 1000.0 && ok);
 	}
 
+	/* the controller's case (2026-10-25): standing far BELOW work zero, the first G0 X Y keeps
+	 * that Z and the G1 Z after it climbs slowly - 29 s were shown for a 37 s run */
+	{
+		const char *t4 = "G21 G90\nG0 X0 Y0\nG1 Z-1 F300\nG1 X30 F900\nG0 Z5\nM30\n";
+		arg_t a = { .path = "low.nc", .text = t4, .len = strlen(t4) };
+		act(C_LOAD, &a, SRC_PANEL);
+		est_compute(&C.prog);
+		const double *o = WD.wcs[WD.active].off;
+		double p[NAXES];
+		for (int k = 0; k < NAXES; k++) p[k] = o[k];
+		p[AX_X] += 120; p[AX_Y] += 40; p[AX_Z] = o[AX_Z] - 40; p[AX_A] += 82.4;   /* A off too, as on the unit */
+		motion_move_to(&C.mo, p, 0, true); fx_until_idle(60000);
+		bool left;
+		double est = est_now(&left);
+		act(C_START, NULL, SRC_PANEL);
+		int ms = 0; bool ok = true;
+		while ((C.m == M_RUN || C.m == M_HOLD) && ms < 600000) {
+			fx_run(10); ms += 10;
+			if (ms % 500 == 0) ok &= est_now(&left) >= 0;
+		}
+		double t = ms / 1000.0;
+		printf("  low start: run %.2f s, estimate %.2f s (%+.1f %%)\n", t, est, (est / t - 1) * 100);
+		CHECK(est >= t && est / t < 1.02 && ok);
+		/* and while it ran, the remaining time never fell below what was left */
+	}
+
+	/* the executor's time must not depend on how evenly it is ticked (the unit's loop is
+	 * not: a screen redraw makes a 30-40 ms tick). Before motion_tick split long ticks into
+	 * <= 10 ms steps, a 40 ms tick every 9 made an engraving 11.7 % slower. */
+	{
+		static motion_t M;
+		size_t cap = 200000, n = 0;
+		char *ros = malloc(cap);
+		n += (size_t)snprintf(ros + n, cap - n, "G21 G90\nG0 X0 Y0\nG1 Z-0.5 F300\n");
+		for (int k = 0; k < 600; k++) {
+			double a = k * 0.0523, r = 20 + 10 * sin(k * 0.3);
+			n += (size_t)snprintf(ros + n, cap - n, "G1 X%.3f Y%.3f F1200\n", r * cos(a), r * sin(a));
+		}
+		n += (size_t)snprintf(ros + n, cap - n, "G0 Z5\nM30\n");
+		double tt[2];
+		for (int v = 0; v < 2; v++) {
+			double start[NAXES] = { 0, 0, 5, 0 };
+			gc_t g;
+			gc_begin(&g, ros, n, start);
+			motion_init(&M, NULL, start);
+			M.dry = true;
+			bool feeding = true;
+			double t = 0;
+			for (long i = 0; i < 10000000; i++) {
+				int b = 200;
+				while (feeding && motion_space(&M) > 4 && motion_wants_more(&M) && b-- > 0) {
+					gc_op_t op;
+					int k = gc_next(&g, &op);
+					if (k <= 0 || op.kind == OP_END) { gc_op_t e = { .kind = OP_END }; if (motion_push(&M, &e)) feeding = false; break; }
+					motion_push(&M, &op);
+				}
+				double dt = v == 0 || i % 9 ? 0.010 : 0.040;
+				motion_tick(&M, dt);
+				t += dt;
+				if (M.ev == MEV_END) break;
+				if (M.ev != MEV_NONE) M.ev = MEV_NONE;
+			}
+			tt[v] = t;
+		}
+		printf("  engraving: steady 10 ms ticks %.2f s, a 40 ms tick every 9 %.2f s (%+.2f %%)\n", tt[0], tt[1], (tt[1] / tt[0] - 1) * 100);
+		CHECK(fabs(tt[1] / tt[0] - 1) < 0.005);
+		free(ros);
+	}
+
 	/* two JOB parts: about twice one */
 	{
 		bool left;
@@ -158,7 +228,7 @@ void test_estimate(void)
 		bool j0 = WD.wcs[0].job, j1 = WD.wcs[1].job;
 		WD.wcs[0].job = WD.wcs[1].job = true;
 		double two = est_now(&left);
-		CHECK_NEAR(two, 2 * one - EST_MARGIN_S, 0.05);        /* twice the cutting, the fixed margin once */
+		CHECK_NEAR(two, 2 * one - EST_XMARGIN_S, 0.05);       /* twice the cutting, the fixed margin once */
 		WD.wcs[0].job = j0; WD.wcs[1].job = j1;
 	}
 	SET.spindle_delay = 0;

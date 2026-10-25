@@ -87,18 +87,53 @@ and refused while a program or move runs - but a jog in progress would be stalle
 
 ## Run-time estimate (`core/estimate.c`)
 
-Computed while a program loads, from the same ops the run will send: each line segment gets
-the planner's own geometry (`motion_plan_setup`: per-axis speed caps incl. the FPGA's sustained
-rate, acceleration, the S-curve's average acceleration) and corner limit
-(`motion_corner_limit`). A backward + forward pass gives every segment's entry speed, and a
-trapezoid gives its time. Every non-motion op stops the motion first, as in the planner. Segments are planned in
-windows of 2048 (256 carried over), so memory stays flat. Time is kept per line, cumulative,
-at feed overrides 100/150/200/300 % (`program_t.est_cum`). Below 100 % it is scaled by
-1/override; between levels it is interpolated in 1/override. Both over-estimate, because time is convex in
-1/override. Rapids use min(feed, 100). Remaining = total − cumulative(current line), per JOB part
-and tool segment for multi-part jobs. Margin: ×1.05 + 1 s, because the model alone is 1–4 %
-short of the executor (slice and S-curve ends at each start/stop), measured in
-`tests/test_estimate.c`. Tool changes by hand count 0 s.
+Worked out in the **background** after a program loads (`est_background` in `ctl_tick`: 3 ms
+per tick idle, 1 ms while running). Done during the load, it made the 64 396-line propellor
+file load in 17 s instead of 3 s on the unit, which has no FPU. Now that file loads in 3.2 s
+(it took 4.3–4.6 s before), and the panel shows "…" until the first figure is there.
+
+1. **Model** (seconds): every line segment gets the planner's own geometry
+   (`motion_plan_setup`) and corner limit (`motion_corner_limit`). A backward + forward pass
+   (speeds squared: one square root per segment) gives every segment's entry speed, and a trapezoid gives its time.
+   Every non-motion op stops the motion first. Kept per line at 100 % and 200 % feed (`est_cum`).
+   Measured against the executor it is off by −0.1 … +0.3 s on small programs, and 1–4 % short on
+   whole ones, so it is shown with ×1.05 + 1 s until step 2 is done.
+2. **Exact** (seconds to minutes; the 3.4-hour propellor file takes a few minutes): the
+   program is replayed through a second, dry copy of the real executor (`motion_t`, as
+   Simulate runs), fed as `ctl_tick` feeds it, ticked in 10 ms steps. The line it executes at
+   each tick gives `exact_cum`. Pauses continue at once.
+3. **Overrides**: the exact time is scaled by the model's factor (time at the override /
+   time at 100 %). Below 100 % that is 1/override; between 100 and 200 % it is interpolated in
+   1/override; above 200 % the 200 % time is used. All three err long. Rapids use min(feed, 100).
+4. **The start**: the estimate assumes work zero at safe Z, but a run starts where the machine is,
+   and every move keeps the axes it doesn't name. So the program's ops are generated from both
+   starts until they end in the same place (X Y Z; A is ignored, because a program that never
+   moves A never meets). Both beginnings are replayed, and the difference is added. While a
+   run is still in that beginning, its own replayed times are used.
+5. **Running**: remaining = from the current line on, and the line in progress counts at least
+   what the move in progress still has to go. Multi-part jobs: per tool segment and part.
+   Margin once exact: ×1.003 + 0.05 s; figures are rounded up.
+
+**The executor had to change for this to be exact on the unit**: its speed and braking
+decisions were taken once per controller tick, and the unit's ticks are uneven (a screen
+redraw makes a 30–40 ms tick). The real `Sign_rosette.nc` ran 2.4 % slower with a 32 ms tick
+every 18 and 11.7 % slower with a 40 ms tick every 9 than at steady 10 ms ticks. The machine
+braked early whenever the screen redrew. `motion_tick` now runs the path in steps of at most
+10 ms (still one burst per tick), and the time no longer depends on the tick pattern
+(±0.2 %, `tests/test_estimate.c`).
+
+Measured on the unit (2026-10-25):
+
+| Program | Mode | Run | Estimate |
+|---|---|---|---|
+| Sign_rosette.nc (1208 lines) | Run (FPGA stepping) | 260.87 s | 261 s (+0.1 %) |
+| Sign_rosette.nc | Simulate | 244.97 s | 245 s (+0.0 %) |
+| 410-line test, started 120 mm away and 40 mm below work zero | Run | 29.15 s | 29 s (−0.5 %, whole seconds) |
+
+Before these fixes: the same 410-line test showed 17 s for a 29 s run (−42 %, the start),
+and the rosette 261 s for 265 s (−1.6 %, the uneven ticks). Reset still stops after 0.19 mm at
+1200 and 3000 mm/min, counters = commanded steps (`tools/device_stop_test.sh`).
+Tool changes by hand count 0 s.
 
 ## Controller quirks the code works around
 

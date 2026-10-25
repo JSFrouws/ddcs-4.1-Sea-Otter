@@ -148,8 +148,11 @@ A running program still pauses with F2 and resets with F3, Shift or not.
   JOB part), *remaining* while it runs, holds or waits at a tool change. It follows the feed
   override at once (rapids follow it only below 100 %). It is worked out the way the motion
   planner moves: acceleration, corners, the controller's speed limit, dwells and the spindle
-  spin-up wait. It is meant to be a little long rather than short: on the simulated machine it
-  came out 5–13 % over the real run, never under. The operator's tool changes are not in it;
+  spin-up wait, and from where the machine stands now. It is exact: the controller replays the
+  program through its own motion control in the background. On the controller a 4-minute
+  engraving was estimated at 261 s and ran 260.9 s. Right after loading, a first figure from a
+  simpler model is shown (a little long); for very long programs the exact one follows within
+  minutes. *…* means it is still being worked out. The operator's tool changes are not in it;
   *+ N tool changes* is shown below it instead.
 - **F4 View** cycles **2D → ISO → G-code view**. The G-code view draws no wireframe at all:
   the program listing fills the whole right side (about 18 lines), and the screen redraws

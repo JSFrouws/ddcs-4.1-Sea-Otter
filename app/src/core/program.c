@@ -10,7 +10,7 @@
 
 void program_free(program_t *p)
 {
-	free(p->text); free(p->line_off); free(p->pv); free(p->goto_line); free(p->est_cum);
+	free(p->text); free(p->line_off); free(p->pv); free(p->goto_line); free(p->est_cum); free(p->exact_cum);
 	memset(p, 0, sizeof *p);
 }
 
@@ -82,10 +82,6 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 			p->ntc++;
 		}
 		if (op.kind != OP_LINE) continue;
-		if (!p->has_first) {                                /* the first move, for the run-time estimate */
-			p->has_first = true; p->first_rapid = op.rapid; p->first_feed = op.feed;
-			for (int a = 0; a < NAXES; a++) p->first_end[a] = op.end[a] - off[a];
-		}
 		add_pv(p, op.end, off, op.line, op.rapid, !op.arc);
 		for (int a = 0; a < 3; a++) {                       /* every move's end point */
 			float w = (float)(op.end[a] - off[a]);

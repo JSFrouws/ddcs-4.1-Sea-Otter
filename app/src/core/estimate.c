@@ -149,10 +149,75 @@ static void est_end(est_t *e, program_t *p)
 	est_free(e);
 }
 
-/* ---- the background job: the program's ops again, a few ms per tick ---- */
-static struct { bool on; uint32_t gen; gc_t g; est_t *e; } J;
+/* ---- the exact pass: the program replayed through the real motion executor ---------------
+ * A second motion_t in dry mode (no FPGA, as Simulate runs) gets the program's ops exactly as
+ * ctl_tick feeds them, and is ticked in 10 ms steps; the line it executes at each tick gives
+ * the time before every line. Pauses (M0/M1/M6) continue at once; everything else - corners,
+ * S-curves, stops at M-codes, spindle spin-up, dwells, the tick an event takes - is the real
+ * code. Measured in the simulator: the model above is off by -0.1..+0.3 s on small programs
+ * (tests/test_estimate.c); this is exact to the tick. */
+#define REPLAY_DT 0.010
+typedef struct {
+	motion_t m; gc_t g;
+	float *cum; int filled, nlines;
+	long ticks; bool feeding;
+} replay_t;
 
-static void job_stop(void) { est_free(J.e); J.e = NULL; J.on = false; }
+static replay_t *replay_begin(const program_t *p, const double start[NAXES])
+{
+	replay_t *r = calloc(1, sizeof *r);
+	if (!r) return NULL;
+	r->cum = calloc((size_t)p->nlines + 1, sizeof(float));
+	if (!r->cum) { free(r); return NULL; }
+	motion_init(&r->m, NULL, start);
+	r->m.dry = true;
+	gc_begin(&r->g, p->text, p->len, start);
+	r->nlines = p->nlines; r->feeding = true;
+	return r;
+}
+
+static void replay_free(replay_t *r) { if (r) { free(r->cum); free(r); } }
+
+/* one controller tick: feed (as feed_program does), run the executor, take its events.
+ * Returns true at the end of the program. */
+static bool replay_tick(replay_t *r)
+{
+	int budget = 200;
+	while (r->feeding && motion_space(&r->m) > 4 && motion_wants_more(&r->m) && budget-- > 0) {
+		gc_op_t op;
+		int k = gc_next(&r->g, &op);
+		if (k <= 0 || op.kind == OP_END) {
+			gc_op_t e = { .kind = OP_END, .line = r->nlines - 1 };
+			if (motion_push(&r->m, &e)) r->feeding = false;
+			break;
+		}
+		motion_push(&r->m, &op);
+	}
+	motion_tick(&r->m, REPLAY_DT);
+	r->ticks++;
+	float t = (float)((r->ticks - 1) * REPLAY_DT);            /* the line started during this tick */
+	int ln = r->m.line;
+	if (ln >= 0 && ln < r->nlines) while (r->filled < ln) r->cum[++r->filled] = t;
+	mev_t ev = r->m.ev;
+	if (ev == MEV_END) return true;
+	if (ev != MEV_NONE) { r->m.ev = MEV_NONE; if (ev == MEV_PAUSE) r->m.hold = false; }
+	return r->ticks > 48L * 3600 * 100;                       /* never more than 48 h */
+}
+
+static void replay_end(replay_t *r, program_t *p)
+{
+	float t = (float)(r->ticks * REPLAY_DT);
+	while (r->filled < r->nlines) r->cum[++r->filled] = t;
+	free(p->exact_cum);
+	p->exact_cum = r->cum; r->cum = NULL;
+	p->est_s = p->exact_cum[r->nlines] * EST_XMARGIN + EST_XMARGIN_S;
+	replay_free(r);
+}
+
+/* ---- the background job: the program's ops again, a few ms per tick ---- */
+static struct { bool on; uint32_t gen; gc_t g; est_t *e; replay_t *r; } J;
+
+static void job_stop(void) { est_free(J.e); J.e = NULL; replay_free(J.r); J.r = NULL; J.on = false; }
 
 static bool job_start(program_t *p)
 {
@@ -164,29 +229,40 @@ static bool job_start(program_t *p)
 	start[AX_Z] = off[AX_Z] + SET.safe_z;
 	gc_begin(&J.g, p->text, p->len, start);
 	J.e = est_begin(p->nlines, start);
+	J.r = replay_begin(p, start);
 	J.gen = p->gen; J.on = J.e != NULL;
 	return J.on;
 }
 
-/* true = finished; budget_ms < 0: no limit */
+/* first the model (quick), then the exact replay; true = all finished; budget_ms < 0: no limit */
 static bool job_run(program_t *p, int budget_ms)
 {
 	uint64_t t0 = now_ms();
-	gc_op_t op;
-	int r, n = 0;
-	while ((r = gc_next(&J.g, &op)) > 0) {
-		est_op(J.e, &op);
-		if (budget_ms >= 0 && (++n & 7) == 0 && now_ms() - t0 >= (uint64_t)budget_ms) return false;
+	int n = 0;
+	if (J.e) {
+		gc_op_t op;
+		int r;
+		while ((r = gc_next(&J.g, &op)) > 0) {
+			est_op(J.e, &op);
+			if (budget_ms >= 0 && (++n & 7) == 0 && now_ms() - t0 >= (uint64_t)budget_ms) return false;
+		}
+		est_end(J.e, p);                                    /* also after an error: up to there */
+		J.e = NULL;
 	}
-	est_end(J.e, p);                                        /* also after an error: up to there */
-	J.e = NULL; J.on = false;
+	if (J.r) {
+		while (!replay_tick(J.r))
+			if (budget_ms >= 0 && (++n & 3) == 0 && now_ms() - t0 >= (uint64_t)budget_ms) return false;
+		replay_end(J.r, p);
+		J.r = NULL;
+	}
+	J.on = false;
 	return true;
 }
 
 bool est_background(int budget_ms)
 {
 	program_t *p = &C.prog;
-	if (!p->loaded || !p->text || p->est_cum) { if (J.on && (!p->loaded || J.gen != p->gen)) job_stop(); return true; }
+	if (!p->loaded || !p->text || p->exact_cum || (p->est_cum && !J.on)) { if (J.on && (!p->loaded || J.gen != p->gen)) job_stop(); return true; }
 	if (!J.on || J.gen != p->gen) if (!job_start(p)) return true;
 	return job_run(p, budget_ms);
 }
@@ -197,9 +273,9 @@ void est_compute(program_t *p)
 	if (job_start(p)) job_run(p, -1);
 }
 
-double est_span(const program_t *p, int a, int b, int ov)
+/* the model's time for lines [a, b) at override ov % */
+static double model_span(const program_t *p, int a, int b, int ov)
 {
-	if (!p->est_cum || ov <= 0) return -1;
 	int n = p->nlines;
 	a = a < 0 ? 0 : a > n ? n : a;
 	b = b < a ? a : b > n ? n : b;
@@ -215,26 +291,111 @@ double est_span(const program_t *p, int a, int b, int ov)
 	return w * T[i] + (1 - w) * T[i + 1];
 }
 
-/* one straight move from rest to rest at override ov %, as the planner would run it */
-static double move_time(const double a[NAXES], const double b[NAXES], bool rapid, double feed, int ov)
+/* exact at 100 % once the replay is done, the model's override factor on top of it */
+double est_span(const program_t *p, int a, int b, int ov)
 {
-	gc_op_t op = { .kind = OP_LINE, .rapid = rapid, .feed = feed };
-	memcpy(op.end, b, sizeof op.end);
-	struct plan p;
-	if (!motion_plan_setup(&p, &op, a)) return 0;
-	double f = ov / 100.0;
-	return seg_time(0, 0, fmin(p.vnom * (rapid ? fmin(f, 1) : f), p.vcap), p.aplan, p.len);
+	if (!p->est_cum || ov <= 0) return -1;
+	int n = p->nlines;
+	a = a < 0 ? 0 : a > n ? n : a;
+	b = b < a ? a : b > n ? n : b;
+	double m = model_span(p, a, b, ov);
+	if (!p->exact_cum) return m;
+	double x = (double)p->exact_cum[b] - p->exact_cum[a];
+	if (ov == 100) return x;
+	double m100 = model_span(p, a, b, 100);
+	return m100 > 1e-9 ? x * m / m100 : m;
 }
 
-/* idle: the estimate starts at work zero / safe Z, the run from where the machine is */
+/* ---- the start: the estimate assumes work zero at safe Z, a run starts where the machine is.
+ * Every move keeps the axes it doesn't name (e.g. Z far below while the first G0 X Y travels,
+ * then a slow G1 Z up), so the program's ops are generated from both starts until they end
+ * in the same place; both beginnings are replayed, and the difference is the correction.
+ * Found on the unit: 29 s estimated, 37 s run, from Z 55 mm below work zero. */
+#define PFX_OPS 2000
+#define PFX_LINES 256
+static struct {
+	bool valid; uint32_t gen; int wcs; double pos[NAXES], off[NAXES];
+	int end_line;                         /* the paths are the same from this line on */
+	double tS, tP;                        /* the beginning, from the assumed / the real start */
+	float cumP[PFX_LINES + 1];            /* from the real start: seconds before each line */
+} PFX;
+static gc_op_t pfx_a[PFX_OPS], pfx_b[PFX_OPS];
+static motion_t pfx_m;
+
+/* replay a list of ops through the executor from `start`; per-line times into cum (optional) */
+static double replay_list(const gc_op_t *ops, int n, const double start[NAXES], float *cum, int nl)
+{
+	motion_init(&pfx_m, NULL, start);
+	pfx_m.dry = true;
+	int i = 0, filled = 0;
+	bool fed = false;
+	long ticks = 0;
+	for (;;) {
+		while (!fed && motion_space(&pfx_m) > 4) {
+			if (i < n) motion_push(&pfx_m, &ops[i++]);
+			else { gc_op_t e = { .kind = OP_END, .line = -1 }; if (motion_push(&pfx_m, &e)) fed = true; break; }
+		}
+		motion_tick(&pfx_m, REPLAY_DT);
+		ticks++;
+		int ln = pfx_m.line;
+		if (cum && ln >= 0 && ln < nl) while (filled < ln) cum[++filled] = (float)((ticks - 1) * REPLAY_DT);
+		mev_t ev = pfx_m.ev;
+		if (ev == MEV_END || ticks > 360000) break;
+		if (ev != MEV_NONE) { pfx_m.ev = MEV_NONE; if (ev == MEV_PAUSE) pfx_m.hold = false; }
+	}
+	double t = ticks * REPLAY_DT;
+	if (cum) while (filled < nl) cum[++filled] = (float)t;
+	return t;
+}
+
+/* (re)compute the start correction for the machine's position now, if anything changed */
+static void prefix_update(const program_t *p)
+{
+	const double *off = WD.wcs[WD.active].off;
+	if (PFX.valid && PFX.gen == p->gen && !motion_idle(&C.mo)) return;   /* jogging: once it stands still */
+	if (PFX.valid && PFX.gen == p->gen && PFX.wcs == WD.active && !memcmp(PFX.off, off, sizeof PFX.off)) {
+		bool same = true;
+		for (int a = 0; a < NAXES; a++) same &= fabs(PFX.pos[a] - C.mo.pos[a]) < 0.01;
+		if (same) return;
+	}
+	PFX.valid = false; PFX.gen = p->gen; PFX.wcs = WD.active;
+	memcpy(PFX.off, off, sizeof PFX.off); memcpy(PFX.pos, C.mo.pos, sizeof PFX.pos);
+	double s[NAXES];
+	for (int a = 0; a < NAXES; a++) s[a] = off[a];
+	s[AX_Z] = off[AX_Z] + SET.safe_z;
+	static gc_t ga, gb;
+	gc_begin(&ga, p->text, p->len, s);
+	gc_begin(&gb, p->text, p->len, C.mo.pos);
+	int n = 0, met_line = -1;
+	while (n < PFX_OPS) {
+		int ra = gc_next(&ga, &pfx_a[n]), rb = gc_next(&gb, &pfx_b[n]);
+		if (ra <= 0 || rb <= 0) return;                     /* never met (or the end): no correction */
+		if (met_line >= 0 && pfx_a[n].line > met_line) break;   /* the rest of the meeting line is in too */
+		if (met_line < 0) {
+			bool met = pfx_a[n].kind == OP_LINE && pfx_b[n].kind == OP_LINE;
+			/* X Y Z only: an axis the program never moves (A, found on the unit at 82.4 deg) would
+			 * never meet, and costs no time either */
+			for (int a = 0; a < 3 && met; a++) met = fabs(pfx_a[n].end[a] - pfx_b[n].end[a]) < 1e-6;
+			if (met) met_line = pfx_a[n].line;
+		}
+		n++;
+	}
+	if (n >= PFX_OPS || met_line < 0) return;
+	int end = met_line + 1;                                 /* the paths are the same from this line on */
+	if (end > PFX_LINES || end > p->nlines) return;
+	/* both beginnings, whole lines up to and including the line where they meet */
+	PFX.tS = replay_list(pfx_a, n, s, NULL, 0);
+	PFX.tP = replay_list(pfx_b, n, C.mo.pos, PFX.cumP, end);
+	PFX.end_line = end;
+	PFX.valid = true;
+}
+
+/* idle: what the start adds (or saves) */
 static double start_correction(const program_t *p, int ov)
 {
-	if (!p->has_first) return 0;
-	const double *off = WD.wcs[WD.active].off;
-	double s[NAXES], t[NAXES];
-	for (int a = 0; a < NAXES; a++) { s[a] = off[a]; t[a] = p->first_end[a] + off[a]; }
-	s[AX_Z] = off[AX_Z] + SET.safe_z;
-	return move_time(C.mo.pos, t, p->first_rapid, p->first_feed, ov) - move_time(s, t, p->first_rapid, p->first_feed, ov);
+	prefix_update(p);
+	if (!PFX.valid) return 0;
+	return (PFX.tP - PFX.tS) * (ov == 100 ? 1.0 : 100.0 / ov);   /* the beginning is mostly travel */
 }
 
 /* running: the line in progress takes the longer of its estimate and what the move in
@@ -250,10 +411,15 @@ static double current_line(const program_t *p, int line, int ov)
 	return fmax(est, left);
 }
 
+static double margin(const program_t *p, double t)
+{
+	return p->exact_cum ? t * EST_XMARGIN + EST_XMARGIN_S : t * EST_MARGIN + EST_MARGIN_S;
+}
+
 double est_remaining(const program_t *p, int from, int ov)
 {
 	double t = est_span(p, from, p->nlines, ov);
-	return t < 0 ? -1 : t * EST_MARGIN + EST_MARGIN_S;
+	return t < 0 ? -1 : margin(p, t);
 }
 
 /* a multi-part job cuts each tool segment (core/ctl_tick.c) on every JOB part in turn */
@@ -272,7 +438,13 @@ double est_now(bool *left)
 	for (int i = 0; i < NWCS; i++) parts += WD.wcs[i].job;
 	int line = run && C.mo.line > 0 ? C.mo.line : 0;
 	double first = run ? current_line(p, line, ov) - est_span(p, line, line + 1, ov) : start_correction(p, ov);
-	if (parts < 2 || (run && C.job_idx < 0)) return fmax(est_span(p, line, p->nlines, ov) + first, 0) * EST_MARGIN + EST_MARGIN_S;
+	/* running through the beginning that started elsewhere: its own times (frozen at Start) */
+	if (run && PFX.valid && PFX.gen == p->gen && line < PFX.end_line && C.job_idx < 0) {
+		double f = ov == 100 ? 1.0 : 100.0 / ov;
+		double rest = (PFX.tP - PFX.cumP[line]) * f + est_span(p, PFX.end_line, p->nlines, ov);
+		return margin(p, fmax(rest, current_line(p, line, ov) + est_span(p, line + 1, p->nlines, ov)));
+	}
+	if (parts < 2 || (run && C.job_idx < 0)) return margin(p, fmax(est_span(p, line, p->nlines, ov) + first, 0));
 	int nseg = p->ntc + 1, seg = run ? CLAMP(C.job_seg, 0, nseg - 1) : 0;
 	double t = 0;
 	if (run) {
@@ -283,5 +455,5 @@ double est_now(bool *left)
 		seg++;
 	}
 	for (int s = seg; s < nseg; s++) t += est_span(p, seg_first(p, s), seg_end(p, s), ov) * parts;
-	return fmax(t + first, 0) * EST_MARGIN + EST_MARGIN_S;
+	return margin(p, fmax(t + first, 0));
 }

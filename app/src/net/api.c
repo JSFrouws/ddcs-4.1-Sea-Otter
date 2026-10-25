@@ -105,7 +105,7 @@ static void status(http_resp_t *r)
 		"\"limit\":{\"axis\":\"%c\",\"dir\":%d},\"limits\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"armed\":\"%s\",\"remoteStart\":%s,\"countdown\":%d,\"screen\":%d,\"leds\":%u,"
 		"\"fpga\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"steps\":{\"x\":%lld,\"y\":%lld,\"z\":%lld,\"a\":%lld},"
 		"\"posChecks\":%u,\"posFaults\":%u,\"posErr\":[%d,%d,%d,%d],\"faultLine\":%d,\"busErrors\":%u,\"busRetries\":%u,\"busErrno\":%d,\"reversalsWaited\":%u,\"bursts\":%u,"
-		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u},\"tool\":{\"loaded\":%d,\"changeTo\":%d,\"confirm\":%s},\"jobPart\":\"%s\",\"estimate\":{\"seconds\":%.0f,\"remaining\":%s,\"feed\":%d},\"inputs\":%u,\"pendant\":{\"raw\":%u,\"held\":%s,\"axis\":%d,\"mult\":%d,\"estop\":%s,\"wheel\":%d},\"message\":\"%s\",\"driverWarning\":\"%s\",\"macro\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
+		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u},\"tool\":{\"loaded\":%d,\"changeTo\":%d,\"confirm\":%s},\"jobPart\":\"%s\",\"estimate\":{\"seconds\":%.0f,\"remaining\":%s,\"feed\":%d,\"exact\":%s},\"inputs\":%u,\"pendant\":{\"raw\":%u,\"held\":%s,\"axis\":%d,\"mult\":%d,\"estop\":%s,\"wheel\":%d},\"message\":\"%s\",\"driverWarning\":\"%s\",\"macro\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
 		STATE_NAMES[C.m], C.homed ? "true" : "false", pos[0], pos[1], pos[2], pos[3], wp[0], wp[1], wp[2], wp[3], 54 + WD.active,
 		nm, C.prog.loaded ? "true" : "false", C.prog.nlines, ctl_cur_line() + 1,
 		C.mo.feed_ov, rapid_override(C.mo.feed_ov), C.mo.spin_ov, C.mo.applied_pct, C.spindle ? "true" : "false", C.rpm, C.coolant,
@@ -116,7 +116,7 @@ static void status(http_resp_t *r)
 		(unsigned long long)PERF.motion_ms, (unsigned long long)PERF.lost_ms, C.mo.replan_iters,
 		WD.loaded_tool, C.m == M_TOOL || C.tc_state != TC_NONE ? C.tc_tool : 0, C.tc_confirm ? "true" : "false",
 		(const char *[]){ "", "G54", "G55", "G56", "G57", "G58", "G59" }[C.job_idx >= 0 && C.job_idx < NWCS && (C.m == M_RUN || C.m == M_HOLD || C.m == M_TOOL) ? C.job_idx + 1 : 0],
-		est_t_now, est_left ? "true" : "false", C.mo.feed_ov,
+		est_t_now > 0 ? ceil(est_t_now) : est_t_now, est_left ? "true" : "false", C.mo.feed_ov, C.prog.exact_cum ? "true" : "false",   /* rounded up, as on the panel */
 		(unsigned)C.inputs, (unsigned)C.pend.raw, C.pend.held ? "true" : "false", C.pend.axis, C.pend.mult, C.pend.estop ? "true" : "false", (int)U.wheel_total,
 		msg, dw, mac, C.sim ? "sim" : "real", DSP ? DSP->frame_no : 0);
 }
