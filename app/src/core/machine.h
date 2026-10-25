@@ -110,7 +110,11 @@ double ctl_work(int axis);                             /* work position, active 
 /* M_TOOL: where Start (confirmed) goes back to - machine coordinates: a straight line to
  * (x, y, via_z), then down to z when via_z is higher. Returns the speed in mm/min. */
 double ctl_tc_target(double t[NAXES], double *via_z);
-int ctl_prog_wcs(void);                                /* the WCS the running program uses */
+int ctl_prog_wcs(void);
+/* multi-part job: how many JOB parts count (0 when the program switches G54-G59 itself), and the
+ * part to resume / show progress on: the active WCS when it is a JOB part, else the last one cut */
+int ctl_job_parts(void);
+int ctl_resume_part(void);                                /* the WCS the running program uses */
 void ctl_apply_axis_config(void);                      /* push settings to the FPGA */
 void ctl_save(void);
 int ctl_cur_line(void);

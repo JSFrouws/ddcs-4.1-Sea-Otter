@@ -193,7 +193,8 @@ void run_render(fb_t *fb)
 	gfx_fill(fb, vx + 1, py + ph - 30, vw - 2, 1, COL_EDGE);
 	int njob = 0;
 	for (int i = 0; i < NWCS; i++) njob += WD.wcs[i].job;
-	if (C.resume_line >= 0 && njob >= 2 && C.job_idx >= 0) snprintf(b, sizeof b, "Resume @ line %d on G%d  ·  Modify = other part  ·  Start restores the state, approach at safe Z", C.resume_line + 1, 54 + C.job_idx);
+	int rp = ctl_resume_part(); (void)njob;
+	if (C.resume_line >= 0 && rp >= 0) snprintf(b, sizeof b, "Resume @ line %d on G%d  ·  Modify / A+ = other part  ·  Start restores the state, approach at safe Z", C.resume_line + 1, 54 + rp);
 	else if (C.resume_line >= 0) snprintf(b, sizeof b, "Resume @ line %d  ·  Start restores the modal state and approaches at safe Z", C.resume_line + 1);
 	else if (C.work_done >= 0 && C.m != M_RUN) snprintf(b, sizeof b, "Work done up to line %d  ·  Tab → Program, Select on a line resumes there", C.work_done + 1);
 	else snprintf(b, sizeof b, "Tab → Program:  Y± line  ·  X± 10 lines  ·  Select = resume here");
@@ -354,10 +355,11 @@ void run_key(pkey_t k, bool sh)
 	}
 	if (k == K_MOD) {                                      /* multi-part job: which part to resume on */
 		int j[NWCS], nj = 0, at = -1;
-		for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) { if (i == C.job_idx) at = nj; j[nj++] = i; }
-		if (nj < 2) { ctl_toast(false, "One part only - mark more WCS as JOB on the Work page"); return; }
+		int cur = ctl_resume_part();
+		for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) { if (i == cur) at = nj; j[nj++] = i; }
+		if (ctl_job_parts() < 2) { ctl_toast(false, C.prog.multi_wcs ? "This program switches G54-G59 itself: no multi-part job" : "One part only - mark more WCS as JOB on the Work page"); return; }
 		if (ctl_busy() || C.m == M_TOOL) { ctl_toast(true, "Stop the program before choosing a part"); return; }
-		C.job_idx = j[(at + 1) % nj];
+		C.job_idx = j[(at + 1) % nj]; WD.active = C.job_idx; workdata_save(C.wd_path);   /* the part = the active WCS */
 		ctl_toast(false, SET.job_order ? "Resume on G%d: earlier parts count as finished, later ones as not started" : "Resume on G%d: earlier parts count as done up to this tool's end, later ones up to its start", 54 + C.job_idx);
 		return;
 	}

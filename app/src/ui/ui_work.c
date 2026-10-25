@@ -86,6 +86,7 @@ void work_key(pkey_t k, bool sh)
 	wcs_t *r = &WD.wcs[U.wcs_row];
 	if (k == K_F1 || k == K_SEL) { WD.active = U.wcs_row; ctl_toast(false, "G%d active", 54 + U.wcs_row); }
 	else if (k == K_F2) { r->off[U.wcs_col] = C.mo.pos[U.wcs_col]; ctl_toast(false, "G%d %c = current position (work %c is now 0)", 54 + U.wcs_row, AXIS_CH[U.wcs_col], AXIS_CH[U.wcs_col]); }
+	else if (k == K_F4 && !r->job && C.prog.multi_wcs) ctl_toast(true, "The loaded program switches G54-G59 itself - a multi-part job would mix them");
 	else if (k == K_F4) { r->job = !r->job; ctl_toast(false, "G%d %s the multi-part job", 54 + U.wcs_row, r->job ? "added to" : "removed from"); }
 	else if (k == K_F5) { memset(r->off, 0, sizeof r->off); ctl_toast(false, "G%d cleared", 54 + U.wcs_row); }
 	else {

@@ -50,6 +50,7 @@ static void P(const proj_t *p, double x, double y, double z, int *sx, int *sy)
 static int job_parts(int idx[NWCS])
 {
 	int n = 0;
+	if (C.prog.multi_wcs) return 0;                    /* its own G54-G59: drawn as it cuts, one copy */
 	for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) idx[n++] = i;
 	return n;
 }
@@ -67,7 +68,9 @@ static int part_bound(int q, int p, int L)
 /* the job part the colouring is about: the running one, or the one picked for the resume */
 static int job_focus(const int idx[NWCS], int n)
 {
-	for (int k = 0; k < n; k++) if (idx[k] == C.job_idx) return C.job_idx;
+	bool run = C.m == M_RUN || C.m == M_HOLD || C.m == M_TOOL;
+	int f = run ? C.job_idx : ctl_resume_part();       /* idle: the active WCS when it is a JOB part */
+	for (int k = 0; k < n; k++) if (idx[k] == f) return f;
 	return n ? idx[0] : -1;
 }
 
@@ -119,7 +122,7 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 	bool running = C.m == M_RUN || C.m == M_HOLD;
 	bool done_mode = running || C.work_done >= 0;
 	int cur = done_mode ? ctl_cur_line() : -1;
-	double jobs = WD.active * 1e6 + SET.job_order * 3e5 + WD.wcs[WD.active].off[0] * 13 + WD.wcs[WD.active].off[1] * 17 + WD.wcs[WD.active].off[2] * 19;                      /* the other JOB parts' zeros are drawn too */
+	double jobs = C.prog.multi_wcs * 7e5 + WD.active * 1e6 + SET.job_order * 3e5 + WD.wcs[WD.active].off[0] * 13 + WD.wcs[WD.active].off[1] * 17 + WD.wcs[WD.active].off[2] * 19;                      /* the other JOB parts' zeros are drawn too */
 	for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) jobs += (i + 1) * 7 + WD.wcs[i].off[0] * 3 + WD.wcs[i].off[1] * 5 + WD.wcs[i].off[2] * 11;
 	double key[19] = { x0, y0, x1, y1, mini, U.view.iso, U.view.yaw, U.view.pitch, U.view.zoom, U.view.panx, U.view.pany,
 		(double)(uintptr_t)pg->text, pg->npv, pg->loaded, U.screen, U.pane[U.screen], jobs, running, running ? C.run_from : -1 };   /* panel focus can tint the background */
@@ -385,7 +388,10 @@ static void draw_view(fb_t *fb, int x, int y, int w, int h, bool mini)
 	double d[3]; part_off(multi ? jidx[k] : -1, d);
 	/* in a job: done / picked below this part's own bound (see part_bound) */
 	int bdone = multi ? (running || C.m == M_TOOL ? part_bound(jidx[k], focus, cur) : C.work_done >= 0 ? part_bound(jidx[k], focus, C.work_done) : -1) : 0;
-	int bpick = multi && pick >= 0 ? part_bound(jidx[k], focus, pick) : pick;
+	/* a later part active, no line picked: it is about to start, so the earlier parts have done
+	 * the first tool's work (counted from the first tool change: before it is just the header) */
+	int pk0 = multi && pick < 0 && !running && C.m != M_TOOL && focus != jidx[0] ? (pg->ntc ? pg->tc_line[0] : 0) : pick;
+	int bpick = multi && pk0 >= 0 ? part_bound(jidx[k], focus, pk0) : pick;
 	for (int i = 0; i < pg->npv; i++) {
 		/* a big program's toolpath takes longer than one 40 ms motion slice to draw:
 		 * let motion run in between (measured: 45-55 ms for a 5000-line 3D program) */

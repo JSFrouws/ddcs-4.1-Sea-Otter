@@ -232,6 +232,20 @@ static void tc_clear(void)
 	free(C.tc_text); C.tc_text = NULL;
 }
 
+int ctl_job_parts(void)
+{
+	int n = 0;
+	for (int i = 0; i < NWCS; i++) n += WD.wcs[i].job;
+	return C.prog.multi_wcs ? 0 : n;
+}
+
+int ctl_resume_part(void)
+{
+	if (ctl_job_parts() < 2) return -1;
+	if (WD.wcs[WD.active].job) return WD.active;
+	return C.job_idx >= 0 && C.job_idx < NWCS && WD.wcs[C.job_idx].job ? C.job_idx : -1;
+}
+
 int ctl_prog_wcs(void) { return C.gc.force_wcs >= 0 ? C.gc.force_wcs : C.gc.wcs; }
 
 /* The program position the change returns to: where the program is (C.gc.pos - the feeder
@@ -291,8 +305,9 @@ static void start_program(src_t src)
 	gc_begin(&C.gc, C.prog.text, C.prog.len, C.mo.pos);
 	C.gc.apply_g10 = C.armed != ARM_SIM;
 	C.run_mode = C.armed;
-	int jobs = 0, keep = C.job_idx;
-	for (int i = 0; i < NWCS; i++) jobs += WD.wcs[i].job;
+	int jobs = ctl_job_parts(), keep = ctl_resume_part();
+	if (C.prog.multi_wcs && !ctl_job_parts() && WD.wcs[0].job + WD.wcs[1].job + WD.wcs[2].job + WD.wcs[3].job + WD.wcs[4].job + WD.wcs[5].job > 1)
+		ctl_toast(false, "This program switches G54-G59 itself: the JOB marks are ignored");
 	C.job_idx = -1; C.job_seg = 0;
 	tc_clear();
 	if (jobs > 1) {                                   /* multi-part job: first JOB fixture */

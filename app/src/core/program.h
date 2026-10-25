@@ -19,6 +19,7 @@ typedef struct {
 	 * offset); pv_wcs0 = the WCS the program itself starts in. G54-G59 switches inside the
 	 * program are already in it (each move went through its own offset). */
 	double pv_off[3]; int pv_wcs0;
+	bool multi_wcs;              /* it switches between G54-G59 itself: no multi-part job (they would mix) */
 	float lo[3], hi[3];          /* work-coordinate bounding box of cutting moves (view) */
 	float mlo[3], mhi[3];        /* ... of every move, rapids included (soft/bench limit check) */
 	double est_s;                /* run time at 100 %, margin included (core/estimate.h); 0 until est_cum is there */

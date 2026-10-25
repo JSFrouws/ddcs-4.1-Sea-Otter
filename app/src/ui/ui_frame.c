@@ -157,7 +157,7 @@ static void softkeys(fb_t *fb, const sk_t sk[7])
 		char f[4]; snprintf(f, sizeof f, "F%d", i + 1);
 		gfx_text_c(fb, &font_12, x + w / 2, y + 2, fc, f);
 		gfx_text_c(fb, &font_16, x + w / 2, y + 15, sk[i].label ? lc : COL_DIM2, sk[i].label ? sk[i].label : "—");
-		if (sk[i].sub) gfx_text_c(fb, &font_12, x + w / 2, y + 34, COL_DIM, sk[i].sub);
+		if (sk[i].sub) gfx_text_c(fb, &font_12, x + w / 2, y + 34, sk[i].subc ? sk[i].subc : COL_DIM, sk[i].sub);
 	}
 }
 

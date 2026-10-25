@@ -174,8 +174,9 @@ void ui_render(fb_t *fb)
 		static char sub[NWCS][24];
 		for (int i = 0; i < NWCS; i++) {
 			static const char *const nm[NWCS] = { "G54", "G55", "G56", "G57", "G58", "G59" };
-			snprintf(sub[i], sizeof sub[i], "%s%s", WD.wcs[i].job ? "in job" : "not in job", i == WD.active ? " · active" : "");
-			sk[i] = (sk_t){ nm[i], sub[i] };
+			bool job = WD.wcs[i].job && !C.prog.multi_wcs;   /* user 2026-10-25: only "in job", in orange */
+			snprintf(sub[i], sizeof sub[i], "%s%s%s", job ? "in job" : "", job && i == WD.active ? " · " : "", i == WD.active ? "active" : "");
+			sk[i] = (sk_t){ nm[i], sub[i], job ? COL_AMBER : 0 };
 		}
 		sk[6] = (sk_t){ "Close", "" };
 	}

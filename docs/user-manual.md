@@ -162,9 +162,13 @@ A running program still pauses with F2 and resets with F3, Shift or not.
   Sea Otter first redraws it less often (an amber note in the view says so), then switches to
   the G-code view by itself, with an amber line that stays until you press F4.
 - **Work offset menu**: **A+** (or **Shift + F2**) turns F1-F6 into G54-G59. Each key says
-  whether that offset is in the job and which one is active; press one to make it active (when
-  idle). F7 or Cancel closes the menu. The active offset is shown at the bottom of the left panel,
+  **in job** in orange when that offset is part of the job, and which one is active; press one
+  to make it active (when idle). The active JOB part is also the part the Program pane, Goto
+  line and Start are about: with G55 active, the parts before it show as done (orange) up to
+  the tool being cut, and a Goto line + Start continue on G55. F7 or Cancel closes the menu. The active offset is shown at the bottom of the left panel,
   with whether it's in the job.
+- **A program that writes two different G54-G59 itself** can't be a multi-part job (the two
+  would mix): its JOB marks are ignored and can't be set while it is loaded.
 - **G54-G59 in the program** are drawn where they cut: a program that switches to G55 halfway
   shows that part at G55's zero. Switching the active offset moves the picture accordingly.
 - **The preview** always fits and centres the whole picture: the program, the work zero's

@@ -69,7 +69,7 @@ enum { LED_START = 1, LED_PAUSE = 2, LED_RESET = 4, LED_SPINDLE = 8, LED_SHIFT =
 #define BODY_Y TOP_H
 #define BODY_H (SCR_H - TOP_H - SK_H)
 
-typedef struct { const char *label, *sub; } sk_t;
+typedef struct { const char *label, *sub; uint16_t subc; } sk_t;   /* subc 0 = the usual dim colour */
 int ui_pane(void);                                 /* index of the focused pane */
 int ui_npanes(scr_t s);
 const char *ui_pane_name(scr_t s, int i);

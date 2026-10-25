@@ -205,7 +205,8 @@ void test_ui(void)
 			const char *wp = "G21 G90 G54\nG0 Z5\nG0 X0 Y0\nG1 Z-1 F300\nG1 X20\nG0 Z5\nG55\nG0 X0 Y0\nG1 Z-1\nG1 Y20\nG0 Z5\nM30\n";
 			arg_t wl = { .path = "two-wcs.nc", .text = wp, .len = strlen(wp) };
 			act(C_LOAD, &wl, SRC_PANEL);
-			CHECK(C.prog.pv_wcs0 == 0);
+			CHECK(C.prog.pv_wcs0 == 0 && C.prog.multi_wcs);     /* it switches G54 -> G55 itself */
+			{ settings_t dd; settings_defaults(&dd); CHECK(dd.job_order == 0); }
 			U.view.iso = false; snap("08l_program_g55_inside");
 			WD.active = 1; snap("08m_same_active_g55");        /* the same picture, seen from G55 */
 			WD.wcs[0] = k0; WD.wcs[1] = k1;
@@ -357,9 +358,13 @@ void test_ui(void)
 			U.screen = SCR_RUN; U.view.iso = false; U.view.saver = false; snap("12b_run_pendant_axis_job");
 			U.view.iso = true; snap("12c_run_iso_job");
 			/* every JOB part drawn; a resume point on G55 colours G54's whole section as done */
-			C.resume_line = 6; C.job_idx = 1; U.pane[SCR_RUN] = 0;
+			int act0 = WD.active;
+			C.resume_line = -1; WD.active = 1; U.pane[SCR_RUN] = 0;
+			snap("12e_job_g55_active");                     /* G55 active, no pick: G54 counts as done */
+			C.resume_line = 6; C.job_idx = 1;
 			snap("12d_job_parts_pick");
-			ui_key(K_TAB); ui_key(K_MOD); CHECK(C.job_idx == 0); ui_key(K_MOD); CHECK(C.job_idx == 1); ui_key(K_TAB);
+			ui_key(K_TAB); ui_key(K_MOD); CHECK(C.job_idx == 0 && WD.active == 0); ui_key(K_MOD); CHECK(C.job_idx == 1 && WD.active == 1); ui_key(K_TAB);
+			WD.active = act0;
 			C.resume_line = -1; C.job_idx = -1;
 			WD.wcs[1] = keep; WD.wcs[0].job = j0; U.view.iso = false; U.screen = SCR_JOG;
 		}

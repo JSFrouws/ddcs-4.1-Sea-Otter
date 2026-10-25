@@ -127,6 +127,22 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 		}
 	}
 	free(rl); free(rz);
+	/* the G54-G59 words the program writes itself (not G54.1 etc.): two different ones = it
+	 * switches between them, and a multi-part job would mix with that */
+	{
+		int seen = 0;
+		for (size_t i = 0; i + 2 < p->len; i++) {
+			char c = p->text[i];
+			if (c == '(') { while (i < p->len && p->text[i] != ')' && p->text[i] != '\n') i++; continue; }
+			if (c == ';') { while (i < p->len && p->text[i] != '\n') i++; continue; }
+			if ((c == 'G' || c == 'g') && p->text[i + 1] == '5' && p->text[i + 2] >= '4' && p->text[i + 2] <= '9'
+				&& (i + 3 >= p->len || !(p->text[i + 3] >= '0' && p->text[i + 3] <= '9') ) && (i + 3 >= p->len || p->text[i + 3] != '.')
+				&& (i == 0 || !((p->text[i - 1] >= 'A' && p->text[i - 1] <= 'Z') || (p->text[i - 1] >= 'a' && p->text[i - 1] <= 'z'))))
+				seen |= 1 << (p->text[i + 2] - '4');
+		}
+		p->multi_wcs = (seen & (seen - 1)) != 0;
+		if (seen && !p->multi_wcs) for (int k = 0; k < NWCS; k++) if (seen == 1 << k) p->pv_wcs0 = k;   /* its one WCS */
+	}
 	if (p->ntc > PROG_MAX_TC) {                             /* too many to cut per tool: whole program per part */
 		p->ntc = 0;
 		snprintf(p->warn, sizeof p->warn, "more than %d tool changes - a multi-part job runs the whole program per part", PROG_MAX_TC);
