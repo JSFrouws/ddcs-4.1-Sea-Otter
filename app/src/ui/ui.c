@@ -147,7 +147,7 @@ void ui_render(fb_t *fb)
 	static mstate_t last_m;
 	if (C.m != last_m && (C.m == M_ESTOP || C.m == M_LIMIT) && U.view.saver) {
 		U.view.saver = false; U.view.iso = true;
-		ctl_toast(false, "CPU saver off - showing the isometric view");
+		ctl_toast(false, "G-code view off - showing the isometric view");
 	}
 	last_m = C.m;
 	gfx_clip(fb, 0, BODY_Y + ui_banner_h(), CONTENT_W, SCR_H - SK_H);

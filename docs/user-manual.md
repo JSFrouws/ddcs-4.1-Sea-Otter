@@ -141,9 +141,13 @@ A running program still pauses with F2 and resets with F3, Shift or not.
   width, so 100 % lines up on all three bars.
 - **The speed is capped** at what the controller can actually deliver (960 mm/min per axis
   at 2000 steps/mm). A higher F or override runs at the cap.
-- **F4 View** cycles **2D → ISO → CPU saver**. CPU saver hides the toolpath and redraws once
-  a second, leaving more time for motion. After an E-stop or limit the view switches to
-  ISO by itself.
+- **F4 View** cycles **2D → ISO → G-code view**. The G-code view draws no wireframe at all:
+  the program listing fills the whole right side (about 18 lines), and the screen redraws
+  less often, leaving more time for motion. It's the best choice for heavy programs. After an
+  E-stop or limit the view switches to ISO by itself.
+- **Too heavy?** If drawing the wireframe takes time from motion while something moves,
+  Sea Otter first redraws it less often (an amber note in the view says so), then switches to
+  the G-code view by itself, with an amber line that stays until you press F4.
 - **The preview** always fits and centres the whole picture: the program, the work zero's
   axes, and small axes labelled G55, G56… at the zero of every other JOB part. The thin box
   around the toolpath is the program's size (there is none without a program). The grid lies
@@ -347,7 +351,7 @@ the pendant alone can do everything.
   right (it moves out of the way of the focused row). F5 again hides it.
 - **F2** restores this machine's original values. **F4** exports the settings to USB.
 
-Useful ones: *Display › Default toolpath view* (2D / ISO / CPU saver) ·
+Useful ones: *Display › Default toolpath view* (2D / ISO / G-code view) ·
 *Jog & touch-off › Safe Z* · *Homing & limits › Controlled stop* ·
 *API* (below) · *Pendant › Reverse wheel direction* ·
 *Tool change* (§ 3.7: by hand / macro / ignore, where, return speed).

@@ -33,7 +33,7 @@ typedef struct {
 		void (*ok)(double v, int ctx); int ctx;
 	} ed;
 	int macro, prog_line, files_idx, src, wcs_row, wcs_col, probe, tool_row, tool_col, grp, item, jog_field, step;
-	struct { bool iso, saver; double yaw, pitch, zoom, panx, pany; } view;
+	struct { bool iso, saver, auto_saver; int throttle; double yaw, pitch, zoom, panx, pany; } view;
 	char files[MAXFILES][160]; int nfiles;
 	/* pendant */
 	bool held; uint64_t held_t; int held_counts, wheel_rem;

@@ -240,7 +240,19 @@ int main(int argc, char **argv)
 			}
 			uint64_t s = signature();
 			bool mv = C.m == M_RUN || C.mo.active;
-			uint64_t gap = !mv ? 60 : U.view.saver && !U.dirty ? 1000 : 200;   /* <= 5 fps moving; CPU saver 1 fps unless a key was pressed */
+			/* motion time lost to the loop: throttle the wireframe first (2 steps), then switch to
+			 * the G-code view and say so (user 2026-10-25) */
+			static uint64_t lost_seen, lost_t;
+			if (t - lost_t >= 1000) {
+				lost_t = t;
+				if (PERF.lost_ms > lost_seen + 20 && mv && !U.view.saver && U.screen == SCR_RUN) {
+					if (++U.view.throttle >= 3) { U.view.saver = true; U.view.auto_saver = true; U.view.throttle = 0;
+						ctl_toast(true, "Wireframe too heavy for this program: switched to the G-code view"); }
+					U.dirty = true;
+				}
+				lost_seen = PERF.lost_ms;
+			}
+			uint64_t gap = !mv ? 60 : U.view.saver && !U.dirty ? 1000 : U.view.throttle == 2 ? 1500 : U.view.throttle == 1 ? 600 : 200;
 			if (splash_until && (t >= splash_until || keys_prev)) { splash_until = 0; U.dirty = true; }
 			if (!splash_until && (U.dirty || s != sig) && t - last_render >= gap) {
 				uint64_t r_us = now_us();

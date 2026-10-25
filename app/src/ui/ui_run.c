@@ -113,9 +113,16 @@ void run_render(fb_t *fb)
 	gfx_text(fb, &font_14, x + 12, y + 40, COL_DIM, "Tool"); gfx_text_r(fb, &font_14, x + w - 12, y + 40, COL_TXT, b);
 
 	/* toolpath view */
-	int vx = x + w + 8, vw = CONTENT_W - vx - 8, ph = 168, vh = h - ph - 8;
+	/* G-code view (user 2026-10-25, replaces the CPU saver): no wireframe at all, one tall
+	 * listing; the strip above keeps the arming, progress and time */
+	bool gv = U.view.saver;
+	int vx = x + w + 8, vw = CONTENT_W - vx - 8, ph = gv ? h - 80 : 168, vh = h - ph - 8;
 	gfx_panel(fb, vx, top, vw, vh, ui_pane() == 0);
-	ui_view_render(fb, vx + 2, top + 2, vw - 4, vh - 4, false);
+	if (!gv) ui_view_render(fb, vx + 2, top + 2, vw - 4, vh - 4, false);
+	else gfx_text_fit(fb, &font_12, vx + 16, top + 40, vw - 260, U.view.auto_saver ? COL_AMBER : COL_DIM2, U.view.auto_saver
+		? "Switched here: the wireframe took time from motion (CPU)"
+		: "G-code view: no wireframe - best for heavy programs");
+	if (!gv && U.view.throttle) gfx_text_fit(fb, &font_12, vx + 16, top + 34, vw - 260, COL_AMBER, "Heavy wireframe: redraws slowed down - F4 to the G-code view saves CPU");
 	snprintf(b, sizeof b, "ARMED · %s", ARMED[C.armed]);
 	gfx_fill(fb, vx + 8, top + 8, gfx_text_w(&font_12, b) + 16, 20, RGB(0x3a, 0x2c, 0x10));
 	gfx_text(fb, &font_12, vx + 16, top + 10, COL_AMBER, b);
@@ -143,9 +150,10 @@ void run_render(fb_t *fb)
 		return;
 	}
 	int anchor = ui_pane() == 1 ? U.prog_line : cl;
-	int first = CLAMP(anchor - 2, 0, C.prog.nlines > 6 ? C.prog.nlines - 6 : 0);
+	int rows = (ph - 40) / 20;
+	int first = CLAMP(anchor - (gv ? rows / 3 : 2), 0, C.prog.nlines > rows ? C.prog.nlines - rows : 0);
 	int pk = ui_pick_line(), from = C.m == M_RUN || C.m == M_HOLD || C.m == M_TOOL ? C.run_from : 0;
-	for (int i = 0; i < 6 && first + i < C.prog.nlines; i++) {
+	for (int i = 0; i < rows && first + i < C.prog.nlines; i++) {
 		int n = first + i, ly = py + 6 + i * 20;
 		bool cur = n == cl && (C.m == M_RUN || C.m == M_HOLD), done = n < cl || (C.work_done >= 0 && n <= C.work_done && !cur);
 		if (cur) gfx_fill(fb, vx + 2, ly - 1, vw - 4, 20, RGB(0x17, 0x4a, 0x78));
@@ -239,7 +247,7 @@ void run_sk(sk_t sk[7])
 	sk[0] = (sk_t){ "Start", s1 };
 	sk[1] = (sk_t){ "Pause", "feed hold" };
 	sk[2] = (sk_t){ "Reset", rewind_asking() ? "again = line 1" : C.resume_line >= 0 || C.work_done >= 0 ? "to line 1 (asks)" : C.agent.on ? "close agent card" : "stop" };
-	sk[3] = (sk_t){ "View", U.view.saver ? "→ 2D" : U.view.iso ? "→ CPU saver" : "→ ISO" };
+	sk[3] = (sk_t){ "View", U.view.saver ? "→ 2D" : U.view.iso ? "→ G-code" : "→ ISO" };
 	sk[4] = (sk_t){ "TryCut", s5 };
 	sk[5] = (sk_t){ "Spindle", C.spindle ? "on" : "off" };
 }
@@ -292,6 +300,7 @@ void run_key(pkey_t k, bool sh)
 		else act(C_STOP, NULL, SRC_PANEL);
 		return;
 	case K_F4:                                         /* 2D -> ISO -> CPU saver -> 2D */
+		U.view.throttle = 0; U.view.auto_saver = false;   /* the operator chose: start over */
 		if (U.view.saver) U.view.saver = false;
 		else if (U.view.iso) { U.view.iso = false; U.view.saver = true; }
 		else U.view.iso = true;

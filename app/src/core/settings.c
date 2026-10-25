@@ -12,7 +12,7 @@ const char *const SETTING_GROUPS[] = {
 };
 const char *const HOME_ORDERS[] = { "Z X Y A", "Z X Y", "Z Y X A", "X Y Z A", NULL };
 static const char *const DECS[] = { "0.0", "0.00", "0.000", NULL };
-static const char *const VIEWS[] = { "2D plan", "Isometric wireframe", "CPU saver (no preview)", NULL };
+static const char *const VIEWS[] = { "2D plan", "Isometric wireframe", "G-code view (no wireframe)", NULL };
 static const char *const DIRS[] = { "Negative", "Positive", NULL };
 static const char *const TC_MODES[] = { "Pause: change by hand", "Run a tool-change macro", "Ignore M6", NULL };
 static const char *const TC_WHERE[] = { "Z up to safe height, stay here", "Tool-change position (homed)", NULL };
