@@ -229,6 +229,9 @@ void test_estimate(void)
 		WD.wcs[0].job = WD.wcs[1].job = true;
 		double two = est_now(&left);
 		CHECK_NEAR(two, 2 * one - EST_XMARGIN_S, 0.05);       /* twice the cutting, the fixed margin once */
+		SET.job_order = 1;                                   /* one part at a time: the same total */
+		CHECK_NEAR(est_now(&left), two, 0.05);
+		SET.job_order = 0;
 		WD.wcs[0].job = j0; WD.wcs[1].job = j1;
 	}
 	SET.spindle_delay = 0;

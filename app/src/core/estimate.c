@@ -445,7 +445,13 @@ double est_now(bool *left)
 		return margin(p, fmax(rest, current_line(p, line, ov) + est_span(p, line + 1, p->nlines, ov)));
 	}
 	if (parts < 2 || (run && C.job_idx < 0)) return margin(p, fmax(est_span(p, line, p->nlines, ov) + first, 0));
-	int nseg = p->ntc + 1, seg = run ? CLAMP(C.job_seg, 0, nseg - 1) : 0;
+	if (SET.job_order == 1) {                                /* one part at a time: the whole program per part */
+		int after = 0;
+		for (int i = run ? C.job_idx + 1 : 0; i < NWCS; i++) after += WD.wcs[i].job;
+		double all = est_span(p, 0, p->nlines, ov);
+		return margin(p, fmax((run ? est_span(p, line, p->nlines, ov) : 0) + all * after + first, 0));
+	}
+	int nseg = p->ntc + 1, seg = run ? CLAMP(C.job_seg, 0, nseg - 1) : 0;   /* one tool at a time */
 	double t = 0;
 	if (run) {
 		int after = 0;                                       /* parts still to come for this tool */
