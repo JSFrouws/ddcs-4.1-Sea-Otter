@@ -80,5 +80,8 @@ void motion_set_pos(motion_t *m, int axis, double mm);
 /* where the machine will be once everything queued has run (relative jogs chain from here) */
 void motion_queued_end(const motion_t *m, double out[NAXES]);
 int rapid_override(int feed_ov);                       /* the rapid-follows-feed rule */
+/* the planner's own segment geometry and corner limit (also used by the time estimate) */
+bool motion_plan_setup(struct plan *p, const gc_op_t *op, const double start[NAXES]);
+double motion_corner_limit(const struct plan *A, const struct plan *B);
 
 #endif

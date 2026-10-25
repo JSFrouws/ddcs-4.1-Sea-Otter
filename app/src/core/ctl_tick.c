@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include "machine.h"
 #include "macro.h"
+#include "estimate.h"
 
 static bool level_active(int port, bool active_high)
 {
@@ -462,6 +463,7 @@ void ctl_tick(double dt)
 	}
 	agent_checks();
 	pos_track();
+	est_background(C.m == M_RUN ? 1 : 3);              /* the run-time estimate, a little per tick */
 	/* watchdog: without it the FPGA accepts bursts but never steps (measured); it also latches
 	 * the position counters, which we compare with the commanded steps whenever all is at rest */
 	if (now_ms() - hb >= 20) {

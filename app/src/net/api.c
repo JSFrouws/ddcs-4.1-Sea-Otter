@@ -12,6 +12,7 @@
 #include "api.h"
 #include "../core/machine.h"
 #include "../core/macro.h"
+#include "../core/estimate.h"
 #include "../sim/fpga_sim.h"
 #include "../ui/ui.h"
 #include "../perf.h"
@@ -95,6 +96,8 @@ static void status(http_resp_t *r)
 	char dw[200], mac[100];
 	json_escape(dw, sizeof dw, C.driver_warn);
 	json_escape(mac, sizeof mac, C.macro_on ? C.macro_name : "");
+	bool est_left;
+	double est_t_now = est_now(&est_left);
 	resp_text(r, 200, "application/json",
 		"{\"state\":\"%s\",\"homed\":%s,\"machine\":{\"x\":%s,\"y\":%s,\"z\":%s,\"a\":%s},"
 		"\"work\":{\"x\":%s,\"y\":%s,\"z\":%s,\"a\":%s},\"wcs\":\"G%d\",\"program\":{\"name\":\"%s\",\"loaded\":%s,\"lines\":%d,\"line\":%d},"
@@ -102,7 +105,7 @@ static void status(http_resp_t *r)
 		"\"limit\":{\"axis\":\"%c\",\"dir\":%d},\"limits\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"armed\":\"%s\",\"remoteStart\":%s,\"countdown\":%d,\"screen\":%d,\"leds\":%u,"
 		"\"fpga\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"steps\":{\"x\":%lld,\"y\":%lld,\"z\":%lld,\"a\":%lld},"
 		"\"posChecks\":%u,\"posFaults\":%u,\"posErr\":[%d,%d,%d,%d],\"faultLine\":%d,\"busErrors\":%u,\"busRetries\":%u,\"busErrno\":%d,\"reversalsWaited\":%u,\"bursts\":%u,"
-		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u},\"tool\":{\"loaded\":%d,\"changeTo\":%d,\"confirm\":%s},\"jobPart\":\"%s\",\"inputs\":%u,\"pendant\":{\"raw\":%u,\"held\":%s,\"axis\":%d,\"mult\":%d,\"estop\":%s,\"wheel\":%d},\"message\":\"%s\",\"driverWarning\":\"%s\",\"macro\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
+		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u},\"tool\":{\"loaded\":%d,\"changeTo\":%d,\"confirm\":%s},\"jobPart\":\"%s\",\"estimate\":{\"seconds\":%.0f,\"remaining\":%s,\"feed\":%d},\"inputs\":%u,\"pendant\":{\"raw\":%u,\"held\":%s,\"axis\":%d,\"mult\":%d,\"estop\":%s,\"wheel\":%d},\"message\":\"%s\",\"driverWarning\":\"%s\",\"macro\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
 		STATE_NAMES[C.m], C.homed ? "true" : "false", pos[0], pos[1], pos[2], pos[3], wp[0], wp[1], wp[2], wp[3], 54 + WD.active,
 		nm, C.prog.loaded ? "true" : "false", C.prog.nlines, ctl_cur_line() + 1,
 		C.mo.feed_ov, rapid_override(C.mo.feed_ov), C.mo.spin_ov, C.mo.applied_pct, C.spindle ? "true" : "false", C.rpm, C.coolant,
@@ -113,6 +116,7 @@ static void status(http_resp_t *r)
 		(unsigned long long)PERF.motion_ms, (unsigned long long)PERF.lost_ms, C.mo.replan_iters,
 		WD.loaded_tool, C.m == M_TOOL || C.tc_state != TC_NONE ? C.tc_tool : 0, C.tc_confirm ? "true" : "false",
 		(const char *[]){ "", "G54", "G55", "G56", "G57", "G58", "G59" }[C.job_idx >= 0 && C.job_idx < NWCS && (C.m == M_RUN || C.m == M_HOLD || C.m == M_TOOL) ? C.job_idx + 1 : 0],
+		est_t_now, est_left ? "true" : "false", C.mo.feed_ov,
 		(unsigned)C.inputs, (unsigned)C.pend.raw, C.pend.held ? "true" : "false", C.pend.axis, C.pend.mult, C.pend.estop ? "true" : "false", (int)U.wheel_total,
 		msg, dw, mac, C.sim ? "sim" : "real", DSP ? DSP->frame_no : 0);
 }
@@ -291,7 +295,7 @@ static void get_program(const http_req_t *q, http_resp_t *r, bool lines)
 	if (!lines) {
 		jb(&j, "{\"loaded\":%s,\"name\":\"%s\",\"lines\":%d,\"error\":\"%s\",\"warning\":\"%s\",\"estimateS\":%.0f,"
 			"\"box\":{\"min\":[%.3f,%.3f,%.3f],\"max\":[%.3f,%.3f,%.3f]},\"tools\":[",
-			C.prog.loaded ? "true" : "false", nm, C.prog.nlines, er, wn, C.prog.est_s,
+			C.prog.loaded ? "true" : "false", nm, C.prog.nlines, er, wn, C.prog.est_cum ? C.prog.est_s : -1.0,
 			C.prog.lo[0], C.prog.lo[1], C.prog.lo[2], C.prog.hi[0], C.prog.hi[1], C.prog.hi[2]);
 		for (int i = 0; i < C.prog.ntc && i < PROG_MAX_TC; i++) jb(&j, "%s{\"line\":%d,\"tool\":%d}", i ? "," : "", C.prog.tc_line[i] + 1, C.prog.tc_tool[i]);
 		jb(&j, "],\"resumeLine\":%d,\"workDone\":%d,\"macro\":%s}", C.resume_line + 1, C.work_done + 1, C.macro_on ? "true" : "false");

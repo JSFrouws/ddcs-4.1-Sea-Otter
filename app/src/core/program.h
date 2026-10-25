@@ -17,7 +17,13 @@ typedef struct {
 	pv_t *pv; int npv;           /* preview vertices; segment i = pv[i-1] -> pv[i] */
 	float lo[3], hi[3];          /* work-coordinate bounding box of cutting moves (view) */
 	float mlo[3], mhi[3];        /* ... of every move, rapids included (soft/bench limit check) */
-	double est_s;                /* time estimate at 100 % */
+	double est_s;                /* run time at 100 %, margin included (core/estimate.h); 0 until est_cum is there */
+	float *est_cum;              /* seconds before each line, per override level: [line * EST_NLV + level];
+	                                NULL while it is still being worked out */
+	uint32_t gen;                /* load counter: which program this is */
+	/* the first move (work coordinates): a real run starts from wherever the machine is,
+	 * the estimate from work zero at safe Z - the difference is added when it is shown */
+	bool has_first, first_rapid; double first_end[NAXES], first_feed;
 	/* tool changes: the M6 lines split the program into tool segments; segment 0 is before the
 	 * first M6, segment i starts at tc_line[i-1] (the M6 line itself) */
 	int ntc; int tc_line[PROG_MAX_TC]; int tc_tool[PROG_MAX_TC];

@@ -10,7 +10,7 @@
 
 void program_free(program_t *p)
 {
-	free(p->text); free(p->line_off); free(p->pv); free(p->goto_line);
+	free(p->text); free(p->line_off); free(p->pv); free(p->goto_line); free(p->est_cum);
 	memset(p, 0, sizeof *p);
 }
 
@@ -31,6 +31,8 @@ static void add_pv(program_t *p, const double m[NAXES], const double off[NAXES],
 int program_load_text(program_t *p, const char *name, const char *text, size_t len)
 {
 	program_free(p);
+	static uint32_t gen;
+	p->gen = ++gen;                                     /* tells the background estimate it is a new program */
 	snprintf(p->name, sizeof p->name, "%s", name);
 	p->text = malloc(len + 1);
 	if (!p->text) { snprintf(p->err, sizeof p->err, "out of memory"); return -1; }
@@ -75,16 +77,15 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 			}
 			lastz = z;
 		}
-		if (op.kind == OP_DWELL) p->est_s += op.value;
 		if (op.kind == OP_PAUSE && op.ival == PAUSE_TOOL && (!p->ntc || p->tc_line[p->ntc - 1] != op.line)) {
 			if (p->ntc < PROG_MAX_TC) { p->tc_line[p->ntc] = op.line; p->tc_tool[p->ntc] = (int)op.value; }
 			p->ntc++;
 		}
 		if (op.kind != OP_LINE) continue;
-		double d = 0;
-		for (int a = 0; a < 3; a++) d += (op.end[a] - last[a]) * (op.end[a] - last[a]);
-		d = sqrt(d);
-		p->est_s += d / ((op.rapid ? SET.ax[0].max_vel : fmax(op.feed, 1)) / 60.0);
+		if (!p->has_first) {                                /* the first move, for the run-time estimate */
+			p->has_first = true; p->first_rapid = op.rapid; p->first_feed = op.feed;
+			for (int a = 0; a < NAXES; a++) p->first_end[a] = op.end[a] - off[a];
+		}
 		add_pv(p, op.end, off, op.line, op.rapid, !op.arc);
 		for (int a = 0; a < 3; a++) {                       /* every move's end point */
 			float w = (float)(op.end[a] - off[a]);

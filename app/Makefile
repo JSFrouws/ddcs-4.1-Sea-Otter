@@ -17,7 +17,7 @@ PIPELINE_ID ?= local-$(BUILDNO)
 BUILD_DATE := $(shell date +%Y-%m-%d)
 DEFS := -DBUILD_ID='"$(PIPELINE_ID)"' -DBUILD_DATE='"$(BUILD_DATE)"'
 
-CORE := src/common.c src/core/settings.c src/core/settings_hints.c src/core/gcode.c src/core/motion.c src/core/program.c src/core/macro.c \
+CORE := src/common.c src/core/settings.c src/core/settings_hints.c src/core/gcode.c src/core/motion.c src/core/program.c src/core/estimate.c src/core/macro.c \
         src/core/machine.c src/core/ctl_tick.c \
         src/hal/fpga.c src/hal/fpga_vendor_init.c src/hal/bus_sim.c src/sim/fpga_sim.c
 UI   := src/ui/fonts.c src/ui/gfx.c src/ui/ui.c src/ui/ui_frame.c src/ui/ui_run.c src/ui/ui_jog.c \
@@ -27,7 +27,7 @@ NET  := src/net/http.c src/net/api.c src/net/web_panel.c
 HAL  := src/hal/bus_ioctl.c src/hal/panel_tm1638.c src/hal/panel_sim.c src/hal/display.c
 APP  := $(CORE) $(UI) $(NET) $(HAL) src/main.c
 TESTS := tests/test_main.c tests/test_fpga.c tests/test_gcode.c tests/test_motion.c \
-         tests/test_machine.c tests/test_ui.c tests/test_planner.c
+         tests/test_machine.c tests/test_ui.c tests/test_planner.c tests/test_estimate.c
 
 .PHONY: host arm test test-arm clean deploy
 host: $(BUILD)/host/seaotter

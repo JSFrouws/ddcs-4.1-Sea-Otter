@@ -85,6 +85,21 @@ Two mechanisms make that work:
 Still open: loading a 64 000-line file takes **4.3 s** and blocks the loop (fine while idle,
 and refused while a program or move runs - but a jog in progress would be stalled by it).
 
+## Run-time estimate (`core/estimate.c`)
+
+Computed while a program loads, from the same ops the run will send: each line segment gets
+the planner's own geometry (`motion_plan_setup`: per-axis speed caps incl. the FPGA's sustained
+rate, acceleration, the S-curve's average acceleration) and corner limit
+(`motion_corner_limit`). A backward + forward pass gives every segment's entry speed, and a
+trapezoid gives its time. Every non-motion op stops the motion first, as in the planner. Segments are planned in
+windows of 2048 (256 carried over), so memory stays flat. Time is kept per line, cumulative,
+at feed overrides 100/150/200/300 % (`program_t.est_cum`). Below 100 % it is scaled by
+1/override; between levels it is interpolated in 1/override. Both over-estimate, because time is convex in
+1/override. Rapids use min(feed, 100). Remaining = total − cumulative(current line), per JOB part
+and tool segment for multi-part jobs. Margin: ×1.05 + 1 s, because the model alone is 1–4 %
+short of the executor (slice and S-curve ends at each start/stop), measured in
+`tests/test_estimate.c`. Tool changes by hand count 0 s.
+
 ## Controller quirks the code works around
 
 - **`opendir()` fails on the controller** with `EINVAL` (the static, modern C library vs the

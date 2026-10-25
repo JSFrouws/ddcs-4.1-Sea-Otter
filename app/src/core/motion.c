@@ -55,7 +55,7 @@ static double brake_dist(double v, double ve, double a, double j, double acur)
 }
 
 /* ---- segment geometry: speed, acceleration and jerk limited per axis ---- */
-static bool setup_plan(struct plan *p, const gc_op_t *op, const double start[NAXES])
+bool motion_plan_setup(struct plan *p, const gc_op_t *op, const double start[NAXES])
 {
 	double d2 = 0;
 	for (int a = 0; a < NAXES; a++) { p->u[a] = op->end[a] - start[a]; d2 += p->u[a] * p->u[a]; }
@@ -82,7 +82,7 @@ static bool setup_plan(struct plan *p, const gc_op_t *op, const double start[NAX
  * corner jump: an X-only move turning 10 degrees towards Y asks Y for v*sin(10) from zero,
  * so it keeps most of its speed; a full reversal asks X for 2v, so it nearly stops. A
  * junction-deviation tolerance adds the usual centripetal limit for real corners. */
-static double corner_limit(const struct plan *A, const struct plan *B)
+double motion_corner_limit(const struct plan *A, const struct plan *B)
 {
 	double v = 1e9, dot = 0;
 	for (int a = 0; a < NAXES; a++) {
@@ -112,9 +112,9 @@ bool motion_push(motion_t *m, const gc_op_t *op)
 	if (!m->qn && !(m->active && m->op.kind == OP_LINE)) memcpy(m->plan_end, m->pos, sizeof m->plan_end);
 	struct plan p = { 0 };
 	if (op->kind == OP_LINE) {
-		if (!setup_plan(&p, op, m->plan_end)) return true;          /* zero length: nothing to do */
+		if (!motion_plan_setup(&p, op, m->plan_end)) return true;          /* zero length: nothing to do */
 		const struct plan *prev = m->qn ? &m->pl[QI(m, m->qn - 1)] : (m->active && m->op.kind == OP_LINE ? &m->cur : NULL);
-		p.vj = prev && prev->line ? corner_limit(prev, &p) : 0;
+		p.vj = prev && prev->line ? motion_corner_limit(prev, &p) : 0;
 		memcpy(m->plan_end, op->end, sizeof m->plan_end);
 		m->qdist += p.len;
 	}

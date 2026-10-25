@@ -45,7 +45,8 @@ void files_render(fb_t *fb)
 	if (!C.prog.loaded) return;
 	char lo[3][24], hi[3][24];
 	for (int a = 0; a < 3; a++) { fmt_pos(lo[a], sizeof lo[a], C.prog.lo[a]); fmt_pos(hi[a], sizeof hi[a], C.prog.hi[a]); }
-	snprintf(b, sizeof b, "%d lines  ·  estimate %d:%02d:%02d", C.prog.nlines, (int)C.prog.est_s / 3600, (int)C.prog.est_s / 60 % 60, (int)C.prog.est_s % 60);
+	if (!C.prog.est_cum) snprintf(b, sizeof b, "%d lines  ·  estimate …", C.prog.nlines);   /* still being worked out */
+	else snprintf(b, sizeof b, "%d lines  ·  estimate %d:%02d:%02d", C.prog.nlines, (int)C.prog.est_s / 3600, (int)C.prog.est_s / 60 % 60, (int)C.prog.est_s % 60);
 	gfx_text(fb, &font_14, px + 12, y, COL_TXT, b);
 	snprintf(b, sizeof b, "X %s … %s   Y %s … %s   Z %s … %s  (work)", lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]);
 	gfx_text_fit(fb, &font_14, px + 12, y + 24, pw - 24, COL_DIM, b);

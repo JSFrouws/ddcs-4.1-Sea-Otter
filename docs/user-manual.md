@@ -141,6 +141,13 @@ A running program still pauses with F2 and resets with F3, Shift or not.
   width, so 100 % lines up on all three bars.
 - **The speed is capped** at what the controller can actually deliver (960 mm/min per axis
   at 2000 steps/mm). A higher F or override runs at the cap.
+- **Run time** (top right of the toolpath): *estimate* while idle (the whole program, every
+  JOB part), *remaining* while it runs, holds or waits at a tool change. It follows the feed
+  override at once (rapids follow it only below 100 %). It is worked out the way the motion
+  planner moves: acceleration, corners, the controller's speed limit, dwells and the spindle
+  spin-up wait. It is meant to be a little long rather than short: on the simulated machine it
+  came out 5–13 % over the real run, never under. The operator's tool changes are not in it;
+  *+ N tool changes* is shown below it instead.
 - **F4 View** cycles **2D → ISO → G-code view**. The G-code view draws no wireframe at all:
   the program listing fills the whole right side (about 18 lines), and the screen redraws
   less often, leaving more time for motion. It's the best choice for heavy programs. After an

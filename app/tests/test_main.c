@@ -12,6 +12,7 @@ void test_motion(void);
 void test_machine(void);
 void test_ui(void);
 void test_planner(void);
+void test_estimate(void);
 
 static bus_t *bus;
 
@@ -59,6 +60,7 @@ int main(void)
 	test_gcode();
 	test_motion();
 	test_planner();
+	test_estimate();
 	test_machine();
 	test_ui();
 	printf("\n%d passed, %d failed\n", t_pass, t_fail);

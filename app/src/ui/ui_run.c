@@ -1,7 +1,9 @@
 /* Run (AUTO): DRO + overrides, toolpath view, program listing with resume picker. */
 #include <stdio.h>
+#include <math.h>
 #include <string.h>
 #include "ui.h"
+#include "../core/estimate.h"
 
 static const char *const ARMED[] = { "Run", "TryCut", "Simulate" };
 
@@ -130,9 +132,19 @@ void run_render(fb_t *fb)
 	if (C.prog.loaded) {                                  /* no program: no progress to show */
 		snprintf(b, sizeof b, "%d%%", pct);
 		gfx_text_r(fb, &font_28, vx + vw - 10, top + 4, COL_TXT, b);
-		int est = (int)C.prog.est_s;
-		snprintf(b, sizeof b, "estimate %d:%02d:%02d", est / 3600, est / 60 % 60, est % 60);
-		gfx_text_r(fb, &font_12, vx + vw - 10, top + 38, COL_DIM, b);
+		bool left;                                        /* live: the feed override and the line count */
+		double et = est_now(&left);
+		if (et < 0) snprintf(b, sizeof b, et < -1.5 ? "%s …" : "%s —", left ? "remaining" : "estimate");   /* … = still being worked out */
+		else {
+			int e = (int)ceil(et);
+			snprintf(b, sizeof b, "%s %d:%02d:%02d", left ? "remaining" : "estimate", e / 3600, e / 60 % 60, e % 60);
+		}
+		if (C.mo.feed_ov != 100) snprintf(b + strlen(b), sizeof b - strlen(b), " at %d %%", C.mo.feed_ov);
+		gfx_text_r(fb, &font_12, vx + vw - 10, top + 38, left ? COL_TXT : COL_DIM, b);
+		if (C.prog.ntc && SET.tc_mode == 0) {             /* the operator's tool changes aren't in it */
+			snprintf(b, sizeof b, "+ %d tool change%s", C.prog.ntc, C.prog.ntc > 1 ? "s" : "");
+			gfx_text_r(fb, &font_12, vx + vw - 10, top + 54, COL_DIM2, b);
+		}
 	}
 	agent_card(fb, vx + vw - 330, top + vh - 24, 320);
 
