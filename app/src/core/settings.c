@@ -15,6 +15,7 @@ static const char *const DECS[] = { "0.0", "0.00", "0.000", NULL };
 static const char *const VIEWS[] = { "2D plan", "Isometric wireframe", "G-code view (no wireframe)", NULL };
 static const char *const DIRS[] = { "Negative", "Positive", NULL };
 static const char *const TC_MODES[] = { "Pause: change by hand", "Run a tool-change macro", "Ignore M6", NULL };
+static const char *const JOB_ORDERS[] = { "One tool at a time (all parts, then change)", "One part at a time (all tools on it)", NULL };
 static const char *const TC_WHERE[] = { "Z up to safe height, stay here", "Tool-change position (homed)", NULL };
 
 #define O(f) offsetof(settings_t, f)
@@ -86,6 +87,7 @@ const setting_desc_t SETTINGS[] = {
 	{ "macro.park_y", "Macros", "Park Y (machine)", "mm", ST_DBL, O(park[1]), -9999, 9999, DEC_POS, 0, 1, 0 },
 	{ "macro.park_z", "Macros", "Park Z (machine)", "mm", ST_DBL, O(park[2]), -9999, 9999, DEC_POS, 0, 1, 0 },
 	{ "tool.mode", "Tool change", "On M6", "", ST_ENUM, O(tc_mode), 0, 2, 0, TC_MODES, 1, 0 },
+	{ "job.order", "Tool change", "Several JOB parts: cut", "", ST_ENUM, O(job_order), 0, 1, 0, JOB_ORDERS, 1, 0 },
 	{ "tool.where", "Tool change", "Change the tool at", "", ST_ENUM, O(tc_where), 0, 1, 0, TC_WHERE, 1, 0 },
 	{ "tool.return_pct", "Tool change", "Return to the program at (% of rapid)", "%", ST_DBL, O(tc_return_pct), 5, 100, 0, 0, 1, 0 },
 	{ "macro.tc_x", "Tool change", "Tool change X (machine)", "mm", ST_DBL, O(tc[0]), -9999, 9999, DEC_POS, 0, 1, 0 },

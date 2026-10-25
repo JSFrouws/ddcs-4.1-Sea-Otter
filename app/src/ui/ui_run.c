@@ -85,7 +85,7 @@ void run_render(fb_t *fb)
 	/* DRO + overrides */
 	int x = 8, w = 290;
 	gfx_panel(fb, x, top, w, h, false);
-	char b[96];
+	char b[160];
 	snprintf(b, sizeof b, "G%d WORK  ·  MACHINE", 54 + WD.active);
 	gfx_text(fb, &font_12, x + 10, top + 6, COL_DIM, b);
 	int pick = ui_pend_axis();
@@ -179,7 +179,10 @@ void run_render(fb_t *fb)
 		gfx_text_fit(fb, &font_mono, vx + 62, ly, vw - 72, tc, t);
 	}
 	gfx_fill(fb, vx + 1, py + ph - 30, vw - 2, 1, COL_EDGE);
-	if (C.resume_line >= 0) snprintf(b, sizeof b, "Resume @ line %d  ·  Start restores the modal state and approaches at safe Z", C.resume_line + 1);
+	int njob = 0;
+	for (int i = 0; i < NWCS; i++) njob += WD.wcs[i].job;
+	if (C.resume_line >= 0 && njob >= 2 && C.job_idx >= 0) snprintf(b, sizeof b, "Resume @ line %d on G%d  ·  Modify = other part  ·  Start restores the state, approach at safe Z", C.resume_line + 1, 54 + C.job_idx);
+	else if (C.resume_line >= 0) snprintf(b, sizeof b, "Resume @ line %d  ·  Start restores the modal state and approaches at safe Z", C.resume_line + 1);
 	else if (C.work_done >= 0 && C.m != M_RUN) snprintf(b, sizeof b, "Work done up to line %d  ·  Tab → Program, Select on a line resumes there", C.work_done + 1);
 	else snprintf(b, sizeof b, "Tab → Program:  Y± line  ·  X± 10 lines  ·  Select = resume here");
 	gfx_text_fit(fb, &font_12, vx + 10, py + ph - 24, vw - 20, C.resume_line >= 0 ? COL_AMBER : COL_DIM, b);
@@ -336,6 +339,15 @@ void run_key(pkey_t k, bool sh)
 	int n = C.prog.nlines;
 	if (!C.prog.loaded) {
 		if (k == K_SEL || k == K_ENTER) ctl_toast(true, "No program loaded - Page R, F4 Files to load one");
+		return;
+	}
+	if (k == K_MOD) {                                      /* multi-part job: which part to resume on */
+		int j[NWCS], nj = 0, at = -1;
+		for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) { if (i == C.job_idx) at = nj; j[nj++] = i; }
+		if (nj < 2) { ctl_toast(false, "One part only - mark more WCS as JOB on the Work page"); return; }
+		if (ctl_busy() || C.m == M_TOOL) { ctl_toast(true, "Stop the program before choosing a part"); return; }
+		C.job_idx = j[(at + 1) % nj];
+		ctl_toast(false, SET.job_order ? "Resume on G%d: earlier parts count as finished, later ones as not started" : "Resume on G%d: earlier parts count as done up to this tool's end, later ones up to its start", 54 + C.job_idx);
 		return;
 	}
 	if (k == K_YP) U.prog_line = CLAMP(U.prog_line - 1, 0, n - 1);

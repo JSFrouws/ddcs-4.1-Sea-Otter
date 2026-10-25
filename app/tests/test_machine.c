@@ -550,6 +550,22 @@ void test_machine(void)
 		CHECK(C.m == M_IDLE && changes == 1);
 		CHECK_NEAR(x_at_change, 10, 1e-6);         /* T1 had finished on the SECOND part before the change */
 		CHECK_NEAR(max_x1, 25, 1e-6);
+
+		/* the same job, one part at a time: all tools on G54, then all on G55 -> 3 changes */
+		SET.job_order = 1; WD.loaded_tool = 1; C.resume_line = -1; C.work_done = -1;
+		act(C_START, NULL, SRC_PANEL);
+		int ch2 = 0, order2[4], n2 = 0;
+		t = 0;
+		while ((C.m == M_RUN || C.m == M_TOOL) && t < 160000) {
+			if (C.m == M_TOOL) {
+				if (n2 < 4) order2[n2++] = C.job_idx * 10 + C.tc_tool;
+				ch2++; act(C_START, NULL, SRC_PANEL); act(C_START, NULL, SRC_PANEL);
+			}
+			fx_run(10); t += 10;
+		}
+		CHECK(C.m == M_IDLE && ch2 == 3);
+		CHECK(n2 == 3 && order2[0] == 2 && order2[1] == 11 && order2[2] == 12);   /* G54 T2, G55 T1, G55 T2 */
+		SET.job_order = 0;
 		CHECK_NEAR(C.mo.pos[AX_X] - WD.wcs[1].off[AX_X], 25, 1e-6);      /* T2 finished on the second part */
 
 		/* --- tool change by macro: toolchange.nc in the macro folder, {tool} filled in --- */

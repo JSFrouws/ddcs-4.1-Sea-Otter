@@ -211,7 +211,7 @@ static void next_part_or_end(void)
 {
 	if (C.job_idx >= 0) {
 		int n = job_after(C.job_idx), s = C.job_seg;
-		if (n < 0 && s < C.prog.ntc) { n = job_after(-1); s++; }   /* every part has had this tool */
+		if (n < 0 && s < C.prog.ntc && SET.job_order == 0) { n = job_after(-1); s++; }   /* every part has had this tool */
 		if (n >= 0) { start_part(s, n); return; }
 	}
 	gc_op_t e = { .kind = OP_END, .line = C.prog.nlines - 1 };
@@ -331,7 +331,7 @@ static void feed_program(void)
 			return;
 		}
 		if (r == 0 || op.kind == OP_END) { next_part_or_end(); continue; }
-		if (C.job_idx >= 0 && op.line >= seg_end_line(C.job_seg)) { next_part_or_end(); continue; }   /* next tool: other parts first */
+		if (C.job_idx >= 0 && SET.job_order == 0 && op.line >= seg_end_line(C.job_seg)) { next_part_or_end(); continue; }   /* next tool: other parts first */
 		if (C.run_mode == ARM_TRYCUT) {                     /* dry run: spindle off, Z fixed */
 			if (op.kind == OP_SPINDLE) continue;
 			/* user: TryCut stays at the clearance level above the work plane and never changes Z */

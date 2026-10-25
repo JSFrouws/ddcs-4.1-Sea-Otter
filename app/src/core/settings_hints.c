@@ -57,6 +57,7 @@ static const hint_t HINTS[] = {
 	{ "macro.park_y", "Machine Y of the park position (Park macro)." },
 	{ "macro.park_z", "Machine Z the Park macro ends at (it goes up first)." },
 	{ "tool.mode", "What an M6 in a program does: stop and let you change the tool by hand, run a tool-change macro (toolchange.nc / toolchange-T<n>.nc), or nothing." },
+	{ "job.order", "With several parts marked JOB: cut every part with one tool, then change tool once (fewest changes), or finish one part with all its tools before the next (a tool change per tool per part, each part done early)." },
 	{ "tool.where", "Where a change by hand happens: Z up to the safe height where the program is, or at the tool-change position below (needs a homed machine)." },
 	{ "tool.return_pct", "Speed of the straight move back to the program after a tool change, as % of rapid." },
 	{ "macro.tc_x", "Machine X of the tool-change position (tool change by hand, and the Tool change position macro)." },

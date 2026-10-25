@@ -376,6 +376,7 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `macro.park_y` | Macros | Park Y (machine) | mm | number, -9999 to 9999 | yes |
 | `macro.park_z` | Macros | Park Z (machine) | mm | number, -9999 to 9999 | yes |
 | `tool.mode` | Tool change | On M6 |  | 0 Pause: change by hand · 1 Run a tool-change macro · 2 Ignore M6 | yes |
+| `job.order` | Tool change | Several JOB parts: cut |  | 0 One tool at a time (all parts, then change) · 1 One part at a time (all tools on it) | yes |
 | `tool.where` | Tool change | Change the tool at |  | 0 Z up to safe height, stay here · 1 Tool-change position (homed) | yes |
 | `tool.return_pct` | Tool change | Return to the program at (% of rapid) | % | number, 5 to 100 | yes |
 | `macro.tc_x` | Tool change | Tool change X (machine) | mm | number, -9999 to 9999 | yes |

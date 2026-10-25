@@ -46,7 +46,8 @@ typedef struct {
 	double warm_rpm, warm_s;   /* macros: spindle warm-up */
 	int tc_mode;               /* M6: 0 pause + change by hand, 1 tool-change macro, 2 ignore */
 	int tc_where;              /* by hand: 0 Z up to safe height where it is, 1 the tool-change position */
-	double tc_return_pct;      /* back to the program after the change: % of rapid */
+	double tc_return_pct;
+	int job_order;             /* several JOB parts: 0 one tool at a time (all parts per tool), 1 one part at a time */      /* back to the program after the change: % of rapid */
 } settings_t;
 
 typedef enum { ST_DBL, ST_INT, ST_BOOL, ST_ENUM } st_type_t;

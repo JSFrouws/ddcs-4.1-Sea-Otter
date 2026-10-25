@@ -119,7 +119,10 @@ A running program still pauses with F2 and resets with F3, Shift or not.
    Start then cuts **per tool**: everything the first tool does, on every JOB part in turn,
    then **one** tool change, then the second tool on every part, and so on. So 4 parts
    with 3 tools means 3 tool changes, not 12. Between parts Z goes up to the safe height.
-   **Shift + F4** on Work clears the job.
+   **Shift + F4** on Work clears the job. *Settings › Tool change › Several JOB parts: cut*
+   switches to **one part at a time**: each part is finished with all its tools before the next
+   one starts (a tool change per tool per part, but every part is done early). The colouring
+   in the view and the resume part (Modify) follow the chosen order.
 
 ### 3.4 Check, then run
 **F5 TryCut** on Run cycles what Start will do:
@@ -186,6 +189,12 @@ coolant) and approaches it: Z up, XY across, then down.
   listing and in the toolpath. A ringed orange dot marks where the picked line's move ends,
   so you see where Start will go. Once the program runs, the skipped part stays a dimmer
   brown, and what is cut turns teal as before.
+- **Several JOB parts**: every part gets its own copy of the toolpath. In the Program pane,
+  **Modify** picks the part to resume on (the footer says *Resume @ line N on G55*). The
+  colouring follows the job order per tool. Up to the picked line's tool section, every part
+  counts as done. Parts before the picked one have that whole tool section done. The picked part
+  is done up to the line, and later parts only up to the section's start. Drawing N parts
+  costs N times the drawing time on a redraw (the G-code view avoids it).
 - **After a restart or a power cut** the program comes back loaded, with the resume point
   near where it was. While a program runs, Sea Otter saves its line once a minute, so the
   resume point can be up to a minute behind. Check the line before you press Start. It never starts

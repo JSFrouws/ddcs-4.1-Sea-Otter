@@ -340,6 +340,11 @@ void test_ui(void)
 			bool j0 = WD.wcs[0].job; WD.wcs[0].job = WD.wcs[1].job = true;
 			U.screen = SCR_RUN; U.view.iso = false; U.view.saver = false; snap("12b_run_pendant_axis_job");
 			U.view.iso = true; snap("12c_run_iso_job");
+			/* every JOB part drawn; a resume point on G55 colours G54's whole section as done */
+			C.resume_line = 6; C.job_idx = 1; U.pane[SCR_RUN] = 0;
+			snap("12d_job_parts_pick");
+			ui_key(K_TAB); ui_key(K_MOD); CHECK(C.job_idx == 0); ui_key(K_MOD); CHECK(C.job_idx == 1); ui_key(K_TAB);
+			C.resume_line = -1; C.job_idx = -1;
 			WD.wcs[1] = keep; WD.wcs[0].job = j0; U.view.iso = false; U.screen = SCR_JOG;
 		}
 		C.pend = (pendant_t){ .axis = -1 };

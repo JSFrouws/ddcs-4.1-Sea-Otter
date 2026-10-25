@@ -299,7 +299,7 @@ static void start_program(src_t src)
 		for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) { C.job_idx = i; break; }
 		/* resuming: on the part that was being cut, in the tool segment of the resume line */
 		if (C.resume_line > 0 && keep >= 0 && keep < NWCS && WD.wcs[keep].job) C.job_idx = keep;
-		if (C.resume_line > 0) while (C.job_seg < C.prog.ntc && C.prog.tc_line[C.job_seg] <= C.resume_line) C.job_seg++;
+		if (C.resume_line > 0 && SET.job_order == 0) while (C.job_seg < C.prog.ntc && C.prog.tc_line[C.job_seg] <= C.resume_line) C.job_seg++;
 		C.gc.force_wcs = C.job_idx;
 	}
 	C.mo.dry = C.armed == ARM_SIM;

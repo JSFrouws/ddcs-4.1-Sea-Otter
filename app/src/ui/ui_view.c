@@ -43,6 +43,39 @@ static void P(const proj_t *p, double x, double y, double z, int *sx, int *sy)
 	*sy = p->oy - (int)lround((yr * p->se + dz * p->zf * p->ce) * p->sc);   /* depth ×zf so Z reads */
 }
 
+/* Multi-part job (user 2026-10-25): every JOB part gets its own copy of the toolpath, and
+ * the colouring follows the job order per tool section. For a point (part p, line L in tool
+ * section s): every part has done the sections before s; the parts before p (in job order)
+ * have done all of s, part p is done up to L, the parts after p only up to s's start. */
+static int job_parts(int idx[NWCS])
+{
+	int n = 0;
+	for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) idx[n++] = i;
+	return n;
+}
+
+static int part_bound(int q, int p, int L)
+{
+	if (q == p) return L;
+	if (SET.job_order == 1) return q < p ? 1 << 30 : 0;     /* one part at a time: earlier parts whole */
+	int s = 0;
+	while (s < C.prog.ntc && C.prog.tc_line[s] <= L) s++;
+	int start = s ? C.prog.tc_line[s - 1] : 0, end = s < C.prog.ntc ? C.prog.tc_line[s] : 1 << 30;
+	return q < p ? end : start;
+}
+
+/* the job part the colouring is about: the running one, or the one picked for the resume */
+static int job_focus(const int idx[NWCS], int n)
+{
+	for (int k = 0; k < n; k++) if (idx[k] == C.job_idx) return C.job_idx;
+	return n ? idx[0] : -1;
+}
+
+static void part_off(int q, double d[3])
+{
+	for (int a = 0; a < 3; a++) d[a] = q >= 0 ? WD.wcs[q].off[a] - WD.wcs[WD.active].off[a] : 0;
+}
+
 /* The toolpath is drawn once into a cache (the panel background + stock + triad + path) and
  * blitted every frame; while running only the segments that became "done" since the last
  * frame are painted on. Measured on the unit: a 64 000-line program took 312 ms per frame
@@ -54,6 +87,7 @@ static struct {
 	bool done_mode;
 	int cur, vi;                         /* "done" painted up to line cur; next vertex vi */
 	int pick, pvi;                       /* "picked" (orange) painted below line pick; next vertex pvi */
+	int focus, seg;                      /* multi-part job: the part and tool section it was drawn for */
 	bool valid;
 } vc;
 
@@ -78,15 +112,20 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 	bool running = C.m == M_RUN || C.m == M_HOLD;
 	bool done_mode = running || C.work_done >= 0;
 	int cur = done_mode ? ctl_cur_line() : -1;
-	double jobs = WD.active * 1e6;                      /* the other JOB parts' zeros are drawn too */
+	double jobs = WD.active * 1e6 + SET.job_order * 3e5;                      /* the other JOB parts' zeros are drawn too */
 	for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) jobs += (i + 1) * 7 + WD.wcs[i].off[0] * 3 + WD.wcs[i].off[1] * 5 + WD.wcs[i].off[2] * 11;
 	double key[19] = { x0, y0, x1, y1, mini, U.view.iso, U.view.yaw, U.view.pitch, U.view.zoom, U.view.panx, U.view.pany,
 		(double)(uintptr_t)pg->text, pg->npv, pg->loaded, U.screen, U.pane[U.screen], jobs, running, running ? C.run_from : -1 };   /* panel focus can tint the background */
 	if (x1 <= x0 || y1 <= y0) return;
 	if (!vc.px) vc.px = malloc(SCR_W * SCR_H * 2);
 	int pick = ui_pick_line();
-	/* scrolling down only paints more orange onto the cache; scrolling up redraws it */
-	bool same = vc.px && vc.valid && !memcmp(key, vc.key, sizeof key) && vc.done_mode == done_mode && cur >= vc.cur && pick >= vc.pick;
+	int jidx[NWCS], nj = job_parts(jidx);
+	bool multi = nj >= 2 && !mini;
+	int focus = multi ? job_focus(jidx, nj) : -1;
+	/* scrolling down only paints more orange onto the cache; scrolling up redraws it. With
+	 * several parts the pick and the part redraw it (each part is coloured differently) */
+	bool same = vc.px && vc.valid && !memcmp(key, vc.key, sizeof key) && vc.done_mode == done_mode && cur >= vc.cur && pick >= vc.pick
+		&& (!multi || (vc.focus == focus && vc.seg == C.job_seg && (running || vc.pick == pick)));
 	if (!same) {
 		draw_view(fb, x, y, w, h, mini);                  /* full draw, without the tool marker */
 		if (!vc.px) return;
@@ -94,7 +133,7 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 		memcpy(vc.key, key, sizeof key); vc.done_mode = done_mode; vc.cur = cur; vc.valid = true;
 		vc.vi = 0;
 		while (vc.vi < pg->npv && pg->pv[vc.vi].line <= cur) vc.vi++;
-		vc.pick = pick; vc.pvi = 0;
+		vc.pick = pick; vc.pvi = 0; vc.focus = focus; vc.seg = C.job_seg;
 		while (vc.pvi < pg->npv && pg->pv[vc.pvi].line < pick) vc.pvi++;
 		cache_io(fb, true);
 	} else {
@@ -104,11 +143,12 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 			proj_t p;
 			view_proj(&p, x, y, w, h);
 			int ax, ay, bx, by;
+			double d[3]; part_off(multi ? focus : -1, d);
 			for (int i = vc.vi; i < pg->npv && pg->pv[i].line <= cur; i++, vc.vi++) {
 				if (!i) continue;
 				pv_t *a = &pg->pv[i - 1], *v = &pg->pv[i];
 				if (v->rapid) continue;
-				P(&p, a->x, a->y, a->z, &ax, &ay); P(&p, v->x, v->y, v->z, &bx, &by);
+				P(&p, a->x + d[0], a->y + d[1], a->z + d[2], &ax, &ay); P(&p, v->x + d[0], v->y + d[1], v->z + d[2], &bx, &by);
 				gfx_line(fb, ax, ay, bx, by, COL_TEAL, !mini ? 2 : 1);
 				if ((i & 511) == 511 && ui_yield) ui_yield();
 			}
@@ -116,7 +156,7 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 			cache_io(fb, true);
 			gfx_clip(fb, sx0, sy0, sx1, sy1);
 		}
-		if (pick > vc.pick) {                            /* scrolled further down: more orange */
+		if (pick > vc.pick && !multi) {                  /* scrolled further down: more orange */
 			gfx_clip(fb, x0, y0, x1, y1);
 			proj_t p;
 			view_proj(&p, x, y, w, h);
@@ -147,10 +187,12 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 			while (lo < hi) { int m = (lo + hi + 1) / 2; if (pg->pv[m].line <= pick) lo = m; else hi = m - 1; }
 			pv_t *t = &pg->pv[lo];
 			int tx, ty;
-			P(&p, t->x, t->y, t->z, &tx, &ty);
+			double d[3]; part_off(multi ? focus : -1, d);
+			P(&p, t->x + d[0], t->y + d[1], t->z + d[2], &tx, &ty);
 			gfx_circle(fb, tx, ty, 7, COL_AMBER); gfx_circle(fb, tx, ty, 6, COL_AMBER);
 			gfx_disc(fb, tx, ty, 3, COL_AMBER);
-			char lb[24]; snprintf(lb, sizeof lb, "line %d", pick + 1);
+			char lb[32];
+			if (multi) snprintf(lb, sizeof lb, "G%d line %d", 54 + focus, pick + 1); else snprintf(lb, sizeof lb, "line %d", pick + 1);
 			gfx_text(fb, &font_12, tx + 10, ty - 8, COL_AMBER, lb);
 		}
 		const char *named = !p.iso ? "2D plan" : U.view.pitch >= 90 ? "X-Y top view (limit)" : U.view.pitch <= 0 && U.view.yaw >= 0 ? "X-Z side view (limit)"
@@ -206,8 +248,12 @@ void view_proj(proj_t *p, int x, int y, int w, int h)
 	prog_box(lo, hi);
 	if (C.prog.loaded && C.prog.mhi[2] > hi[2] && C.prog.mhi[2] - hi[2] < 500) hi[2] = C.prog.mhi[2];   /* its retracts too */
 	for (int a = 0; a < 3; a++) { lo[a] = fmin(lo[a], 0); hi[a] = fmax(hi[a], 0); }
+	double plo[3], phi[3];
+	prog_box(plo, phi);
 	int nj = job_zeros(idx, d);
-	for (int k = 0; k < nj; k++) for (int a = 0; a < 3; a++) { lo[a] = fmin(lo[a], d[k][a]); hi[a] = fmax(hi[a], d[k][a]); }
+	for (int k = 0; k < nj; k++) for (int a = 0; a < 3; a++) {   /* each part's zero and its copy of the program */
+		lo[a] = fmin(lo[a], d[k][a] + (C.prog.loaded ? fmin(plo[a], 0) : 0)); hi[a] = fmax(hi[a], d[k][a] + (C.prog.loaded ? fmax(phi[a], 0) : 0));
+	}
 	if (p->iso) lo[2] = fmin(lo[2], floor_z(lo));       /* the grid lies on the Z floor */
 	/* Z is stretched (up to ×3) so a flat part reads, but never beyond the X-Y size */
 	p->zf = CLAMP(fmax(hi[0] - lo[0], hi[1] - lo[1]) * 0.6 / fmax(hi[2] - lo[2], 1e-3), 1, 3);
@@ -309,21 +355,30 @@ static void draw_view(fb_t *fb, int x, int y, int w, int h, bool mini)
 	int cur = ctl_cur_line(), lx = 0, ly = 0;
 	bool running = C.m == M_RUN || C.m == M_HOLD;
 	int pick = ui_pick_line(), from = running || C.m == M_TOOL ? C.run_from : 0;
+	int jidx[NWCS], njp = job_parts(jidx);
+	bool multi = njp >= 2 && !mini;
+	int focus = multi ? job_focus(jidx, njp) : -1;
+	for (int k = 0; k < (multi ? njp : 1); k++) {        /* each JOB part: its own copy (N x the drawing) */
+	double d[3]; part_off(multi ? jidx[k] : -1, d);
+	/* in a job: done / picked below this part's own bound (see part_bound) */
+	int bdone = multi ? (running || C.m == M_TOOL ? part_bound(jidx[k], focus, cur) : C.work_done >= 0 ? part_bound(jidx[k], focus, C.work_done) : -1) : 0;
+	int bpick = multi && pick >= 0 ? part_bound(jidx[k], focus, pick) : pick;
 	for (int i = 0; i < pg->npv; i++) {
 		/* a big program's toolpath takes longer than one 40 ms motion slice to draw:
 		 * let motion run in between (measured: 45-55 ms for a 5000-line 3D program) */
 		if ((i & 511) == 511 && ui_yield) ui_yield();
 		pv_t *v = &pg->pv[i];
 		int sx, sy;
-		P(&p, v->x, v->y, v->z, &sx, &sy);
+		P(&p, v->x + d[0], v->y + d[1], v->z + d[2], &sx, &sy);
 		if (i && (abs(sx - lx) + abs(sy - ly) >= 1 || i == pg->npv - 1)) {
-			bool done = (running || C.work_done >= 0) && v->line <= cur && v->line >= from;
-			bool pk = v->line < pick, skip = v->line < from;
+			bool done = multi ? v->line < bdone : (running || C.work_done >= 0) && v->line <= cur && v->line >= from;
+			bool pk = v->line < bpick, skip = !multi && v->line < from;
 			uint16_t c = pk ? COL_PICK : skip ? COL_SKIP : done ? COL_TEAL : RGB(0xc2, 0xd6, 0xf0);
 			if (v->rapid) gfx_dash(fb, lx, ly, sx, sy, pk ? COL_PICK : skip ? COL_SKIP : RGB(0x3c, 0x7c, 0xa8));
 			else gfx_line(fb, lx, ly, sx, sy, c, (done || pk) && !mini ? 2 : 1);
 		}
 		if (i == 0 || abs(sx - lx) + abs(sy - ly) >= 1) { lx = sx; ly = sy; }
+	}
 	}
 	gfx_clip(fb, sx0, sy0, sx1, sy1);
 }
