@@ -131,8 +131,8 @@ static void softkeys(fb_t *fb, const sk_t sk[7])
 	gfx_vgrad(fb, 0, y, SCR_W, SK_H, RGB(0x0d, 0x2c, 0x56), RGB(0x08, 0x1f, 0x3f));
 	gfx_fill(fb, 0, y, SCR_W, 1, COL_EDGE2);
 	gfx_coral(fb, 0, y - 7, SCR_W);                          /* and above the soft keys */
-	uint16_t lc = U.shift ? COL_AMBER : U.pagesel ? COL_CYAN : COL_TXT, fc = U.shift ? COL_AMBER : COL_CYAN;
-	if (U.pagesel) gfx_fill(fb, 0, y + 1, w * 7, SK_H - 1, RGB(0x0b, 0x3a, 0x52));   /* the screen menu is open */
+	uint16_t lc = U.shift ? COL_AMBER : (U.pagesel || U.wcssel) ? COL_CYAN : COL_TXT, fc = U.shift ? COL_AMBER : COL_CYAN;
+	if (U.pagesel || U.wcssel) gfx_fill(fb, 0, y + 1, w * 7, SK_H - 1, RGB(0x0b, 0x3a, 0x52));   /* the screen menu is open */
 	/* user 2026-10-23: keys that do nothing right now (the digit editor is open) are greyed out
 	 * until barely visible; Pause / Reset stay lit while something moves */
 	bool moving = ctl_busy() || !motion_idle(&C.mo);

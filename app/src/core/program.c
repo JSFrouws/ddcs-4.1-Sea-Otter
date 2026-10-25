@@ -56,6 +56,8 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 	gc_begin(&g, p->text, p->len, start);
 	double last[NAXES];
 	memcpy(last, start, sizeof last);
+	for (int a = 0; a < 3; a++) p->pv_off[a] = off[a];
+	p->pv_wcs0 = -1;
 	add_pv(p, last, off, 0, true, true);
 	for (int a = 0; a < 3; a++) { p->lo[a] = 1e30f; p->hi[a] = -1e30f; p->mlo[a] = 1e30f; p->mhi[a] = -1e30f; }
 	int r;
@@ -65,6 +67,7 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 	float zv[ZMAX]; int zc[ZMAX], nz = 0;
 	double lastz = start[AX_Z] - off[AX_Z];
 	while ((r = gc_next(&g, &op)) > 0) {
+		if (op.kind == OP_LINE && p->pv_wcs0 < 0) p->pv_wcs0 = g.wcs;
 		if (op.kind == OP_LINE) {
 			double z = op.end[AX_Z] - off[AX_Z];
 			if (op.rapid && z > lastz + 0.01 && rl && rz && nr < RMAX) {

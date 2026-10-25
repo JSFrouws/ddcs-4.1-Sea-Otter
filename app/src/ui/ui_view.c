@@ -71,9 +71,16 @@ static int job_focus(const int idx[NWCS], int n)
 	return n ? idx[0] : -1;
 }
 
+/* where to draw the preview (work coordinates of the WCS active now). One copy: shifted by
+ * however the active offset changed since the load (switches inside the program stay as
+ * they are). Part q of a job: every G54-G59 maps to q, so the program's own start WCS moves to q. */
 static void part_off(int q, double d[3])
 {
-	for (int a = 0; a < 3; a++) d[a] = q >= 0 ? WD.wcs[q].off[a] - WD.wcs[WD.active].off[a] : 0;
+	const program_t *pg = &C.prog;
+	const double *now = WD.wcs[WD.active].off;
+	int w0 = pg->pv_wcs0 >= 0 && pg->pv_wcs0 < NWCS ? pg->pv_wcs0 : WD.active;
+	for (int a = 0; a < 3; a++)
+		d[a] = pg->loaded ? pg->pv_off[a] - now[a] + (q >= 0 ? WD.wcs[q].off[a] - WD.wcs[w0].off[a] : 0) : 0;
 }
 
 /* The toolpath is drawn once into a cache (the panel background + stock + triad + path) and
@@ -112,7 +119,7 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 	bool running = C.m == M_RUN || C.m == M_HOLD;
 	bool done_mode = running || C.work_done >= 0;
 	int cur = done_mode ? ctl_cur_line() : -1;
-	double jobs = WD.active * 1e6 + SET.job_order * 3e5;                      /* the other JOB parts' zeros are drawn too */
+	double jobs = WD.active * 1e6 + SET.job_order * 3e5 + WD.wcs[WD.active].off[0] * 13 + WD.wcs[WD.active].off[1] * 17 + WD.wcs[WD.active].off[2] * 19;                      /* the other JOB parts' zeros are drawn too */
 	for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) jobs += (i + 1) * 7 + WD.wcs[i].off[0] * 3 + WD.wcs[i].off[1] * 5 + WD.wcs[i].off[2] * 11;
 	double key[19] = { x0, y0, x1, y1, mini, U.view.iso, U.view.yaw, U.view.pitch, U.view.zoom, U.view.panx, U.view.pany,
 		(double)(uintptr_t)pg->text, pg->npv, pg->loaded, U.screen, U.pane[U.screen], jobs, running, running ? C.run_from : -1 };   /* panel focus can tint the background */
@@ -161,10 +168,11 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 			proj_t p;
 			view_proj(&p, x, y, w, h);
 			int ax, ay, bx, by;
+			double d[3]; part_off(-1, d);
 			for (int i = vc.pvi; i < pg->npv && pg->pv[i].line < pick; i++, vc.pvi++) {
 				if (!i) continue;
 				pv_t *a = &pg->pv[i - 1], *v = &pg->pv[i];
-				P(&p, a->x, a->y, a->z, &ax, &ay); P(&p, v->x, v->y, v->z, &bx, &by);
+				P(&p, a->x + d[0], a->y + d[1], a->z + d[2], &ax, &ay); P(&p, v->x + d[0], v->y + d[1], v->z + d[2], &bx, &by);
 				if (v->rapid) gfx_dash(fb, ax, ay, bx, by, COL_PICK); else gfx_line(fb, ax, ay, bx, by, COL_PICK, !mini ? 2 : 1);
 				if ((i & 511) == 511 && ui_yield) ui_yield();
 			}
@@ -205,11 +213,22 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 }
 
 /* the program's box (cutting moves), or a stand-in when nothing is loaded */
-static void prog_box(double lo[3], double hi[3])
+static void part_off(int q, double d[3]);
+
+static void prog_box_raw(double lo[3], double hi[3])
 {
 	program_t *pg = &C.prog;
 	for (int a = 0; a < 3; a++) { lo[a] = pg->lo[a]; hi[a] = pg->hi[a]; }
 	if (!pg->loaded || (hi[0] - lo[0] < 1e-3 && hi[1] - lo[1] < 1e-3)) { lo[0] = lo[1] = 0; hi[0] = 100; hi[1] = 70; lo[2] = -5; hi[2] = 0; }
+}
+
+/* ... where it is drawn now (the single copy, see part_off) */
+static void prog_box(double lo[3], double hi[3])
+{
+	double d[3];
+	prog_box_raw(lo, hi);
+	part_off(-1, d);
+	for (int a = 0; a < 3; a++) { lo[a] += d[a]; hi[a] += d[a]; }
 }
 
 /* the grid's height (work Z): the machine's Z floor (the Z soft limit -), when it is a
@@ -249,10 +268,14 @@ void view_proj(proj_t *p, int x, int y, int w, int h)
 	if (C.prog.loaded && C.prog.mhi[2] > hi[2] && C.prog.mhi[2] - hi[2] < 500) hi[2] = C.prog.mhi[2];   /* its retracts too */
 	for (int a = 0; a < 3; a++) { lo[a] = fmin(lo[a], 0); hi[a] = fmax(hi[a], 0); }
 	double plo[3], phi[3];
-	prog_box(plo, phi);
+	prog_box_raw(plo, phi);
 	int nj = job_zeros(idx, d);
-	for (int k = 0; k < nj; k++) for (int a = 0; a < 3; a++) {   /* each part's zero and its copy of the program */
-		lo[a] = fmin(lo[a], d[k][a] + (C.prog.loaded ? fmin(plo[a], 0) : 0)); hi[a] = fmax(hi[a], d[k][a] + (C.prog.loaded ? fmax(phi[a], 0) : 0));
+	for (int k = 0; k < nj; k++) {                       /* each part's zero and its copy of the program */
+		double q[3]; part_off(idx[k], q);
+		for (int a = 0; a < 3; a++) {
+			lo[a] = fmin(lo[a], d[k][a]); hi[a] = fmax(hi[a], d[k][a]);
+			if (C.prog.loaded) { lo[a] = fmin(lo[a], q[a] + plo[a]); hi[a] = fmax(hi[a], q[a] + phi[a]); }
+		}
 	}
 	if (p->iso) lo[2] = fmin(lo[2], floor_z(lo));       /* the grid lies on the Z floor */
 	/* Z is stretched (up to ×3) so a flat part reads, but never beyond the X-Y size */

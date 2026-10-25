@@ -98,8 +98,8 @@ void ui_key(pkey_t k)
 	if (C.mo.jog_dir) motion_jog_cont(&C.mo, 0, 0);   /* safety: any other key ends a continuous jog */
 	if (!(sh && U.screen == SCR_JOG)) C.touch_axis = -1;
 	if (k != K_F3) C.rewind_ask = 0;                   /* "back to line 1?" waits for Reset only */
-	bool ps = U.pagesel;
-	U.pagesel = false;                                 /* the screen menu closes on any key */
+	bool ps = U.pagesel, ws = U.wcssel;
+	U.pagesel = false; U.wcssel = false;               /* the menus close on any key */
 	if (C.m == M_TOOL && C.tc_confirm) {               /* "back to the program?" is showing */
 		if (k == K_ENTER || k == K_F1) { act(C_START, NULL, SRC_PANEL); return; }
 		C.tc_confirm = false;
@@ -113,6 +113,11 @@ void ui_key(pkey_t k)
 	else if (k == K_F3 && (busy || C.m == M_LIMIT || C.macro_on || C.m == M_TOOL)) act(C_STOP, NULL, SRC_PANEL);
 	else if (k == K_F1 && C.m == M_HOLD) act(C_START, NULL, SRC_PANEL);         /* on hold: Start resumes, any screen */
 	else if (ps && k >= K_F1 && k <= K_F6) ui_goto(PAGE_KEYS[k - K_F1]);
+	else if (ws && k >= K_F1 && k <= K_F6) {           /* the WCS menu: F1-F6 = G54-G59 */
+		if (ctl_busy() || C.m == M_TOOL) ctl_toast(true, "Change the WCS when idle");
+		else { WD.active = k - K_F1; workdata_save(C.wd_path); ctl_toast(false, "Active work offset: G%d%s", 54 + WD.active, WD.wcs[WD.active].job ? " (in the job)" : ""); }
+	}
+	else if (ws && (k == K_F7 || k == K_CANCEL)) return;
 	else if (ps && (k == K_F7 || k == K_CANCEL)) return;
 	else if (k == K_F7 && sh) ui_goto(U.last_screen);
 	else if (k == K_F7) { U.pagesel = true; U.pagesel_t = now_ms(); }
@@ -164,6 +169,16 @@ void ui_render(fb_t *fb)
 	}
 	gfx_noclip(fb);
 	if (U.pagesel && now_ms() - U.pagesel_t > 8000) U.pagesel = false;
+	if (U.wcssel && (now_ms() - U.wcssel_t > 8000 || U.screen != SCR_RUN)) U.wcssel = false;
+	if (U.wcssel) {                         /* the WCS menu: G54-G59, used in the job or not */
+		static char sub[NWCS][24];
+		for (int i = 0; i < NWCS; i++) {
+			static const char *const nm[NWCS] = { "G54", "G55", "G56", "G57", "G58", "G59" };
+			snprintf(sub[i], sizeof sub[i], "%s%s", WD.wcs[i].job ? "in job" : "not in job", i == WD.active ? " · active" : "");
+			sk[i] = (sk_t){ nm[i], sub[i] };
+		}
+		sk[6] = (sk_t){ "Close", "" };
+	}
 	sk[6] = (sk_t){ "Page R", U.shift ? "last screen" : "screens" };
 	if (U.pagesel) {                        /* the screen menu: F1-F6 = the screens */
 		for (int i = 0; i < 6; i++) sk[i] = (sk_t){ SCR_SHORT[PAGE_KEYS[i]], PAGE_KEYS[i] == U.screen ? "screen · here" : "screen" };

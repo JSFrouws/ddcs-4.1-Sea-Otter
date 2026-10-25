@@ -77,7 +77,7 @@ Jog isn't in the menu: **Mode** goes there directly. While something moves, F2 a
 
 | Screen | F1 | F2 | F3 | F4 | F5 | F6 |
 |---|---|---|---|---|---|---|
-| Run | Start from the line picked in the listing | **WCS**: next work offset (G54 → G55 …) | Rewind to line 1 (asks first) | View: fit / reset | **Goto line** (below) | Coolant on/off |
+| Run | Start from the line picked in the listing | **WCS menu**: F1-F6 become G54-G59 (also **A+**, see below) | Rewind to line 1 (asks first) | View: fit / reset | **Goto line** (below) | Coolant on/off |
 | Jog | Home | **Safe Z** (Z up only) | Drives | Step size back | WCS back | Coolant on/off |
 | Work | | | | **Job: none** (clears every JOB mark) | | |
 
@@ -161,6 +161,12 @@ A running program still pauses with F2 and resets with F3, Shift or not.
 - **Too heavy?** If drawing the wireframe takes time from motion while something moves,
   Sea Otter first redraws it less often (an amber note in the view says so), then switches to
   the G-code view by itself, with an amber line that stays until you press F4.
+- **Work offset menu**: **A+** (or **Shift + F2**) turns F1-F6 into G54-G59. Each key says
+  whether that offset is in the job and which one is active; press one to make it active (when
+  idle). F7 or Cancel closes the menu. The active offset is shown at the bottom of the left panel,
+  with whether it's in the job.
+- **G54-G59 in the program** are drawn where they cut: a program that switches to G55 halfway
+  shows that part at G55's zero. Switching the active offset moves the picture accordingly.
 - **The preview** always fits and centres the whole picture: the program, the work zero's
   axes, and small axes labelled G55, G56… at the zero of every other JOB part. The thin box
   around the toolpath is the program's size (there is none without a program). The grid lies

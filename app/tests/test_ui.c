@@ -193,7 +193,23 @@ void test_ui(void)
 	ui_key(K_SHIFT); snap("08c_run_shift");
 	{
 		int w0 = WD.active;
-		ui_key(K_F2); CHECK(WD.active == (w0 + 1) % NWCS && !U.shift);   /* Shift + F2: next work offset */
+		ui_key(K_F2); CHECK(U.wcssel && !U.shift);                      /* Shift + F2: F1-F6 = G54-G59 */
+		snap("08k_wcs_menu");
+		ui_key(K_F3); CHECK(WD.active == 2 && !U.wcssel);                /* F3 = G56 */
+		U.pane[SCR_RUN] = 0; ui_key(K_SEL); CHECK(U.wcssel);             /* A+ opens it too */
+		ui_key(K_CANCEL); CHECK(!U.wcssel && WD.active == 2);
+		/* the drawing follows: a program switching to G55 itself, then another active offset */
+		{
+			wcs_t k0 = WD.wcs[0], k1 = WD.wcs[1];
+			WD.active = 0; WD.wcs[1] = WD.wcs[0]; WD.wcs[1].off[AX_X] += 60; WD.wcs[1].job = false;
+			const char *wp = "G21 G90 G54\nG0 Z5\nG0 X0 Y0\nG1 Z-1 F300\nG1 X20\nG0 Z5\nG55\nG0 X0 Y0\nG1 Z-1\nG1 Y20\nG0 Z5\nM30\n";
+			arg_t wl = { .path = "two-wcs.nc", .text = wp, .len = strlen(wp) };
+			act(C_LOAD, &wl, SRC_PANEL);
+			CHECK(C.prog.pv_wcs0 == 0);
+			U.view.iso = false; snap("08l_program_g55_inside");
+			WD.active = 1; snap("08m_same_active_g55");        /* the same picture, seen from G55 */
+			WD.wcs[0] = k0; WD.wcs[1] = k1;
+		}
 		WD.active = w0;
 		/* Shift + F5: go to a line, with the program's sections / retracts listed beside it */
 		const char *sp = "(header)\nG21 G90\n(Op 1 - face)\nG0 Z10\nG0 X0 Y0\nG1 Z-1 F300\nG1 X20\nG0 Z10\n(Op 2 - pocket)\nG0 X30\nG1 Z-2\nG1 Y20\nG0 Z10\nM30\n";

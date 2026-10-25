@@ -113,6 +113,17 @@ void run_render(fb_t *fb)
 		gfx_text_r(fb, &font_12, x + w - 12, y + 60, COL_DIM, tl);
 	}
 	gfx_text(fb, &font_14, x + 12, y + 40, COL_DIM, "Tool"); gfx_text_r(fb, &font_14, x + w - 12, y + 40, COL_TXT, b);
+	{                                                      /* the active work offset, bottom of the panel */
+		int wy = top + h - 58, nj = 0;
+		for (int i = 0; i < NWCS; i++) nj += WD.wcs[i].job;
+		gfx_fill(fb, x + 8, wy - 6, w - 16, 1, COL_EDGE);
+		gfx_text(fb, &font_12, x + 12, wy, COL_DIM, "WORK OFFSET  ·  A+ / SHIFT+F2 PICKS");
+		snprintf(b, sizeof b, "G%d", 54 + WD.active);
+		gfx_text(fb, &font_28, x + 12, wy + 16, COL_CYAN, b);
+		if (nj >= 2) snprintf(b, sizeof b, WD.wcs[WD.active].job ? "in the job (%d parts)" : "not in the job (%d parts)", nj);
+		else snprintf(b, sizeof b, "no multi-part job");
+		gfx_text_r(fb, &font_14, x + w - 12, wy + 26, COL_DIM, b);
+	}
 
 	/* toolpath view */
 	/* G-code view (user 2026-10-25, replaces the CPU saver): no wireframe at all, one tall
@@ -146,6 +157,7 @@ void run_render(fb_t *fb)
 			gfx_text_r(fb, &font_12, vx + vw - 10, top + 54, COL_DIM2, b);
 		}
 	}
+	if (!gv) gfx_text_r(fb, &font_12, vx + vw - 10, top + 72, COL_DIM2, "A+ / Shift+F2: work offset");
 	agent_card(fb, vx + vw - 330, top + vh - 24, 320);
 
 	/* program listing */
@@ -245,7 +257,7 @@ void run_sk(sk_t sk[7])
 		snprintf(a1, sizeof a1, "from line %d", U.prog_line + 1);
 		snprintf(a2, sizeof a2, "→ G%d", 54 + (WD.active + 1) % NWCS);
 		sk[0] = (sk_t){ "Start", a1 };
-		sk[1] = (sk_t){ "WCS", a2 };
+		sk[1] = (sk_t){ "WCS", "pick G54-G59" };
 		sk[2] = (sk_t){ "Rewind", rewind_asking() ? "again = line 1" : "to line 1 (asks)" };
 		sk[3] = (sk_t){ "View", "fit / reset" };
 		sk[4] = (sk_t){ "Goto line", "sections" };
@@ -276,9 +288,7 @@ void run_key(pkey_t k, bool sh)
 			act(C_START, NULL, SRC_PANEL);
 			break;
 		case K_F2:                                         /* user 2026-10-24: the coordinate system */
-			if (ctl_busy() || C.m == M_TOOL) { ctl_toast(true, "Change the WCS when idle"); break; }
-			WD.active = (WD.active + 1) % NWCS; workdata_save(C.wd_path);
-			ctl_toast(false, "Active work offset: G%d", 54 + WD.active);
+			U.wcssel = true; U.wcssel_t = now_ms();      /* F1-F6 become G54-G59 */
 			break;
 		case K_F3: rewind_press(); break;
 		case K_F4: U.view.yaw = -30; U.view.pitch = 32; U.view.zoom = 1; U.view.panx = U.view.pany = 0; break;
@@ -333,6 +343,7 @@ void run_key(pkey_t k, bool sh)
 			for (int i = 0; i < C.agent.n; i++)
 				if (!C.agent.step[i].done && !strcmp(C.agent.step[i].check, "operator")) { C.agent.step[i].done = true; ctl_toast(false, "Confirmed: %s", C.agent.step[i].text); return; }
 		}
+		if (k == K_SEL) { U.wcssel = true; U.wcssel_t = now_ms(); return; }   /* A+ : the WCS menu */
 		ui_view_key(k);
 		return;
 	}

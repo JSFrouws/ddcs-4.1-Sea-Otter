@@ -23,6 +23,7 @@ typedef struct {
 	int pane[SCR__N];
 	bool shift;
 	bool pagesel; uint64_t pagesel_t;   /* Page R pressed: F1-F6 are the screens */
+	bool wcssel; uint64_t wcssel_t;     /* Run, Shift+F2 / A+: F1-F6 are G54-G59 */
 	bool synth;
 	bool goto_list;                      /* the Goto-line editor is open: list its sections beside it */                          /* the key comes from the pendant wheel, not a finger: never jogs */
 	struct {
