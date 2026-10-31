@@ -239,7 +239,9 @@ int main(int argc, char **argv)
 				panel->leds(panel, ui_leds());
 			}
 			uint64_t s = signature();
-			bool mv = C.m == M_RUN || C.mo.active;
+			/* jogs and wheel moves count as moving too: a full redraw (~40 ms in one piece) every
+			 * 60 ms starved the motion slices while jogging (trace 2026-10-31) */
+			bool mv = C.m == M_RUN || C.mo.active || !motion_idle(&C.mo);
 			/* motion time lost to the loop: throttle the wireframe first (2 steps), then switch to
 			 * the G-code view and say so (user 2026-10-25) */
 			static uint64_t lost_seen, lost_t;

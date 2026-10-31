@@ -70,6 +70,10 @@ typedef struct {
 	uint8_t rescaled;            /* axes whose steps/mm changed: position rebased, homing lost */
 	int runaway;                 /* axis+1: a step delta no plan could produce was refused */
 	uint32_t blocked;            /* bursts held back by burst_blocked */
+	double emit_pos[NAXES];      /* pos at the previous emit: the planned speed of this slice */
+	uint32_t rate[NAXES];        /* step rate of the last burst per axis (trace, tests) */
+	double stop_left;            /* s: a controlled stop must be at rest within this, else cut dead */
+	bool stop_cut;               /* a controlled stop overran its time bound and was cut */
 	/* events for the controller */
 	mev_t ev; gc_op_t ev_op;
 } motion_t;

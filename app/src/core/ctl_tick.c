@@ -520,6 +520,11 @@ void ctl_tick(double dt)
 		ctl_toast(true, "Steps/mm changed: position re-counted from the motors, nothing moved - home again");
 		C.mo.rescaled = 0;
 	}
+	if (C.mo.stop_cut) {
+		ctl_toast(true, "Controlled stop took too long - cut dead. Steps may be lost: home again");
+		C.homed = false;
+		C.mo.stop_cut = false;
+	}
 	if (C.mo.runaway) {
 		C.homed = false;
 		if (C.m == M_RUN || C.m == M_MOVE || C.m == M_HOMING) act(C_STOP, NULL, SRC_MACHINE);

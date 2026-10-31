@@ -29,6 +29,7 @@ void motion_set_pos(motion_t *m, int a, double mm)
 	m->pos[a] = mm;
 	m->steps[a] = llround(mm * SET.ax[a].steps_per_mm);
 	m->spm[a] = SET.ax[a].steps_per_mm;
+	m->emit_pos[a] = mm;
 	if (!m->qn) m->plan_end[a] = mm;
 }
 
@@ -51,6 +52,7 @@ static void rescale(motion_t *m)
 	motion_stop(m, true);                 /* anything planned was planned in the old scale */
 	for (int a = 0; a < NAXES; a++) m->pos[a] = (double)m->steps[a] / m->spm[a];
 	memcpy(m->plan_end, m->pos, sizeof m->plan_end);
+	memcpy(m->emit_pos, m->pos, sizeof m->emit_pos);
 	m->home.on = false;
 }
 
@@ -224,6 +226,20 @@ void motion_hold(motion_t *m, bool on) { m->hold = on; }
 
 static void flush_queue(motion_t *m) { m->qn = 0; m->qdist = 0; m->replan_from = -1; }
 
+/* A controlled stop (braking on the ramp past a switch or the E-stop) gets a hard time bound:
+ * the deceleration time from the current speed + the jerk ramp + 200 ms. Past it the axes
+ * are cut dead (IO-mapping review 2026-10-31): a ramp must never keep an axis going. */
+static void begin_brake(motion_t *m)
+{
+	double v = fabs(m->v), A = 1e9, J = 1e9;
+	for (int a = 0; a < NAXES; a++) {
+		v = fmax(v, fabs(m->jv[a]));
+		A = fmin(A, SET.ax[a].accel); J = fmin(J, SET.ax[a].jerk);
+	}
+	if (!m->stopping) m->stop_left = v / A + A / J + 0.2;
+	m->stopping = true;
+}
+
 void motion_stop(motion_t *m, bool immediate)
 {
 	bool brake = !immediate && !m->dry && SET.graceful_stop;   /* a jog / wheel move brakes on its ramp */
@@ -234,7 +250,7 @@ void motion_stop(motion_t *m, bool immediate)
 		 * axes' max deceleration so no step is lost (a lost step means re-homing and re-zeroing
 		 * before a resume). The queue stays until the speed is 0 - braking may run on into the
 		 * next segments; non-motion ops on the way are skipped. The overshoot is v^2/2a. */
-		m->stopping = true; m->hold = false;
+		begin_brake(m); m->hold = false;
 		return;
 	}
 	flush_queue(m);
@@ -251,10 +267,10 @@ void motion_stop(motion_t *m, bool immediate)
 	 * next slice put the position back on the simulated path and the FPGA was sent there. */
 	if (m->dry) immediate = true;
 	if (immediate || !m->active || m->v < 1e-6) { m->active = false; m->v = 0; m->a = 0; m->stopping = false; m->hold = false; }
-	else m->stopping = true;
+	else begin_brake(m);
 	bool coasting = false;
 	for (int a = 0; a < NAXES; a++) coasting |= fabs(m->jv[a]) > 1e-12;
-	if (brake && coasting) m->stopping = true;                  /* run_simple clears it at rest */
+	if (brake && coasting) begin_brake(m);                      /* run_simple clears it at rest */
 	else { memset(m->jv, 0, sizeof m->jv); memset(m->ja, 0, sizeof m->ja); }
 	memcpy(m->plan_end, m->pos, sizeof m->plan_end);
 }
@@ -316,6 +332,7 @@ static int emit(motion_t *m, double dt)
 			motion_stop(m, true);
 			for (int k = 0; k < NAXES; k++) m->pos[k] = (double)m->steps[k] / SET.ax[k].steps_per_mm;
 			memcpy(m->plan_end, m->pos, sizeof m->plan_end);
+			memcpy(m->emit_pos, m->pos, sizeof m->emit_pos);
 			m->home.on = false;
 			return bursts;
 		}
@@ -334,17 +351,29 @@ static int emit(motion_t *m, double dt)
 			if (moving & (1u << a)) { m->deferred++; continue; }
 		}
 		m->burst_dir[a] = dir;
-		/* measured: a burst takes ~2 ms longer than steps/rate, so fit burst + overhead into 85 %
-		 * of the interval - then the axis is idle again when the next slice is due */
+		/* Pacing (2026-10-31, measured with a motor and the trace): the rate follows the PLANNED
+		 * speed (+15 %), not "these steps within this slice". Slices come every 10-40 ms; sized
+		 * to the slice, a burst still running when the next slice came made it skip and send
+		 * double next time - 2x speed spikes and stops, the jerk felt on the machine. At the
+		 * planned speed a skipped slice only makes the next burst longer, never faster; the
+		 * 15 % drains the backlog. Without a planned speed (the last steps of a move, a stop)
+		 * the old rule: fit burst + ~2 ms overhead into 85 % of the slice. */
+		double spm = SET.ax[a].steps_per_mm, ad = (double)(d > 0 ? d : -d);
+		double planned = fabs(m->pos[a] - m->emit_pos[a]) * spm / (dt > 1e-4 ? dt : 1e-4);
 		double win = dt * 0.85 - 0.002;
-		double r = (double)(d > 0 ? d : -d) / (win > 0.002 ? win : 0.002);
+		double r = ad / (win > 0.002 ? win : 0.002);
+		/* not while homing: there the counter is preset mid-search, so every burst must be done
+		 * by the next slice (a longer burst still stepping at the preset ran the sim 20 steps off) */
+		if (planned > 100 && !m->home.on) r = fmax(planned * 1.15 + 50, ad / 0.120);   /* backlog gone within ~120 ms */
 		uint32_t rate = r > FPGA_MAX_SPS ? FPGA_MAX_SPS : (uint32_t)r + 1;
+		m->rate[a] = rate;
 		while (d) {                                   /* bursts are 32-bit */
 			int32_t n = d > 0x7FFFFFFF ? 0x7FFFFFFF : d < -0x7FFFFFFF ? -0x7FFFFFFF : (int32_t)d;
 			if (!m->dry) fpga_burst(m->f, a, n, rate);
 			m->steps[a] += n; d -= n; bursts++;
 		}
 	}
+	memcpy(m->emit_pos, m->pos, sizeof m->emit_pos);
 	return bursts;
 }
 
@@ -355,6 +384,12 @@ static void scurve(motion_t *m, double want, double dt)
 	if (m->a < want) m->a = fmin(want, m->a + dj); else m->a = fmax(want, m->a - dj);
 	m->v += m->a * dt;
 	if (m->v < 0) m->v = 0;
+}
+
+static bool jog_coasting(const motion_t *m)
+{
+	for (int a = 0; a < NAXES; a++) if (fabs(m->jv[a]) > 1e-12) return true;
+	return false;
 }
 
 static void run_lines(motion_t *m, double dt)
@@ -405,7 +440,7 @@ static void run_lines(motion_t *m, double dt)
 			for (int a = 0; a < NAXES; a++) m->pos[a] = m->start[a] + c->u[a] * m->s;
 		}
 	}
-	if (m->stopping && !m->active && !m->qn) { m->stopping = false; m->v = 0; m->a = 0; }   /* braked past the last segment */
+	if (m->stopping && !m->active && !m->qn && !jog_coasting(m)) { m->stopping = false; m->v = 0; m->a = 0; }   /* braked past the last segment (a braking jog: run_simple ends it) */
 }
 
 void motion_jog_cont(motion_t *m, int a, int dir)
@@ -555,6 +590,7 @@ void motion_tick(motion_t *m, double dt)
 {
 	m->hw_busy = m->dry ? 0 : fpga_moving(m->f);
 	rescale(m);
+	if (m->stopping && (m->stop_left -= dt) < 0) { motion_stop(m, true); m->stop_cut = true; }
 	if (m->home.on) run_home(m, dt);
 	else {
 		/* the path in steps of at most 10 ms, however long this tick was: the braking and

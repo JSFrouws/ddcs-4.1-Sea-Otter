@@ -192,10 +192,68 @@ static void test_jog_ramp_outputs(void)
 	fx_run(20);
 }
 
+/* the real loop's slices come every 10-34 ms (the panel redraw); measured 2026-10-31. As in
+ * main.c, a slice covers the time that has PASSED; the FPGA then runs for the next, unknown
+ * interval - which is what made a burst still be running when the next slice came */
+static void tick_jitter(int ms)
+{
+	static int passed = 10;
+	ctl_tick(passed / 1000.0); sim_step(ms); clock_advance(ms);
+	passed = ms;
+}
+
+/* 2026-10-31 trace on the machine: slices skipped while a burst still ran, then double -
+ * 2x speed spikes and stops. Bursts now run at the planned speed: never much faster. */
+static void test_pacing(void)
+{
+	SUITE("burst pacing under an irregular loop, braking time bound");
+	fx_reset();
+	SET.ax[AX_Y].steps_per_mm = 400;                     /* the machine: the FPGA has 5x headroom here */
+	fx_run(50);
+	const double spm = SET.ax[AX_Y].steps_per_mm, v = SET.jog_feed / 60.0;
+	arg_t j = { .axis = AX_Y, .dir = 1, .dist = 20 };
+	CHECK(act(C_JOG, &j, SRC_PANEL));
+	double vmax = 0; int64_t y0 = SIM.pos[AX_Y], last = y0;
+	int still = 0, stops = 0, t = 0;
+	for (int k = 0; t < 8000 && !(motion_idle(&C.mo) && k > 5); k++) {
+		int ms = k % 3 == 2 ? 34 : 10;
+		tick_jitter(ms); t += ms;
+		double sv = (double)(SIM.pos[AX_Y] - last) / spm / (ms / 1000.0);
+		last = SIM.pos[AX_Y];
+		double done = (double)(SIM.pos[AX_Y] - y0) / spm;
+		if (done > 2 && done < 18) {                       /* the cruise, ramps excluded */
+			vmax = fmax(vmax, sv);
+			if (sv < 0.05 * v) { if (!still++) stops++; } else still = 0;
+		}
+	}
+	fx_run(200);
+	CHECK(SIM.pos[AX_Y] - y0 == (int64_t)llround(20 * spm));
+	printf("  pacing: vmax %.2f mm/s (plan %.2f), stops %d, deferred %u\n", vmax, v, stops, C.mo.deferred);
+	CHECK(vmax <= v * 1.3);                              /* was ~2.35x: a skipped slice sent double */
+	CHECK(stops == 0);
+	CHECK(C.pos_faults == 0);
+
+	/* a controlled stop that can't finish in time is cut dead, and says so */
+	motion_jog_cont(&C.mo, AX_Y, -1);
+	fx_run(1000);
+	CHECK(C.mo.jv[AX_Y] < -0.5 * v);
+	double acc = SET.ax[AX_Y].accel;
+	motion_stop(&C.mo, false);                           /* brakes on its ramp ... */
+	CHECK(C.mo.stopping);
+	SET.ax[AX_Y].accel = 1;                              /* ... which now would take 20 s */
+	fx_run(1500);
+	CHECK(!C.mo.stopping && motion_idle(&C.mo) && C.mo.jv[AX_Y] == 0);
+	CHECK(!C.mo.stop_cut);                               /* reported and cleared */
+	SET.ax[AX_Y].accel = acc;
+	fx_run(200);
+	CHECK(C.pos_faults == 0);
+}
+
 void test_machine(void)
 {
 	test_scale_safety();
 	test_jog_ramp_outputs();
+	test_pacing();
 	SUITE("state machine and controller vs simulated machine");
 	fx_reset();
 	SET.spindle_delay = 0;
