@@ -24,9 +24,15 @@ the limit/home switches connected.
 
   | axis | max_vel | accel / jerk | detection | in flight | braking | **total** |
   |---|---|---|---|---|---|---|
-  | X | 1200 mm/min (20 mm/s) | 300 / 10000 | 0.68 mm | 0.60 mm | 0.67 + 0.30 mm | **≈2.3 mm** |
+  | X | 1200 mm/min (20 mm/s) | 300 / **100** | 0.68 mm | 0.60 mm | ≈8.9 mm (jerk-limited) | **≈10 mm** |
   | Y | 1200 mm/min (20 mm/s) | 300 / 10000 | 0.68 mm | 0.60 mm | 0.67 + 0.30 mm | **≈2.3 mm** |
   | Z | 1200 mm/min (20 mm/s) | 300 / 10000 | 0.68 mm | 0.60 mm | 0.67 + 0.30 mm | **≈2.3 mm** |
+
+  X's `jerk` is 100 (Y/Z 10000; found 2026-10-31, origin unknown, **kept at 100 by the
+  owner's choice**). Below v = A²/J (900 mm/s) braking is then jerk-limited: t = 2·√(v/J),
+  d ≈ v·t/2 - 8.9 mm from 20 mm/s, 1.1 mm from 5 mm/s. With `jerk` 10000 X would be back to
+  ≈2.3 mm like Y and Z. Until X's switch is confirmed to have more than 10 mm overtravel, X is
+  tested onto its switch at 300 mm/min only.
 
   Every switch needs more overtravel than that (check by hand before relying on it).
   Raising `max_vel` (possible at 400 steps/mm) grows it fast: 40 mm/s gives ≈6.5 mm.
