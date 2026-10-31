@@ -32,20 +32,24 @@ static bool burst_blocked(int axis, int dir)
  * every heartbeat (20 ms) the commanded steps and the FPGA counters, while anything moves and
  * one second after. GET /api/v1/trace returns it as CSV; the HTTP poller was far too coarse. */
 #define TRACE_N 4096
-static struct { uint32_t t; int64_t cmd[NAXES]; int32_t fpga[NAXES]; } trace[TRACE_N];
+/* mpg/bursts/held (2026-10-31): the wheel latency split - raw wheel count changes -> first
+ * burst out (bursts counter) -> FPGA counter moves. Recorded while the pendant is held too,
+ * so a click at rest is in the trace. */
+static struct { uint32_t t; int64_t cmd[NAXES]; int32_t fpga[NAXES]; uint16_t mpg; uint32_t bursts; uint8_t held; } trace[TRACE_N];
 static int trace_head, trace_len;
 static uint64_t trace_t0, trace_busy_ms;
 
 static void trace_add(void)
 {
 	uint64_t now = now_ms();
-	if (!motion_idle(&C.mo) || fpga_moving(&C.fp)) trace_busy_ms = now;
+	if (!motion_idle(&C.mo) || fpga_moving(&C.fp) || C.pend.held) trace_busy_ms = now;
 	if (now - trace_busy_ms > 1000 || !trace_busy_ms) return;
 	if (!trace_len) trace_t0 = now;
 	int i = (trace_head + trace_len) % TRACE_N;
 	if (trace_len < TRACE_N) trace_len++; else trace_head = (trace_head + 1) % TRACE_N;
 	trace[i].t = (uint32_t)(now - trace_t0);
 	for (int a = 0; a < NAXES; a++) { trace[i].cmd[a] = C.mo.steps[a]; trace[i].fpga[a] = C.fpos[a]; }
+	trace[i].mpg = C.fp.last_mpg; trace[i].bursts = C.fp.bursts; trace[i].held = C.pend.held;
 }
 
 size_t ctl_trace_csv(char **out, bool clear)
@@ -53,13 +57,13 @@ size_t ctl_trace_csv(char **out, bool clear)
 	char *buf = NULL; size_t len = 0;
 	FILE *f = open_memstream(&buf, &len);
 	if (!f) { *out = NULL; return 0; }
-	fprintf(f, "t_ms,x_cmd,x_fpga,y_cmd,y_fpga,z_cmd,z_fpga,a_cmd,a_fpga,x_spm,y_spm,z_spm,a_spm\n");
+	fprintf(f, "t_ms,x_cmd,x_fpga,y_cmd,y_fpga,z_cmd,z_fpga,a_cmd,a_fpga,x_spm,y_spm,z_spm,a_spm,mpg,bursts,held\n");
 	for (int k = 0; k < trace_len; k++) {
 		int i = (trace_head + k) % TRACE_N;
 		fprintf(f, "%u", trace[i].t);
 		for (int a = 0; a < NAXES; a++) fprintf(f, ",%lld,%d", (long long)trace[i].cmd[a], trace[i].fpga[a]);
 		for (int a = 0; a < NAXES; a++) fprintf(f, ",%g", SET.ax[a].steps_per_mm);
-		fputc('\n', f);
+		fprintf(f, ",%u,%u,%u\n", trace[i].mpg, trace[i].bursts, trace[i].held);
 	}
 	fclose(f);
 	if (clear) trace_len = trace_head = 0;

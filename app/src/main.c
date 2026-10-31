@@ -98,7 +98,7 @@ static uint64_t g_next, g_last_tick;
 static void motion_slice(void)
 {
 	uint64_t t = now_ms();
-	uint32_t real = g_last_tick ? (uint32_t)(t - g_last_tick) : TICK_MS;
+	uint32_t real = !g_last_tick || t <= g_last_tick ? TICK_MS : (uint32_t)(t - g_last_tick);
 	uint32_t el = CLAMP(real, TICK_MS, 40u);
 	PERF.loops++;
 	if (real > PERF.gap_ms_max) PERF.gap_ms_max = real;
@@ -113,6 +113,20 @@ static void motion_slice(void)
 	if (tk > PERF.tick_us_max) PERF.tick_us_max = tk;
 }
 static void slice_if_due(void) { if (now_ms() >= g_next) motion_slice(); }
+/* The slice that would fall inside a frame, run before it: a frame blocks the loop for the
+ * draw time (~26 ms here, one piece), and a burst sized to a 10 ms slice ended a third of
+ * the way in, so the axis idled until the frame was done - felt as a 5 Hz stutter at the
+ * wheel (2026-10-31). The planner is ticked `ms` ahead and the clock moved with it; the
+ * burst in flight then lasts the frame. */
+static void motion_slice_ahead(uint32_t ms)
+{
+	uint64_t t = now_ms();
+	ctl_tick(ms / 1000.0);
+	if (g_sim) sim_step(ms);
+	g_last_tick = t + ms;
+	g_next = t + ms + TICK_MS;
+	PERF.loops++;
+}
 
 
 int main(int argc, char **argv)
@@ -217,9 +231,10 @@ int main(int argc, char **argv)
 	while (!quit) {
 		uint64_t t = now_ms();
 		if (t >= g_next) {
-			motion_slice();
+			/* the wheel BEFORE the slice: a click read after it waited a whole tick (review 2026-10-31) */
 			int counts = fpga_wheel_delta(&C.fp);
 			ui_pendant(&C.pend, counts);
+			motion_slice();
 			if (t - last_scan >= 20) {                          /* keys: 50 Hz, debounced over two scans */
 				last_scan = t;
 				uint32_t k = panel->scan(panel) | panel->sim_keys;   /* + keys from the browser panel */
@@ -258,6 +273,7 @@ int main(int argc, char **argv)
 			if (splash_until && (t >= splash_until || keys_prev)) { splash_until = 0; U.dirty = true; }
 			if (!splash_until && (U.dirty || s != sig) && t - last_render >= gap) {
 				uint64_t r_us = now_us();
+				if (mv) motion_slice_ahead(CLAMP(PERF.draw_us_avg / 1000 + 5, TICK_MS, 40u));
 				ui_render(&dsp.back);
 				slice_if_due();                                   /* a frame is ~60 ms here: keep motion */
 				uint64_t p_us = now_us();                         /* ticking between its parts so no gap */

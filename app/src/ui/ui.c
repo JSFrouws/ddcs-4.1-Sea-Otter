@@ -146,6 +146,7 @@ void ui_render(fb_t *fb)
 	gfx_noclip(fb);
 	gfx_vgrad(fb, 0, 0, SCR_W, 140, COL_BG0, COL_BG1);
 	gfx_fill(fb, 0, 140, SCR_W, SCR_H - 140, COL_BG1);
+	if (ui_yield) ui_yield();                            /* the long draws outside the toolpath yield too (2026-10-31) */
 	if (C.m == M_RUN && U.screen == SCR_JOG) U.screen = SCR_RUN;   /* started remotely while on Jog */
 	/* CPU saver ends on an E-stop or a limit: the operator needs to see where the tool is
 	 * (user requirement). It stays on ISO until changed again with F4. */
@@ -168,6 +169,7 @@ void ui_render(fb_t *fb)
 	default: break;
 	}
 	gfx_noclip(fb);
+	if (ui_yield) ui_yield();
 	if (U.pagesel && now_ms() - U.pagesel_t > 8000) U.pagesel = false;
 	if (U.wcssel && (now_ms() - U.wcssel_t > 8000 || U.screen != SCR_RUN)) U.wcssel = false;
 	if (U.wcssel) {                         /* the WCS menu: G54-G59, used in the job or not */

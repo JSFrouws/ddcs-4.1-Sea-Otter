@@ -466,8 +466,30 @@ static double room(const motion_t *m, int a, int dir)
  * stop distance is v^2/2A + v A/2J (the accel ramp costs A/J of time at full speed). */
 static double v_stop(double d, double A, double J)
 {
+	if (d <= 0) return 0;
+	if (J <= 0) return sqrt(2 * A * d);               /* no jerk limit: plain ramp */
 	double k = A * A / (2 * J);
-	return d > 0 ? -k + sqrt(k * k + 2 * A * d) : 0;
+	return -k + sqrt(k * k + 2 * A * d);
+}
+
+#define APPROACH_MIN_MM 10.0
+/* Speed cap towards the nearer limit inside the approach zone (user 2026-10-31: "between
+ * soft limits and bench limits allow 40 % speed in the limited direction"): the zone is the
+ * gap between the bench and the soft limit on that side, at least APPROACH_MIN_MM. Away from
+ * the limit the full speed stays - braking distance goes with v², so this is what shrinks the
+ * overtravel on a switch. room_mm is the distance left to the binding limit. */
+static double approach_vcap(const motion_t *m, int a, int s, double room_mm, double vcap)
+{
+	double lo, hi;
+	if (SET.approach_pct >= 100 || room_mm > 1e17 || !m->range || !m->range(a, &lo, &hi)) return vcap;
+	const axis_set_t *x = &SET.ax[a];
+	double zone = APPROACH_MIN_MM;
+	/* the soft limit binds (bench limits off, or the bench box beyond it): the whole band
+	 * between the bench box and the soft limit is the zone. The bench limit binding: 10 mm */
+	double lim = s > 0 ? hi : lo, soft = s > 0 ? x->soft_max : x->soft_min;
+	if (fabs(lim - soft) < 1e-9) zone = fmax(zone, s > 0 ? soft - x->bench_max : x->bench_min - soft);
+	if (room_mm < zone) vcap = fmin(vcap, x->max_vel / 60.0 * SET.approach_pct / 100.0);
+	return vcap;
 }
 
 /* One axis of a jog or a wheel move, one step of dt: an S-curve towards s * vcap (s = 0:
@@ -475,15 +497,18 @@ static double v_stop(double d, double A, double J)
  * EXACTLY on dist. Returns the distance moved (signed). */
 static double follow(motion_t *m, int a, int s, double dist, double vcap, double dt)
 {
-	double A = SET.ax[a].accel, J = SET.ax[a].jerk, v = m->jv[a], acc = m->ja[a];
+	/* jogs and the wheel use their own jerk (jog.jerk), 0 = acceleration only: LinuxCNC and
+	 * grbl jog without a jerk limit too, and the A/J ramp-in is pure latency at the wheel
+	 * (user + review 2026-10-31). Programs keep the axis jerk. */
+	double A = SET.ax[a].accel, J = SET.jog_jerk, v = m->jv[a], acc = m->ja[a];
 	double want = 0;
 	/* 0.85 A: braking starts with margin for the acceleration still being ramped down */
-	if (s && v * s >= 0) want = s * fmin(vcap, v_stop(dist, 0.85 * A, J));   /* against the motion: brake first */
+	if (s && v * s >= 0) want = s * fmin(vcap, v_stop(dist, J > 0 ? 0.85 * A : A, J));   /* against the motion: brake first */
 	double dv = want - v;
-	double ades = (dv > 0 ? 1 : -1) * fmin(A, sqrt(2 * J * fabs(dv)));
+	double ades = (dv > 0 ? 1 : -1) * (J > 0 ? fmin(A, sqrt(2 * J * fabs(dv))) : A);
 	if (fabs(dv) < 1e-12) ades = 0;
-	double dj = J * dt;
-	acc = acc < ades ? fmin(ades, acc + dj) : fmax(ades, acc - dj);
+	if (J > 0) { double dj = J * dt; acc = acc < ades ? fmin(ades, acc + dj) : fmax(ades, acc - dj); }
+	else acc = ades;
 	/* the last stretch: exactly the deceleration that stops on dist (never above A), so a
 	 * wheel move lands on its count at walking pace instead of stopping dead */
 	if (s && v * s > 0 && dist > 1e-9) {
@@ -492,6 +517,9 @@ static double follow(motion_t *m, int a, int s, double dist, double vcap, double
 	}
 	double nv = v + acc * dt;
 	if ((dv > 0 && nv > want) || (dv < 0 && nv < want)) { nv = want; acc = 0; }
+	/* braking for the landing never runs through zero (without a jerk limit the exact
+	 * deceleration can be larger than v/dt: the axis then stepped BACK and oscillated) */
+	if (s && v * s > 0 && nv * s < 0) { nv = 0; acc = -v / dt; }
 	double step = (v + nv) / 2 * dt;
 	if (s && step * s >= dist) { step = s * dist; nv = 0; acc = 0; }   /* land on it */
 	if (!s && v * nv <= 0) { nv = 0; acc = 0; }                         /* braked to a standstill */
@@ -514,7 +542,7 @@ static void run_simple(motion_t *m, double dt)
 		bool jog = m->jog_dir && m->jog_axis == a, wheel = fabs(m->nudge[a]) > 1e-9;
 		if (jog) {
 			s = m->jog_dir; dist = room(m, a, s);
-			vcap = fmin(vcap, SET.jog_feed / 60.0);
+			vcap = approach_vcap(m, a, s, dist, fmin(vcap, SET.jog_feed / 60.0));
 			if (dist < 0.0005 && fabs(m->jv[a]) < 1e-9) {        /* arrived at the limit */
 				if (dist < 1e17) m->soft_stop = a + 1;
 				m->jog_dir = 0; continue;
@@ -524,6 +552,13 @@ static void run_simple(motion_t *m, double dt)
 			double r = room(m, a, s);
 			if (r < 0.0005 && fabs(m->jv[a]) < 1e-9) {            /* at the limit: drop the rest */
 				m->nudge[a] = 0; if (r < 1e17) m->soft_stop = a + 1; continue;
+			}
+			vcap = approach_vcap(m, a, s, r, vcap);
+			/* velocity follow: never more queued than ~100 ms of travel plus the stop, so the
+			 * axis stops with the wheel; the clicks it could not keep up with are dropped */
+			if (SET.pendant_follow == 1) {
+				double cap = vcap * 0.1 + vcap * vcap / (2 * SET.ax[a].accel);
+				if (fabs(m->nudge[a]) > cap) m->nudge[a] = s * cap;
 			}
 			dist = fmin(fabs(m->nudge[a]), r);
 		} else if (fabs(m->jv[a]) < 1e-12) continue;

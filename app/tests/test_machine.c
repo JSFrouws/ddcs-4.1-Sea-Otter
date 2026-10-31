@@ -192,6 +192,58 @@ static void test_jog_ramp_outputs(void)
 	fx_run(20);
 }
 
+/* 2026-10-31 (slow wheel): jogs and the wheel ramp on acceleration only by default, the
+ * velocity follow mode drops what the axis cannot keep up with, the approach zone caps the
+ * speed towards the nearer limit */
+static void test_wheel_follow_zone(void)
+{
+	SUITE("wheel: accel-only ramp, velocity follow, approach zone");
+	fx_reset();
+	const double spm = SET.ax[AX_X].steps_per_mm, A = SET.ax[AX_X].accel, V = SET.ax[AX_X].max_vel / 60.0;
+	CHECK(SET.jog_jerk == 0 && SET.pendant_follow == 0 && SET.approach_pct == 40);
+	/* accel only: full acceleration from the first tick, the click still lands exactly */
+	int64_t x0 = SIM.pos[AX_X];
+	motion_nudge(&C.mo, AX_X, 1.0);
+	fx_run(10);
+	CHECK(C.mo.jv[AX_X] > A * 0.010 * 0.9 && C.mo.jv[AX_X] <= A * 0.010 + 1e-6);
+	fx_until_idle(5000); fx_run(100);
+	CHECK(SIM.pos[AX_X] - x0 == (int64_t)llround(1.0 * spm));
+	/* with a jog jerk the first tick is softer, the distance still exact */
+	SET.jog_jerk = 10000;
+	x0 = SIM.pos[AX_X];
+	motion_nudge(&C.mo, AX_X, 1.0);
+	fx_run(10);
+	CHECK(C.mo.jv[AX_X] > 0 && C.mo.jv[AX_X] < A * 0.010 * 0.5);
+	fx_until_idle(5000); fx_run(100);
+	CHECK(SIM.pos[AX_X] - x0 == (int64_t)llround(1.0 * spm));
+	SET.jog_jerk = 0;
+	/* velocity follow: a 100 mm spin at once is cut to ~100 ms of travel plus the stop */
+	SET.pendant_follow = 1;
+	x0 = SIM.pos[AX_X];
+	motion_nudge(&C.mo, AX_X, 100);
+	fx_until_idle(20000); fx_run(100);
+	double moved = (double)(SIM.pos[AX_X] - x0) / spm;
+	CHECK(moved > 0.5 && moved < V * 0.1 + V * V / (2 * A) + 0.01);
+	CHECK(C.pos_faults == 0);
+	SET.pendant_follow = 0;
+	/* approach zone: within 10 mm of the bench limit 40 % of max_vel towards it, full speed away */
+	bool bl = SET.bench_limits; double bmax = SET.ax[AX_X].bench_max, bmin = SET.ax[AX_X].bench_min;
+	SET.bench_limits = true; SET.ax[AX_X].bench_max = C.mo.pos[AX_X] + 8; SET.ax[AX_X].bench_min = C.mo.pos[AX_X] - 200;
+	double vmax = 0;
+	motion_nudge(&C.mo, AX_X, 6);
+	for (int t = 0; t < 10000 && !motion_idle(&C.mo); t += 10) { fx_run(10); vmax = fmax(vmax, fabs(C.mo.jv[AX_X])); }
+	fx_run(100);
+	CHECK(vmax > 1 && vmax <= V * 0.4 + 1e-6);
+	double vin = vmax; vmax = 0; x0 = SIM.pos[AX_X];
+	motion_nudge(&C.mo, AX_X, -14);
+	for (int t = 0; t < 10000 && !motion_idle(&C.mo); t += 10) { fx_run(10); vmax = fmax(vmax, fabs(C.mo.jv[AX_X])); }
+	fx_run(100);
+	printf("  approach zone: towards the limit %.1f, away %.1f mm/s (max %.1f), moved %.3f mm\n", vin, vmax, V, (double)(SIM.pos[AX_X] - x0) / spm);
+	CHECK(vmax > V * 0.4 + 1);
+	SET.bench_limits = bl; SET.ax[AX_X].bench_max = bmax; SET.ax[AX_X].bench_min = bmin;
+	CHECK(C.pos_faults == 0);
+}
+
 /* the real loop's slices come every 10-34 ms (the panel redraw); measured 2026-10-31. As in
  * main.c, a slice covers the time that has PASSED; the FPGA then runs for the next, unknown
  * interval - which is what made a burst still be running when the next slice came */
@@ -268,6 +320,7 @@ void test_machine(void)
 {
 	test_scale_safety();
 	test_jog_ramp_outputs();
+	test_wheel_follow_zone();
 	test_pacing();
 	SUITE("state machine and controller vs simulated machine");
 	fx_reset();

@@ -12,6 +12,7 @@ material (boot logs, scans, dumps, captures) in its native format under `raw/`.
 | [boot-logo.md](boot-logo.md) | **The boot logo**: format (1024 x 600 24-bit BMP), how to replace it, image-generator prompts in several colour styles |
 | [io-map.md](io-map.md) | **Start here for I/O**: every connector pin and panel control → SoC GPIO / FPGA register, with status |
 | [hardware-setup.md](hardware-setup.md) | How the unit is wired: on the machine in the garage (since 2026-10-31), and the earlier desk setup |
+| [board-internals.md](board-internals.md) | **What is inside the DDCS V4.1**: the i.MX283 CPU module, the AGM 16K FPGA and its config flash, RAM/eMMC, power stages, RS-422 step/dir drivers, opto inputs, ULN2003 outputs, the 0–10 V spindle DAC — read from photos of the boards |
 | [network.md](network.md) | Ethernet access: IP settings, port scan results, login attempts, the garage wifi bridge (OpenWrt + relayd) |
 | [smb-shares.md](smb-shares.md) | The unit's Samba shares (`SYSDISK` = app folder, `CNCDISK` = G-code) |
 | [motiondev-ko.md](motiondev-ko.md) | Unit's stock driver vs. our register map + the modversions CRC fix |

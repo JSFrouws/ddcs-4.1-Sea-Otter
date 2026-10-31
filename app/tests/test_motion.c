@@ -75,6 +75,10 @@ void test_motion(void)
 	double x0 = m->pos[0];
 	for (int i = 0; i < 37; i++) motion_nudge(m, 0, 0.001);
 	fx_run(50);
+	double at50 = phys(0);
+	fx_run(50);                                        /* accel-only ramp (2026-10-31): the first burst
+	                                                    * is long enough to defer the next slice's */
+	printf("  37 x 0.001 mm nudges: %.4f of 0.037 mm after 50 ms, %.4f after 100 ms\n", at50 - x0, phys(0) - x0);
 	CHECK_NEAR(phys(0), x0 + 0.037, 0.00051);
 
 	/* a long rapid: bursts respect the FPGA ceiling measured on the unit (40 000 steps/s) */

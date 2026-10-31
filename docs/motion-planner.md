@@ -135,3 +135,29 @@ On the unit (2026-10-18, Reset during a 60 mm X jog at the 16 mm/s cap, 3 runs e
 
 0 position faults, lostMs 0. The real FPGA runs on ~0.3–0.4 mm more than the simulator in both
 modes: steps already in flight plus the time until the next tick notices the stop.
+
+## Jogs and the wheel (2026-10-31, after the slow-wheel review)
+
+Jogs and pendant moves do **not** run through the planner: `motion.c` `run_simple()` /
+`follow()` chase a target per axis. Since the slow-wheel review (two Sea Otter sessions
+reviewing, owner's choices):
+
+- **Acceleration only by default** (`jog.jerk` = 0, a plain trapezoid): LinuxCNC and grbl
+  jog without a jerk limit too, and the S-curve's A/J ramp-in (30 ms at 300/10 000, 3 s at
+  the jerk 100 X once had) is pure latency at the wheel. A value in `jog.jerk` restores the
+  S-curve for jogs only; programs keep each axis' jerk.
+- **The wheel is read before the motion slice**, not after it (one tick of latency gone),
+  and before a frame is drawn the slice that would fall inside the frame is run ahead
+  (`main.c` `motion_slice_ahead`), so the burst in flight lasts the ~26 ms draw instead of
+  ending a third of the way in. The screens also `ui_yield` between their parts.
+- `pendant.follow`: *Exact* moves every click however long it takes (default, "50 clicks =
+  50 mm"); *Velocity* keeps at most ~100 ms of travel plus the stop queued, so the axis stops
+  with the wheel and drops what it could not keep up with (LinuxCNC's `jog-vel-mode`).
+- **Approach zone** (`limits.approach_pct`, default 40): towards the nearer limit, inside
+  the band between the bench box and the soft limit (at least 10 mm from whichever limit
+  binds), jog and wheel speed is capped at that % of `max_vel`; away from it the full speed
+  stays. Overtravel on a switch goes with v², so 40 % speed is 16 % of the braking distance.
+- A click at x1 / x10 / x100 is 0.001 / 0.01 / 0.1 mm (`ui_pendant.c`).
+- `GET trace` now also records `mpg` (raw wheel count), `bursts` and `held`, and records
+  while the pendant is held, so a click's latency (count → burst → FPGA counter) can be
+  read from one CSV.

@@ -39,6 +39,9 @@ typedef struct {
 	int pos_dec, tool_dec, view_iso;
 	double edge_dia;
 	bool pendant; int quick_ms, wheel_div;
+	double jog_jerk;           /* jogs + wheel: 0 = acceleration only (trapezoid, user 2026-10-31), else their own jerk */
+	int pendant_follow;        /* 0 exact: every click is moved; 1 velocity: the axis stops ~100 ms after the wheel, surplus dropped */
+	int approach_pct;          /* % of max_vel allowed towards a limit inside the approach zone (bench..soft, >= 10 mm) */
 	bool wheel_reverse;        /* flip the raw count: on this pendant clockwise counts DOWN */
 	bool api; int api_port; bool remote_start; int start_delay; bool agent_msgs;
 	/* what the API may do, each on its own (panel only; user 2026-10-24: whatever can hurt

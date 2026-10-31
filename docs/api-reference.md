@@ -337,6 +337,8 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `jog.edge_dia` | Jog & touch-off | Edge finder / tool Ø | mm | number, 0 to 50 |  |
 | `jog.feed` | Jog & touch-off | Jog feed | mm/min | number, 1 to 6000 | yes |
 | `jog.safe_z` | Jog & touch-off | Safe Z above work zero | mm | number, 0 to 200 | yes |
+| `jog.jerk` | Jog & touch-off | Jog / wheel jerk (0 = acceleration only) | mm/s³ | number, 0 to 1000000 | yes |
+| `limits.approach_pct` | Homing & limits | Speed towards a limit inside the approach zone (bench..soft, ≥ 10 mm) | % | whole number, 10 to 100 | yes |
 | `motion.graceful_stop` | Homing & limits | Controlled stop on Reset, E-stop, limit (no lost steps) |  | on/off | yes |
 | `planner.lookahead` | Axes | Planner lookahead (segments) |  | whole number, 4 to 400 | yes |
 | `planner.junction_dev` | Axes | Corner tolerance | mm | number, 0 to 1 | yes |
@@ -345,6 +347,7 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `pendant.quick_ms` | Pendant | Quick press = Enter, shorter than | ms | whole number, 100 to 1500 |  |
 | `pendant.wheel_div` | Pendant | Counts per wheel detent |  | whole number, 1 to 8 |  |
 | `pendant.wheel_reverse` | Pendant | Reverse wheel direction |  | on/off |  |
+| `pendant.follow` | Pendant | Wheel follow mode: `Exact: every click is moved` / `Velocity: stops with the wheel, surplus dropped` |  | choice index 0 to 1, or the name |  |
 | `pendant.estop` | Pendant | Pendant E-stop enabled |  | on/off | yes |
 | `api.on` | API | ENABLE the REST API endpoint (HTTP) *(panel only)* |  | on/off |  |
 | `api.port` | API | Port, restart to apply *(panel only)* |  | whole number, 1 to 65535 |  |

@@ -24,6 +24,7 @@ static const char *const OUT_PORTS[] = { "-", "OUT1", "OUT2", "OUT3", NULL };
 /* named as on the connector (the back of the unit lists XP+/XP-/XD+/XD- per axis) */
 static const char *const AXIS_OUTS[] = { "-", "X (XP/XD)", "Y (YP/YD)", "Z (ZP/ZD)", "A (AP/AD)", NULL };
 static const char *const LEVELS[] = { "low", "high", NULL };
+static const char *const FOLLOW[] = { "Exact: every click is moved", "Velocity: stops with the wheel, surplus dropped", NULL };
 
 #define O(f) offsetof(settings_t, f)
 #define A(i, f) (offsetof(settings_t, ax) + (i) * sizeof(axis_set_t) + offsetof(axis_set_t, f))
@@ -51,6 +52,8 @@ const setting_desc_t SETTINGS[] = {
 	{ "jog.edge_dia", "Jog & touch-off", "Edge finder / tool Ø", "mm", ST_DBL, O(edge_dia), 0, 50, DEC_TOOL, 0, 0, 0 },
 	{ "jog.feed", "Jog & touch-off", "Jog feed", "mm/min", ST_DBL, O(jog_feed), 1, 6000, 0, 0, 1, 0 },
 	{ "jog.safe_z", "Jog & touch-off", "Safe Z above work zero", "mm", ST_DBL, O(safe_z), 0, 200, DEC_POS, 0, 1, 0 },
+	{ "jog.jerk", "Jog & touch-off", "Jog / wheel jerk (0 = acceleration only)", "mm/s³", ST_DBL, O(jog_jerk), 0, 1000000, 0, 0, 1, 0 },
+	{ "limits.approach_pct", "Homing & limits", "Speed towards a limit inside the approach zone", "%", ST_INT, O(approach_pct), 10, 100, 0, 0, 1, 0 },
 	{ "motion.graceful_stop", "Homing & limits", "Controlled stop on Reset, E-stop, limit (no lost steps)", "", ST_BOOL, O(graceful_stop), 0, 1, 0, 0, 1, 0 },
 	{ "planner.lookahead", "Axes", "Planner lookahead (segments)", "", ST_INT, O(lookahead), 4, 400, 0, 0, 1, 0 },
 	{ "planner.junction_dev", "Axes", "Corner tolerance", "mm", ST_DBL, O(junction_dev), 0, 1, 3, 0, 1, 0 },
@@ -59,6 +62,7 @@ const setting_desc_t SETTINGS[] = {
 	{ "pendant.quick_ms", "Pendant", "Quick press = Enter, shorter than", "ms", ST_INT, O(quick_ms), 100, 1500, 0, 0, 0, 0 },
 	{ "pendant.wheel_div", "Pendant", "Counts per wheel detent", "", ST_INT, O(wheel_div), 1, 8, 0, 0, 0, 0 },
 	{ "pendant.wheel_reverse", "Pendant", "Reverse wheel direction", "", ST_BOOL, O(wheel_reverse), 0, 1, 0, 0, 0, 0 },
+	{ "pendant.follow", "Pendant", "Wheel follow mode", "", ST_ENUM, O(pendant_follow), 0, 1, 0, FOLLOW, 0, 0 },
 	{ "pendant.estop", "Pendant", "Pendant E-stop enabled", "", ST_BOOL, O(pendant_estop), 0, 1, 0, 0, 1, 0 },
 	{ "api.on", "API", "ENABLE the REST API endpoint (HTTP)", "", ST_BOOL, O(api), 0, 1, 0, 0, 0, 1 },
 	{ "api.port", "API", "Port (restart to apply)", "", ST_INT, O(api_port), 1, 65535, 0, 0, 0, 1 },
@@ -145,6 +149,7 @@ void settings_defaults(settings_t *s)
 	s->graceful_stop = true;   /* user 2026-10-18: brake at max deceleration, never lose steps */
 	s->pos_dec = 3; s->tool_dec = 2; s->view_iso = 0; s->edge_dia = 0;
 	s->pendant = true; s->quick_ms = 400; s->wheel_div = 4;
+	s->jog_jerk = 0; s->pendant_follow = 0; s->approach_pct = 40;   /* user 2026-10-31 */
 	s->wheel_reverse = true;   /* user, 2026-10-18: clockwise (numbers up) must move + and increase values */
 	s->api = true; s->api_port = 8080; s->start_delay = 5; s->agent_msgs = true;
 	/* user 2026-10-24: reading, programs, offsets, tools, settings, overrides and panel
