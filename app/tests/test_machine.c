@@ -1,6 +1,7 @@
 /* Controller + state machine against the simulated machine: guards, homing, limits,
  * E-stop, touch-off, programs (run, TryCut, simulate, multi-part, resume), remote start. */
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 #include "t.h"
 #include <sys/stat.h>
@@ -20,8 +21,181 @@ static void load(const char *src)
 	CHECK(act(C_LOAD, &a, SRC_PANEL));
 }
 
+/* 2026-10-31 on the machine: steps/mm 500 -> 2000 over the API, drives on, IDLE, and emit()
+ * streamed pos * new - steps as bursts: X +336.6 mm at full speed, Y, Z too. */
+static void test_scale_safety(void)
+{
+	SUITE("steps/mm change, runaway guard, level gate");
+	fx_reset();
+	CHECK(act(C_HOME, NULL, SRC_PANEL));
+	fx_until_idle(60000);
+	CHECK(C.homed);
+	int64_t sim0[NAXES]; memcpy(sim0, SIM.pos, sizeof sim0);
+	double spm0 = SET.ax[AX_X].steps_per_mm;
+
+	/* 1. a new scale while idle with the drives on: not one step, position follows the motors */
+	for (int a = 0; a < 3; a++) SET.ax[a].steps_per_mm = spm0 * 4;
+	ctl_apply_axis_config();
+	fx_run(2000);
+	for (int a = 0; a < NAXES; a++) CHECK(SIM.pos[a] == sim0[a]);
+	for (int a = 0; a < 3; a++) CHECK_NEAR(C.mo.pos[a], (double)C.mo.steps[a] / (spm0 * 4), 1e-9);
+	CHECK(!C.homed && C.m == M_IDLE && C.pos_faults == 0);
+	for (int a = 0; a < 3; a++) SET.ax[a].steps_per_mm = spm0;
+	ctl_apply_axis_config();
+	fx_run(500);
+	for (int a = 0; a < NAXES; a++) CHECK(SIM.pos[a] == sim0[a]);
+
+	/* the same while a jog runs: it stops where it is, nothing jumps */
+	arg_t j = { .axis = AX_X, .dir = 1, .dist = 20 };
+	CHECK(act(C_JOG, &j, SRC_PANEL));
+	fx_run(300);
+	int64_t mid = SIM.pos[AX_X];
+	SET.ax[AX_X].steps_per_mm = spm0 * 4;
+	fx_run(1000);
+	CHECK(llabs(SIM.pos[AX_X] - mid) < 2000);        /* at most the burst already in flight */
+	CHECK(motion_idle(&C.mo));
+	SET.ax[AX_X].steps_per_mm = spm0;
+	fx_run(200);
+
+	/* 2. a delta no plan can produce is refused, not sent */
+	memcpy(sim0, SIM.pos, sizeof sim0);
+	C.mo.pos[AX_Y] += 100;                            /* 100 mm out of nowhere */
+	fx_run(500);
+	CHECK(SIM.pos[AX_Y] == sim0[AX_Y]);
+	CHECK_NEAR(C.mo.pos[AX_Y], (double)C.mo.steps[AX_Y] / spm0, 1e-9);
+	CHECK(C.mo.runaway == 0);                         /* reported and cleared by the controller */
+
+	/* 3a. E-stop: a pending delta is held back at the level, whatever put it there */
+	SIM.ext_estop = true;
+	fx_run(100);
+	CHECK(C.m == M_ESTOP);
+	uint32_t b0 = C.mo.blocked;
+	C.mo.pos[AX_X] += 1;
+	motion_tick(&C.mo, 0.010);                        /* even if something ticks motion anyway */
+	fx_run(100);
+	CHECK(SIM.pos[AX_X] == sim0[AX_X] && C.mo.blocked > b0);
+	SIM.ext_estop = false;
+	fx_run(100);
+	CHECK(C.m == M_IDLE);
+
+	/* 3b. a tripped switch: that direction held at the level, the way off still free */
+	C.lim_active[AX_Z] = true; C.lim_dir[AX_Z] = 1;
+	int64_t z0 = SIM.pos[AX_Z];
+	b0 = C.mo.blocked;
+	C.mo.pos[AX_Z] += 0.5;
+	motion_tick(&C.mo, 0.010);
+	CHECK(SIM.pos[AX_Z] == z0 && C.mo.blocked > b0);
+	C.mo.pos[AX_Z] -= 0.5;
+	motion_tick(&C.mo, 0.010);
+	fx_run(100);
+	CHECK(SIM.pos[AX_Z] < z0);
+	C.lim_active[AX_Z] = false; C.lim_dir[AX_Z] = 0;
+	fx_run(200);
+}
+
+/* 2026-10-31: jogs and the wheel on S-curves, exact distances; axes on any connector; enable */
+static void test_jog_ramp_outputs(void)
+{
+	SUITE("jog / wheel ramps, drive outputs, drive enable, ports");
+	fx_reset();
+	const double spm = SET.ax[AX_X].steps_per_mm, A = SET.ax[AX_X].accel;
+
+	/* 50 wheel clicks of 1 mm in one burst: exactly 50 mm, speed and accel within the axis */
+	int64_t x0 = SIM.pos[AX_X];
+	for (int i = 0; i < 50; i++) motion_nudge(&C.mo, AX_X, 1.0);
+	double vmax = 0, amax = 0, last_v = 0;
+	for (int t = 0; t < 20000 && !motion_idle(&C.mo); t += 10) {
+		fx_run(10);
+		vmax = fmax(vmax, fabs(C.mo.jv[AX_X]));
+		double ac = fabs(C.mo.jv[AX_X] - last_v) / 0.010;
+		amax = fmax(amax, ac);
+		last_v = C.mo.jv[AX_X];
+	}
+	fx_run(100);
+	CHECK(SIM.pos[AX_X] - x0 == (int64_t)llround(50 * spm));
+	CHECK(vmax > 1 && vmax <= SET.ax[AX_X].max_vel / 60.0 + 1e-6);
+	CHECK(amax <= A * 1.05);                            /* the last 10 ms tick lands at ~A */
+	CHECK(C.pos_faults == 0);
+
+	/* turned back while moving: +5 then -8 = -3 mm net, braking first, nothing lost */
+	x0 = SIM.pos[AX_X];
+	motion_nudge(&C.mo, AX_X, 5);
+	fx_run(150);
+	motion_nudge(&C.mo, AX_X, -8);
+	fx_until_idle(20000); fx_run(100);
+	CHECK(SIM.pos[AX_X] - x0 == (int64_t)llround(-3 * spm));
+
+	/* continuous jog: ramps up (no full-speed first slice), released = brakes, runs on */
+	x0 = SIM.pos[AX_Y];
+	motion_jog_cont(&C.mo, AX_Y, 1);
+	fx_run(10);
+	CHECK(C.mo.jv[AX_Y] > 0 && C.mo.jv[AX_Y] < SET.jog_feed / 60.0 * 0.2);
+	fx_run(1500);
+	CHECK_NEAR(C.mo.jv[AX_Y], fmin(SET.jog_feed / 60.0, 32000 / spm), 1e-6);
+	int64_t at_release = SIM.pos[AX_Y];
+	motion_jog_cont(&C.mo, AX_Y, 0);
+	CHECK(!motion_idle(&C.mo));                         /* still braking */
+	fx_until_idle(5000); fx_run(100);
+	CHECK(SIM.pos[AX_Y] > at_release);                  /* ran on */
+	CHECK(C.pos_faults == 0 && C.fpos[AX_Y] == (int32_t)C.mo.steps[AX_Y]);
+
+	/* X on the A connector: the A channel steps, the X channel stays put, no fault */
+	const setting_desc_t *out = setting_find("axis.X.output");
+	double v;
+	CHECK(out && setting_parse_port(out, "A", &v) && v == 4);
+	CHECK(setting_parse_port(out, "a (ap/ad)", &v) && v == 4);
+	CHECK(setting_parse_port(out, "-", &v) && v == 0);
+	CHECK(!setting_parse_port(out, "B", &v));
+	CHECK(!strcmp(setting_port_name(out, 4), "A") && !strcmp(setting_port_name(out, 0), "-"));
+	int64_t chx = SIM.pos[AX_X], cha = SIM.pos[AX_A];
+	SET.ax[AX_A].output = 0;                            /* A gives its connector to X */
+	bool rev_a = SIM.wiring_rev[AX_A];
+	SIM.wiring_rev[AX_A] = SIM.wiring_rev[AX_X];        /* the X drive (and its wiring) moves with it */
+	setting_set(out, 4); ctl_apply_axis_config();
+	fx_run(100);
+	arg_t j = { .axis = AX_X, .dir = 1, .dist = 2 };
+	CHECK(act(C_JOG, &j, SRC_PANEL));
+	fx_until_idle(5000); fx_run(100);
+	CHECK(SIM.pos[AX_X] == chx && SIM.pos[AX_A] - cha == (int64_t)llround(2 * spm));
+	CHECK(C.pos_faults == 0);
+	/* "-": nothing is sent, the axis still counts */
+	setting_set(out, 0); ctl_apply_axis_config();
+	cha = SIM.pos[AX_A];
+	double px = C.mo.pos[AX_X];
+	CHECK(act(C_JOG, &j, SRC_PANEL));
+	fx_until_idle(5000); fx_run(100);
+	CHECK(SIM.pos[AX_X] == chx && SIM.pos[AX_A] == cha);
+	CHECK_NEAR(C.mo.pos[AX_X], px + 2, 1e-6);
+	CHECK(C.pos_faults == 0);
+	setting_set(out, 1); SET.ax[AX_A].output = 4; SIM.wiring_rev[AX_A] = rev_a; ctl_apply_axis_config(); fx_run(100);
+	CHECK(C.pos_faults == 0);
+
+	/* drive enable: one output, on while the drives are on (low = OUT on) */
+	SET.out_enable = 0;
+	const setting_desc_t *en = setting_find("drives.enable_out");
+	CHECK(en && setting_conflict(en, 1) != NULL);       /* OUT1 is the spindle */
+	SET.out_aux = 0;
+	CHECK(setting_conflict(en, 3) == NULL);
+	SET.out_enable = 3; SET.enable_level = 0;
+	fx_run(20);
+	CHECK(SIM.outputs & 4);
+	CHECK(act(C_DRIVES_OFF, NULL, SRC_PANEL) && C.m == M_OFF);
+	fx_run(20);
+	CHECK(!(SIM.outputs & 4));
+	SET.enable_level = 1;
+	fx_run(20);
+	CHECK(SIM.outputs & 4);                             /* high while on = OUT on while off */
+	CHECK(act(C_DRIVES_ON, NULL, SRC_PANEL) && C.m == M_IDLE);
+	fx_run(20);
+	CHECK(!(SIM.outputs & 4));
+	SET.out_enable = 0; SET.out_aux = 3; SET.enable_level = 0;
+	fx_run(20);
+}
+
 void test_machine(void)
 {
+	test_scale_safety();
+	test_jog_ramp_outputs();
 	SUITE("state machine and controller vs simulated machine");
 	fx_reset();
 	SET.spindle_delay = 0;

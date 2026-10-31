@@ -9,13 +9,13 @@
  * Enter / quick press accepts, Cancel discards. Nothing changes until it is started. */
 static struct { bool on; const setting_desc_t *d; double v; } inl;
 bool set_inline_active(void) { return inl.on && U.screen == SCR_SETTINGS; }
-static bool is_inline(const setting_desc_t *d) { return d->type == ST_BOOL || d->type == ST_ENUM || (d->type == ST_INT && d->max < 100); }
+static bool is_inline(const setting_desc_t *d) { return d->type == ST_BOOL || d->type == ST_ENUM || d->type == ST_PORT || (d->type == ST_INT && d->max < 100); }
 static void inline_step(int n)
 {
 	const setting_desc_t *d = inl.d;
 	if (d->type == ST_BOOL) { inl.v = !inl.v; return; }
 	inl.v += n;
-	if (d->type == ST_ENUM) { if (inl.v > d->max) inl.v = d->min; if (inl.v < d->min) inl.v = d->max; }
+	if (d->type == ST_ENUM || d->type == ST_PORT) { if (inl.v > d->max) inl.v = d->min; if (inl.v < d->min) inl.v = d->max; }
 	else inl.v = CLAMP(inl.v, d->min, d->max);
 }
 
@@ -28,6 +28,7 @@ static const char *inapplicable(const setting_desc_t *d)
 	if (!strcmp(k, "api.start_delay") && !SET.remote_start) return "START is off";
 	if (!strncmp(k, "pendant.", 8) && strcmp(k, "pendant.on") && !SET.pendant) return "no pendant fitted";
 	if (!strcmp(k, "estop.level_high") && !SET.estop_port) return "no E-stop input";
+	if (!strcmp(k, "drives.enable_on") && !SET.out_enable) return "no enable output";
 	if (!strncmp(k, "axis.", 5) && strstr(k, ".soft_m") && !SET.soft_limits) return "soft limits are off";
 	if (!strcmp(k, "macro.warm_s") && SET.warm_rpm <= 0) return "warm-up speed is 0";
 	return NULL;
@@ -222,6 +223,8 @@ void set_key(pkey_t k, bool sh)
 		else if (k == K_ENTER || k == K_SEL || k == K_MOD || k == K_F3) {
 			inl.on = false;
 			if (inl.d->machine && can(C_EDIT_SETTING, NULL, SRC_PANEL)) { ctl_toast(true, "Machine started moving - edit discarded"); return; }
+			const char *clash = setting_conflict(inl.d, inl.v);
+			if (clash) { ctl_toast(true, "%s", clash); return; }
 			setting_set(inl.d, inl.v); changed(inl.d);
 			char v[64]; setting_format(inl.d, v, sizeof v);
 			ctl_toast(false, "%s = %s", inl.d->label, v);

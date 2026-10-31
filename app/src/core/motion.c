@@ -28,7 +28,30 @@ void motion_set_pos(motion_t *m, int a, double mm)
 {
 	m->pos[a] = mm;
 	m->steps[a] = llround(mm * SET.ax[a].steps_per_mm);
+	m->spm[a] = SET.ax[a].steps_per_mm;
 	if (!m->qn) m->plan_end[a] = mm;
+}
+
+/* A steps/mm change must never move anything. pos[] is the commanded position in mm and
+ * emit() sends pos * steps/mm - steps, so keeping pos across a new scale turns the difference
+ * into one huge burst stream with no ramp and no limits (2026-10-31, X ran +336.6 mm). The
+ * steps are what the motors really did, so they stay and the mm position follows them. */
+static void rescale(motion_t *m)
+{
+	bool any = false;
+	for (int a = 0; a < NAXES; a++) {
+		double spm = SET.ax[a].steps_per_mm;
+		if (m->spm[a] == spm || spm <= 0) continue;
+		m->spm[a] = spm;
+		m->pos[a] = (double)m->steps[a] / spm;
+		m->rescaled |= (uint8_t)(1u << a);
+		any = true;
+	}
+	if (!any) return;
+	motion_stop(m, true);                 /* anything planned was planned in the old scale */
+	for (int a = 0; a < NAXES; a++) m->pos[a] = (double)m->steps[a] / m->spm[a];
+	memcpy(m->plan_end, m->pos, sizeof m->plan_end);
+	m->home.on = false;
 }
 
 void motion_queued_end(const motion_t *m, double out[NAXES])
@@ -186,7 +209,7 @@ static void replan(motion_t *m)
 bool motion_idle(const motion_t *m)
 {
 	if (m->active || m->qn || m->jog_dir || m->home.on || m->hw_busy) return false;
-	for (int a = 0; a < NAXES; a++) if (fabs(m->nudge[a]) > 1e-9) return false;
+	for (int a = 0; a < NAXES; a++) if (fabs(m->nudge[a]) > 1e-9 || fabs(m->jv[a]) > 1e-12) return false;
 	return true;
 }
 
@@ -203,6 +226,7 @@ static void flush_queue(motion_t *m) { m->qn = 0; m->qdist = 0; m->replan_from =
 
 void motion_stop(motion_t *m, bool immediate)
 {
+	bool brake = !immediate && !m->dry && SET.graceful_stop;   /* a jog / wheel move brakes on its ramp */
 	m->jog_dir = 0; m->home.on = false;
 	memset(m->nudge, 0, sizeof m->nudge);
 	if (!immediate && !m->dry && SET.graceful_stop && m->active && m->op.kind == OP_LINE && m->v > 1e-6) {
@@ -228,6 +252,10 @@ void motion_stop(motion_t *m, bool immediate)
 	if (m->dry) immediate = true;
 	if (immediate || !m->active || m->v < 1e-6) { m->active = false; m->v = 0; m->a = 0; m->stopping = false; m->hold = false; }
 	else m->stopping = true;
+	bool coasting = false;
+	for (int a = 0; a < NAXES; a++) coasting |= fabs(m->jv[a]) > 1e-12;
+	if (brake && coasting) m->stopping = true;                  /* run_simple clears it at rest */
+	else { memset(m->jv, 0, sizeof m->jv); memset(m->ja, 0, sizeof m->ja); }
 	memcpy(m->plan_end, m->pos, sizeof m->plan_end);
 }
 
@@ -280,6 +308,24 @@ static int emit(motion_t *m, double dt)
 	for (int a = 0; a < NAXES; a++) {
 		int64_t d = llround(m->pos[a] * SET.ax[a].steps_per_mm) - m->steps[a];
 		if (!d) continue;
+		/* a delta no plan can produce: more than a whole second at the axis' top speed (the
+		 * legitimate backlog is a few mm). Refuse it rather than send it */
+		double top = fmin(SET.ax[a].max_vel / 60.0 * SET.ax[a].steps_per_mm, FPGA_MAX_SPS);
+		if ((d > 0 ? d : -d) > (int64_t)top + 100) {
+			m->runaway = a + 1;
+			motion_stop(m, true);
+			for (int k = 0; k < NAXES; k++) m->pos[k] = (double)m->steps[k] / SET.ax[k].steps_per_mm;
+			memcpy(m->plan_end, m->pos, sizeof m->plan_end);
+			m->home.on = false;
+			return bursts;
+		}
+		/* level gate: braking (stopping) and homing may run on into a switch, nothing else */
+		if (!m->dry && !m->stopping && !m->home.on && m->burst_blocked && m->burst_blocked(a, d > 0 ? 1 : -1)) {
+			m->blocked++;
+			m->pos[a] = (double)m->steps[a] / SET.ax[a].steps_per_mm;   /* drop it, don't bank it */
+			if (!m->qn) m->plan_end[a] = m->pos[a];
+			continue;
+		}
 		int64_t dmax = (int64_t)(FPGA_MAX_SPS * BURST_MAX_S);     /* the rest waits for the next slice */
 		if (d > dmax) d = dmax; else if (d < -dmax) d = -dmax;
 		int dir = d > 0 ? 1 : -1;
@@ -378,38 +424,78 @@ static double room(const motion_t *m, int a, int dir)
 	return d > 0 ? d : 0;
 }
 
+/* Speed from which an axis can still stop within d at acceleration A and jerk J: the S-curve
+ * stop distance is v^2/2A + v A/2J (the accel ramp costs A/J of time at full speed). */
+static double v_stop(double d, double A, double J)
+{
+	double k = A * A / (2 * J);
+	return d > 0 ? -k + sqrt(k * k + 2 * A * d) : 0;
+}
+
+/* One axis of a jog or a wheel move, one step of dt: an S-curve towards s * vcap (s = 0:
+ * brake to a standstill), never faster than can still stop within dist, and landing
+ * EXACTLY on dist. Returns the distance moved (signed). */
+static double follow(motion_t *m, int a, int s, double dist, double vcap, double dt)
+{
+	double A = SET.ax[a].accel, J = SET.ax[a].jerk, v = m->jv[a], acc = m->ja[a];
+	double want = 0;
+	/* 0.85 A: braking starts with margin for the acceleration still being ramped down */
+	if (s && v * s >= 0) want = s * fmin(vcap, v_stop(dist, 0.85 * A, J));   /* against the motion: brake first */
+	double dv = want - v;
+	double ades = (dv > 0 ? 1 : -1) * fmin(A, sqrt(2 * J * fabs(dv)));
+	if (fabs(dv) < 1e-12) ades = 0;
+	double dj = J * dt;
+	acc = acc < ades ? fmin(ades, acc + dj) : fmax(ades, acc - dj);
+	/* the last stretch: exactly the deceleration that stops on dist (never above A), so a
+	 * wheel move lands on its count at walking pace instead of stopping dead */
+	if (s && v * s > 0 && dist > 1e-9) {
+		double need = v * v / (2 * dist);
+		if (need > 0.5 * A && need > fabs(acc) * (acc * s < 0)) acc = -s * fmin(need, A);
+	}
+	double nv = v + acc * dt;
+	if ((dv > 0 && nv > want) || (dv < 0 && nv < want)) { nv = want; acc = 0; }
+	double step = (v + nv) / 2 * dt;
+	if (s && step * s >= dist) { step = s * dist; nv = 0; acc = 0; }   /* land on it */
+	if (!s && v * nv <= 0) { nv = 0; acc = 0; }                         /* braked to a standstill */
+	m->jv[a] = nv; m->ja[a] = acc;
+	return step;
+}
+
 static void run_simple(motion_t *m, double dt)
 {
-	/* continuous jog and pendant nudges: constant speed (jog feed), no ramp needed at
-	 * these speeds for steppers; stops dead when released. Near a soft/bench limit the
-	 * speed is capped at sqrt(2 a d), so the axis brakes at its own acceleration and comes
-	 * to a standstill exactly on the limit instead of being cut off at speed. */
-	double v = SET.jog_feed / 60.0;
-	if (m->jog_dir) {
-		int a = m->jog_axis;
-		double d = room(m, a, m->jog_dir);
-		if (d < 0.0005) {                                  /* arrived (half a micron is a step) */
-			if (d < 1e17) m->soft_stop = a + 1;
-			m->jog_dir = 0;
-		} else {
-			double vs = fmin(v, sqrt(2 * SET.ax[a].accel * d));
-			double step = fmin(vs * dt, d);
-			if (step < 1e-5) step = d;                     /* the last crawl: just land on it */
-			m->pos[a] += m->jog_dir * step;
-		}
-	}
+	/* continuous jog and pendant (wheel) moves, per axis on its own S-curve (accel + jerk,
+	 * user 2026-10-31: starting and stopping dead at 2000 steps/mm lost steps). A wheel move
+	 * always covers exactly the distance clicked - the ramp only shapes how; turning back
+	 * brakes first. A released jog brakes to a standstill (it runs on a little). Near a
+	 * soft/bench limit the speed is capped by the stopping distance, so the axis comes to
+	 * rest exactly on the limit. */
+	bool any = false;
 	for (int a = 0; a < NAXES; a++) {
-		double n = m->nudge[a];
-		if (fabs(n) < 1e-9) { m->nudge[a] = 0; continue; }
-		double d = room(m, a, n > 0 ? 1 : -1);
-		if (d < 0.0005) { m->nudge[a] = 0; if (d < 1e17) m->soft_stop = a + 1; continue; }   /* at the limit: drop the rest */
-		double vmax = fmin(SET.ax[a].max_vel / 60.0, FPGA_MAX_SPS / SET.ax[a].steps_per_mm);
-		vmax = fmin(vmax, sqrt(2 * SET.ax[a].accel * d));
-		double step = fmin(fmin(fabs(n), vmax * dt), d);
-		if (step < 1e-5) step = fmin(fabs(n), d);
-		m->pos[a] += n > 0 ? step : -step;
-		m->nudge[a] -= n > 0 ? step : -step;
+		double vcap = fmin(SET.ax[a].max_vel / 60.0, FPGA_SUSTAIN_SPS / SET.ax[a].steps_per_mm);
+		int s = 0; double dist = 0;
+		bool jog = m->jog_dir && m->jog_axis == a, wheel = fabs(m->nudge[a]) > 1e-9;
+		if (jog) {
+			s = m->jog_dir; dist = room(m, a, s);
+			vcap = fmin(vcap, SET.jog_feed / 60.0);
+			if (dist < 0.0005 && fabs(m->jv[a]) < 1e-9) {        /* arrived at the limit */
+				if (dist < 1e17) m->soft_stop = a + 1;
+				m->jog_dir = 0; continue;
+			}
+		} else if (wheel) {
+			s = m->nudge[a] > 0 ? 1 : -1;
+			double r = room(m, a, s);
+			if (r < 0.0005 && fabs(m->jv[a]) < 1e-9) {            /* at the limit: drop the rest */
+				m->nudge[a] = 0; if (r < 1e17) m->soft_stop = a + 1; continue;
+			}
+			dist = fmin(fabs(m->nudge[a]), r);
+		} else if (fabs(m->jv[a]) < 1e-12) continue;
+		double step = follow(m, a, s, dist, vcap, dt);
+		m->pos[a] += step;
+		if (wheel) { m->nudge[a] -= step; if (fabs(m->nudge[a]) < 1e-9) m->nudge[a] = 0; }
+		if (step) m->last_dir[a] = step > 0 ? 1 : -1;
+		any |= fabs(m->jv[a]) > 1e-12;
 	}
+	if (!any && m->stopping && !m->active) m->stopping = false;   /* a braked jog is at rest */
 }
 
 /* ---- homing: per axis in the configured order, search -> back off -> set -> retract ---- */
@@ -468,6 +554,7 @@ static void run_home(motion_t *m, double dt)
 void motion_tick(motion_t *m, double dt)
 {
 	m->hw_busy = m->dry ? 0 : fpga_moving(m->f);
+	rescale(m);
 	if (m->home.on) run_home(m, dt);
 	else {
 		/* the path in steps of at most 10 ms, however long this tick was: the braking and

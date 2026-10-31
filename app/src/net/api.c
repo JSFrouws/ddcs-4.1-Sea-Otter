@@ -98,6 +98,7 @@ static void status(http_resp_t *r)
 	json_escape(mac, sizeof mac, C.macro_on ? C.macro_name : "");
 	bool est_left;
 	double est_t_now = est_now(&est_left);
+	static const char *const OUTN[] = { "-", "OUT1", "OUT2", "OUT3" }, *const AXO[] = { "-", "X", "Y", "Z", "A" };
 	resp_text(r, 200, "application/json",
 		"{\"state\":\"%s\",\"homed\":%s,\"machine\":{\"x\":%s,\"y\":%s,\"z\":%s,\"a\":%s},"
 		"\"work\":{\"x\":%s,\"y\":%s,\"z\":%s,\"a\":%s},\"wcs\":\"G%d\",\"program\":{\"name\":\"%s\",\"loaded\":%s,\"lines\":%d,\"line\":%d},"
@@ -105,7 +106,9 @@ static void status(http_resp_t *r)
 		"\"limit\":{\"axis\":\"%c\",\"dir\":%d},\"limits\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"armed\":\"%s\",\"remoteStart\":%s,\"countdown\":%d,\"screen\":%d,\"leds\":%u,"
 		"\"fpga\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"steps\":{\"x\":%lld,\"y\":%lld,\"z\":%lld,\"a\":%lld},"
 		"\"posChecks\":%u,\"posFaults\":%u,\"posErr\":[%d,%d,%d,%d],\"faultLine\":%d,\"busErrors\":%u,\"busRetries\":%u,\"busErrno\":%d,\"reversalsWaited\":%u,\"bursts\":%u,"
-		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u},\"tool\":{\"loaded\":%d,\"changeTo\":%d,\"confirm\":%s},\"jobPart\":\"%s\",\"estimate\":{\"seconds\":%.0f,\"remaining\":%s,\"feed\":%d,\"exact\":%s},\"inputs\":%u,\"pendant\":{\"raw\":%u,\"held\":%s,\"axis\":%d,\"mult\":%d,\"estop\":%s,\"wheel\":%d},\"message\":\"%s\",\"driverWarning\":\"%s\",\"macro\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
+		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u},\"tool\":{\"loaded\":%d,\"changeTo\":%d,\"confirm\":%s},\"jobPart\":\"%s\",\"estimate\":{\"seconds\":%.0f,\"remaining\":%s,\"feed\":%d,\"exact\":%s},\"inputs\":%u,\"pendant\":{\"raw\":%u,\"held\":%s,\"axis\":%d,\"mult\":%d,\"estop\":%s,\"wheel\":%d},"
+		"\"drives\":{\"on\":%s,\"enableOut\":\"%s\",\"enableOn\":\"%s\"},\"outputs\":%u,\"axisOutputs\":{\"x\":\"%s\",\"y\":\"%s\",\"z\":\"%s\",\"a\":\"%s\"},\"blockedBursts\":%u,"
+		"\"message\":\"%s\",\"driverWarning\":\"%s\",\"macro\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
 		STATE_NAMES[C.m], C.homed ? "true" : "false", pos[0], pos[1], pos[2], pos[3], wp[0], wp[1], wp[2], wp[3], 54 + WD.active,
 		nm, C.prog.loaded ? "true" : "false", C.prog.nlines, ctl_cur_line() + 1,
 		C.mo.feed_ov, rapid_override(C.mo.feed_ov), C.mo.spin_ov, C.mo.applied_pct, C.spindle ? "true" : "false", C.rpm, C.coolant,
@@ -118,6 +121,8 @@ static void status(http_resp_t *r)
 		(const char *[]){ "", "G54", "G55", "G56", "G57", "G58", "G59" }[C.job_idx >= 0 && C.job_idx < NWCS && (C.m == M_RUN || C.m == M_HOLD || C.m == M_TOOL) ? C.job_idx + 1 : 0],
 		est_t_now > 0 ? ceil(est_t_now) : est_t_now, est_left ? "true" : "false", C.mo.feed_ov, C.prog.exact_cum ? "true" : "false",   /* rounded up, as on the panel */
 		(unsigned)C.inputs, (unsigned)C.pend.raw, C.pend.held ? "true" : "false", C.pend.axis, C.pend.mult, C.pend.estop ? "true" : "false", (int)U.wheel_total,
+		C.m != M_OFF ? "true" : "false", OUTN[CLAMP(SET.out_enable, 0, 3)], SET.enable_level ? "high" : "low", (unsigned)C.fp.outputs,
+		AXO[CLAMP(SET.ax[0].output, 0, 4)], AXO[CLAMP(SET.ax[1].output, 0, 4)], AXO[CLAMP(SET.ax[2].output, 0, 4)], AXO[CLAMP(SET.ax[3].output, 0, 4)], C.mo.blocked,
 		msg, dw, mac, C.sim ? "sim" : "real", DSP ? DSP->frame_no : 0);
 }
 
@@ -126,8 +131,12 @@ static void settings_json(http_resp_t *r)
 	size_t cap = 16384, n = 0;
 	char *b = malloc(cap);
 	n += (size_t)snprintf(b + n, cap - n, "{");
-	for (int i = 0; i < NSETTINGS; i++)
-		n += (size_t)snprintf(b + n, cap - n, "%s\"%s\":%.6g", i ? "," : "", SETTINGS[i].key, setting_get(&SETTINGS[i]));
+	for (int i = 0; i < NSETTINGS; i++) {
+		const setting_desc_t *d = &SETTINGS[i];
+		if (d->type == ST_PORT)        /* connector choices by name: "-" = not used, never a bare 0 */
+			n += (size_t)snprintf(b + n, cap - n, "%s\"%s\":\"%s\"", i ? "," : "", d->key, setting_port_name(d, (int)setting_get(d)));
+		else n += (size_t)snprintf(b + n, cap - n, "%s\"%s\":%.6g", i ? "," : "", d->key, setting_get(d));
+	}
 	n += (size_t)snprintf(b + n, cap - n, "}");
 	r->body = b; r->len = n; r->status = 200; r->type = "application/json";
 }
@@ -138,11 +147,18 @@ static void put_settings(const char *body, http_resp_t *r)
 	int changed = 0;
 	bool axis = false;
 	for (int i = 0; i < NSETTINGS; i++) {
-		double v; bool bv;
+		double v; bool bv; char sv[32];
 		const setting_desc_t *d = &SETTINGS[i];
 		bool has = jnum(body, d->key, &v);
-		if (!has && jbool(body, d->key, &bv)) { v = bv; has = true; }
+		bool named = d->type == ST_PORT || d->type == ST_ENUM;   /* by name: "A", "OUT1", "-", "high" */
+		if (!has && named && jstr(body, d->key, sv, sizeof sv)) {
+			if (!setting_parse_port(d, sv, &v)) { resp_text(r, 400, "application/json", "{\"error\":\"value\",\"detail\":\"%s: unknown value '%s'%s\"}", d->key, sv, d->type == ST_PORT ? " (use - for none)" : ""); return; }
+			has = true;
+		}
+		if (!has && !named && jbool(body, d->key, &bv)) { v = bv; has = true; }
 		if (!has) continue;
+		const char *clash = setting_conflict(d, v);
+		if (clash) { resp_text(r, 409, "application/json", "{\"error\":\"in_use\",\"detail\":\"%s: %s\"}", d->key, clash); return; }
 		if (d->api_ro) { resp_text(r, 403, "application/json", "{\"error\":\"read_only\",\"detail\":\"%s can only be changed on the panel\"}", d->key); return; }
 		if (!strncmp(d->key, "axis.", 5)) {
 			/* axis settings re-initialise the FPGA: never in the middle of a jog */
@@ -332,6 +348,11 @@ void api_handle(const http_req_t *q, http_resp_t *r)
 	p += 8;
 	if (!SET.api) { resp_text(r, 403, "application/json", "{\"error\":\"api_off\"}"); return; }
 	if (!strcmp(p, "status")) { status(r); return; }
+	if (!strncmp(p, "trace", 5) && !post) {             /* trace, trace?clear=1 */
+		char *csv; size_t n = ctl_trace_csv(&csv, strstr(p, "clear=1") != NULL);
+		r->body = csv; r->len = n; r->status = csv ? 200 : 500; r->type = "text/csv";
+		return;
+	}
 	if (!strcmp(p, "settings") && !post) { settings_json(r); return; }
 	if (!strcmp(p, "macros") && !post) {                 /* the macro files Sea Otter found */
 		static macro_t ml[MACRO_MAX];

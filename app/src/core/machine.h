@@ -116,6 +116,8 @@ int ctl_prog_wcs(void);
 int ctl_job_parts(void);
 int ctl_resume_part(void);                                /* the WCS the running program uses */
 void ctl_apply_axis_config(void);                      /* push settings to the FPGA */
+/* the motion trace (20 ms: commanded steps + FPGA counters per axis) as CSV; malloc'd */
+size_t ctl_trace_csv(char **out, bool clear);
 void ctl_save(void);
 int ctl_cur_line(void);
 

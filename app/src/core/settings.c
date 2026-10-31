@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include "settings.h"
 
 settings_t SET;
@@ -17,6 +18,12 @@ static const char *const DIRS[] = { "Negative", "Positive", NULL };
 static const char *const TC_MODES[] = { "Pause: change by hand", "Run a tool-change macro", "Ignore M6", NULL };
 static const char *const JOB_ORDERS[] = { "One tool at a time (all parts, then change)", "One part at a time (all tools on it)", NULL };
 static const char *const TC_WHERE[] = { "Z up to safe height, stay here", "Tool-change position (homed)", NULL };
+static const char *const IN_PORTS[] = { "-", "IN01", "IN02", "IN03", "IN04", "IN05", "IN06", "IN07", "IN08", "IN09",
+	"IN10", "IN11", "IN12", "IN13", "IN14", "IN15", "IN16", "IN17", "IN18", NULL };
+static const char *const OUT_PORTS[] = { "-", "OUT1", "OUT2", "OUT3", NULL };
+/* named as on the connector (the back of the unit lists XP+/XP-/XD+/XD- per axis) */
+static const char *const AXIS_OUTS[] = { "-", "X (XP/XD)", "Y (YP/YD)", "Z (ZP/ZD)", "A (AP/AD)", NULL };
+static const char *const LEVELS[] = { "low", "high", NULL };
 
 #define O(f) offsetof(settings_t, f)
 #define A(i, f) (offsetof(settings_t, ax) + (i) * sizeof(axis_set_t) + offsetof(axis_set_t, f))
@@ -26,12 +33,13 @@ static const char *const TC_WHERE[] = { "Z up to safe height, stay here", "Tool-
 	{ "axis." n ".accel", "Axes", n " acceleration", "mm/s²", ST_DBL, A(i, accel), 1, 10000, 0, 0, 1, 0 }, \
 	{ "axis." n ".jerk", "Axes", n " jerk (S-curve)", "mm/s³", ST_DBL, A(i, jerk), 10, 1000000, 0, 0, 1, 0 }, \
 	{ "axis." n ".corner_jump", "Axes", n " corner speed jump", "mm/min", ST_DBL, A(i, corner_jump), 0, 6000, 0, 0, 1, 0 }, \
+	{ "axis." n ".output", "Axes", n " drive output (pulse/dir)", "", ST_PORT, A(i, output), 0, 4, 0, AXIS_OUTS, 1, 0 }, \
 	{ "axis." n ".dir_invert", "Axes", n " DIR invert", "", ST_BOOL, A(i, dir_invert), 0, 1, 0, 0, 1, 0 }, \
 	{ "axis." n ".soft_min", "Homing & limits", n " soft limit −", "mm", ST_DBL, A(i, soft_min), -9999, 9999, DEC_POS, 0, 1, 0 }, \
 	{ "axis." n ".soft_max", "Homing & limits", n " soft limit +", "mm", ST_DBL, A(i, soft_max), -9999, 9999, DEC_POS, 0, 1, 0 }, \
 	{ "axis." n ".bench_min", "Homing & limits", n " bench limit −", "mm", ST_DBL, A(i, bench_min), -99999, 99999, DEC_POS, 0, 1, 0 }, \
 	{ "axis." n ".bench_max", "Homing & limits", n " bench limit +", "mm", ST_DBL, A(i, bench_max), -99999, 99999, DEC_POS, 0, 1, 0 }, \
-	{ "axis." n ".limit_port", "Homing & limits", n " limit/home switch input (IN, 0 = none)", "", ST_INT, A(i, home_port), 0, 18, 0, 0, 1, 0 }, \
+	{ "axis." n ".limit_port", "Homing & limits", n " limit/home switch input", "", ST_PORT, A(i, home_port), 0, 18, 0, IN_PORTS, 1, 0 }, \
 	{ "axis." n ".home_dir", "Homing & limits", n " home direction", "", ST_ENUM, A(i, home_dir), 0, 1, 0, DIRS, 1, 0 }, \
 	{ "axis." n ".home_pos", "Homing & limits", n " position at switch", "mm", ST_DBL, A(i, home_pos), -9999, 9999, DEC_POS, 0, 1, 0 }, \
 	{ "axis." n ".home_backoff", "Homing & limits", n " back-off after home", "mm", ST_DBL, A(i, home_backoff), 0, 500, DEC_POS, 0, 1, 0 }
@@ -75,14 +83,16 @@ const setting_desc_t SETTINGS[] = {
 	{ "home.retain", "Homing & limits", "Keep the homed state after a restart / power cut", "", ST_BOOL, O(retain_homed), 0, 1, 0, 0, 1, 0 },
 	{ "limits.bench", "Homing & limits", "Bench limits (work box, also un-homed)", "", ST_BOOL, O(bench_limits), 0, 1, 0, 0, 1, 0 },
 	{ "limits.level_high", "Homing & limits", "Limit/home active when open (NC)", "", ST_BOOL, O(limit_level_high), 0, 1, 0, 0, 1, 0 },
-	{ "estop.port", "Homing & limits", "External E-stop input (0 = none)", "IN", ST_INT, O(estop_port), 0, 18, 0, 0, 1, 0 },
+	{ "estop.port", "Homing & limits", "External E-stop input", "", ST_PORT, O(estop_port), 0, 18, 0, IN_PORTS, 1, 0 },
 	{ "estop.level_high", "Homing & limits", "E-stop active when open (NC)", "", ST_BOOL, O(estop_level_high), 0, 1, 0, 0, 1, 0 },
 	{ "spindle.max", "Spindle & outputs", "Spindle max RPM (10 V)", "rpm", ST_DBL, O(spindle_max), 100, 60000, 0, 0, 1, 0 },
 	{ "spindle.default", "Spindle & outputs", "Spindle RPM when none given", "rpm", ST_DBL, O(spindle_default), 0, 60000, 0, 0, 1, 0 },
 	{ "spindle.delay", "Spindle & outputs", "Spin-up wait", "s", ST_DBL, O(spindle_delay), 0, 30, 1, 0, 1, 0 },
-	{ "out.spindle", "Spindle & outputs", "M3 output (OUT n, 0 = none)", "", ST_INT, O(out_spindle), 0, 3, 0, 0, 1, 0 },
-	{ "out.flood", "Spindle & outputs", "M8 output", "", ST_INT, O(out_flood), 0, 3, 0, 0, 1, 0 },
-	{ "out.aux", "Spindle & outputs", "M10 output", "", ST_INT, O(out_aux), 0, 3, 0, 0, 1, 0 },
+	{ "out.spindle", "Spindle & outputs", "M3 output", "", ST_PORT, O(out_spindle), 0, 3, 0, OUT_PORTS, 1, 0 },
+	{ "out.flood", "Spindle & outputs", "M8 output", "", ST_PORT, O(out_flood), 0, 3, 0, OUT_PORTS, 1, 0 },
+	{ "out.aux", "Spindle & outputs", "M10 output", "", ST_PORT, O(out_aux), 0, 3, 0, OUT_PORTS, 1, 0 },
+	{ "drives.enable_out", "Spindle & outputs", "Drive enable output (all axes)", "", ST_PORT, O(out_enable), 0, 3, 0, OUT_PORTS, 1, 0 },
+	{ "drives.enable_on", "Spindle & outputs", "Drive enable: drives on when output", "", ST_ENUM, O(enable_level), 0, 1, 0, LEVELS, 1, 0 },
 	{ "macro.park_x", "Macros", "Park X (machine)", "mm", ST_DBL, O(park[0]), -9999, 9999, DEC_POS, 0, 1, 0 },
 	{ "macro.park_y", "Macros", "Park Y (machine)", "mm", ST_DBL, O(park[1]), -9999, 9999, DEC_POS, 0, 1, 0 },
 	{ "macro.park_z", "Macros", "Park Z (machine)", "mm", ST_DBL, O(park[2]), -9999, 9999, DEC_POS, 0, 1, 0 },
@@ -118,12 +128,14 @@ void settings_defaults(settings_t *s)
 		a->home_backoff = back[i]; a->home_dir = hdir[i];
 		a->dir_invert = i == AX_X; a->pulse_high = true; a->enabled = true;
 		a->limit_port = lim[i]; a->home_port = lim[i]; a->alarm_port = alarm[i];
+		a->output = i + 1;                                     /* each axis on its own connector */
 	}
 	s->home_order = 0; s->soft_limits = true;
 	s->limit_level_high = true; s->estop_port = 1; s->estop_level_high = false;
 	s->pendant_estop = true;
 	s->spindle_max = 24000; s->spindle_default = 12000; s->spindle_delay = 2;
 	s->out_spindle = 1; s->out_flood = 2; s->out_aux = 3;
+	s->out_enable = 0; s->enable_level = 0;                  /* user 2026-10-31: unused until chosen */
 	s->safe_z = 5; s->jog_feed = 1200; s->default_feed = 1000;
 	s->lookahead = 64; s->junction_dev = 0.02;
 	s->park[0] = 380; s->park[1] = 180; s->park[2] = -5;      /* back corner, Z up (inside the soft limits) */
@@ -179,8 +191,49 @@ void setting_format(const setting_desc_t *d, char *b, size_t n)
 {
 	double v = setting_get(d);
 	if (d->type == ST_BOOL) snprintf(b, n, "%s", v ? "ON" : "OFF");
-	else if (d->type == ST_ENUM) snprintf(b, n, "%s", d->opts[(int)v - (int)d->min]);
+	else if (d->type == ST_ENUM || d->type == ST_PORT) snprintf(b, n, "%s", d->opts[(int)v - (int)d->min]);
 	else snprintf(b, n, "%.*f%s%s", setting_decimals(d), v, *d->unit ? " " : "", d->unit);
+}
+
+const char *setting_port_name(const setting_desc_t *d, int v)
+{
+	static char b[16];
+	const char *o = d->opts[CLAMP(v, (int)d->min, (int)d->max) - (int)d->min];
+	size_t n = strcspn(o, " ");                       /* "A (AP/AD)" -> "A" */
+	snprintf(b, sizeof b, "%.*s", (int)(n < sizeof b ? n : sizeof b - 1), o);
+	return b;
+}
+
+bool setting_parse_port(const setting_desc_t *d, const char *s, double *v)
+{
+	char *end;
+	double num = strtod(s, &end);
+	if (end != s && !*end) { if (num < d->min || num > d->max) return false; *v = num; return true; }
+	for (int i = (int)d->min; i <= (int)d->max; i++) {
+		const char *o = d->opts[i - (int)d->min];
+		if (!strcasecmp(s, o) || !strcasecmp(s, setting_port_name(d, i))) { *v = i; return true; }
+	}
+	return false;
+}
+
+/* the outputs: one function each (the drive enable is one output for every axis) */
+static const struct { const char *key; size_t off; const char *what; } OUTS[] = {
+	{ "out.spindle", O(out_spindle), "the spindle (M3)" }, { "out.flood", O(out_flood), "coolant (M8)" },
+	{ "out.aux", O(out_aux), "aux (M10)" }, { "drives.enable_out", O(out_enable), "the drive enable" },
+};
+
+const char *setting_conflict(const setting_desc_t *d, double v)
+{
+	static char why[96];
+	int n = (int)v, mine = -1;
+	for (size_t i = 0; i < ARRAY_LEN(OUTS); i++) if (!strcmp(d->key, OUTS[i].key)) mine = (int)i;
+	if (mine < 0 || n <= 0) return NULL;
+	for (size_t i = 0; i < ARRAY_LEN(OUTS); i++) {
+		if ((int)i == mine || *(const int *)((const char *)&SET + OUTS[i].off) != n) continue;
+		snprintf(why, sizeof why, "OUT%d is already used for %s - set that to - first", n, OUTS[i].what);
+		return why;
+	}
+	return NULL;
 }
 
 int settings_save(const char *path)

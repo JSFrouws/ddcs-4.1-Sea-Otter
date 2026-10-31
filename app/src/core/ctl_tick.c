@@ -19,17 +19,75 @@ static bool level_active(int port, bool active_high)
 
 static bool switch_active(int axis) { return level_active(SET.ax[axis].home_port, SET.limit_level_high); }
 
+/* the level gate under every burst (motion.c emit): E-stop and drives off stop everything, a
+ * tripped switch its own direction. Edges alone missed a move that never reached the switch
+ * edge, and the FPGA's own limit function can't be used with NC switches (fpga-motion.md) */
+static bool burst_blocked(int axis, int dir)
+{
+	if (C.m == M_ESTOP || C.m == M_OFF) return true;
+	return C.lim_active[axis] && C.lim_dir[axis] == dir;
+}
+
+/* Motion trace (user 2026-10-31: "a log of the move, does it keep to jerk and accel"):
+ * every heartbeat (20 ms) the commanded steps and the FPGA counters, while anything moves and
+ * one second after. GET /api/v1/trace returns it as CSV; the HTTP poller was far too coarse. */
+#define TRACE_N 4096
+static struct { uint32_t t; int64_t cmd[NAXES]; int32_t fpga[NAXES]; } trace[TRACE_N];
+static int trace_head, trace_len;
+static uint64_t trace_t0, trace_busy_ms;
+
+static void trace_add(void)
+{
+	uint64_t now = now_ms();
+	if (!motion_idle(&C.mo) || fpga_moving(&C.fp)) trace_busy_ms = now;
+	if (now - trace_busy_ms > 1000 || !trace_busy_ms) return;
+	if (!trace_len) trace_t0 = now;
+	int i = (trace_head + trace_len) % TRACE_N;
+	if (trace_len < TRACE_N) trace_len++; else trace_head = (trace_head + 1) % TRACE_N;
+	trace[i].t = (uint32_t)(now - trace_t0);
+	for (int a = 0; a < NAXES; a++) { trace[i].cmd[a] = C.mo.steps[a]; trace[i].fpga[a] = C.fpos[a]; }
+}
+
+size_t ctl_trace_csv(char **out, bool clear)
+{
+	char *buf = NULL; size_t len = 0;
+	FILE *f = open_memstream(&buf, &len);
+	if (!f) { *out = NULL; return 0; }
+	fprintf(f, "t_ms,x_cmd,x_fpga,y_cmd,y_fpga,z_cmd,z_fpga,a_cmd,a_fpga,x_spm,y_spm,z_spm,a_spm\n");
+	for (int k = 0; k < trace_len; k++) {
+		int i = (trace_head + k) % TRACE_N;
+		fprintf(f, "%u", trace[i].t);
+		for (int a = 0; a < NAXES; a++) fprintf(f, ",%lld,%d", (long long)trace[i].cmd[a], trace[i].fpga[a]);
+		for (int a = 0; a < NAXES; a++) fprintf(f, ",%g", SET.ax[a].steps_per_mm);
+		fputc('\n', f);
+	}
+	fclose(f);
+	if (clear) trace_len = trace_head = 0;
+	*out = buf;
+	return len;
+}
+
 void ctl_apply_axis_config(void)
 {
 	fpga_axis_cfg_t cfg[NAXES];
 	for (int a = 0; a < NAXES; a++) {
 		const axis_set_t *s = &SET.ax[a];
-		/* this machine shares one switch per axis for limit and home (axis.*.limit_port) */
-		cfg[a] = (fpga_axis_cfg_t){ .limit_port_pos = (uint8_t)s->home_port, .limit_port_neg = (uint8_t)s->home_port,
-			.home_port = (uint8_t)s->home_port, .alarm_port = (uint8_t)s->alarm_port,
-			.dir_invert = s->dir_invert, .pulse_high = s->pulse_high };
+		/* Limit and home switches are NOT handed to the FPGA (found on the machine 2026-10-31):
+		 * its own limit function treats a closed input as active and blocks every burst, so
+		 * NC switches (closed at rest) froze all three axes. It also cannot brake along the
+		 * path, and with one shared switch per axis it would block moving off it again.
+		 * Limits and homing are entirely in software (switch_active, limits.level_high). */
+		cfg[a] = (fpga_axis_cfg_t){ .limit_port_pos = 0, .limit_port_neg = 0,
+			.home_port = 0, .alarm_port = (uint8_t)s->alarm_port,
+			.dir_invert = s->dir_invert, .pulse_high = s->pulse_high, .out = (int8_t)(s->output ? s->output : -1) };
 	}
+	int8_t was[NAXES];
+	memcpy(was, C.fp.chan, sizeof was);
 	fpga_init(&C.fp, cfg);
+	/* an axis moved to another connector: that channel's counter takes over the axis'
+	 * position (counters are per channel), so the position check sees no jump and nothing moves */
+	for (int a = 0; a < NAXES && C.mo.f; a++)             /* C.mo.f: not at start-up, motion owns the position */
+		if (C.fp.chan[a] != was[a]) fpga_preset(&C.fp, a, (int32_t)C.mo.steps[a]);
 }
 
 /* The position file "<work>.pos": x y z a rest homed. It is rewritten 2 s after the machine
@@ -125,6 +183,7 @@ void ctl_init(bus_t *bus, bool sim, const char *cfg_path, const char *wd_path)
 	}
 	motion_init(&C.mo, &C.fp, p);
 	C.mo.switch_active = switch_active;
+	C.mo.burst_blocked = burst_blocked;
 	C.mo.range = ctl_axis_range;
 	C.resume_line = C.work_done = -1; C.touch_axis = -1; C.limit_axis = -1;
 	C.rpm = SET.spindle_default;
@@ -416,6 +475,12 @@ static void outputs(void)
 	if (C.spindle && SET.out_spindle) m |= (uint8_t)(1u << (SET.out_spindle - 1));
 	if ((C.coolant & 1) && SET.out_flood) m |= (uint8_t)(1u << (SET.out_flood - 1));
 	if ((C.coolant & 4) && SET.out_aux) m |= (uint8_t)(1u << (SET.out_aux - 1));
+	/* drive enable: one output for every axis. The outputs sink to COM- when on, so "low"
+	 * while the drives are on = output on (docs/fpga-outputs.md: 1 = on, ~24 V COM+ -> OUT) */
+	if (SET.out_enable) {
+		bool drives = C.m != M_OFF;
+		if (drives == (SET.enable_level == 0)) m |= (uint8_t)(1u << (SET.out_enable - 1));
+	}
 	fpga_set_outputs(&C.fp, m);
 	static int last = -1;
 	int duty = C.spindle ? (int)lround(C.rpm * C.mo.spin_ov / 100.0 / SET.spindle_max * 3000) : 0;
@@ -450,6 +515,17 @@ void ctl_tick(double dt)
 
 	if (C.m == M_RUN) feed_program();
 	if ((C.m != M_ESTOP && C.m != M_OFF) || C.mo.stopping) motion_tick(&C.mo, dt);   /* a controlled stop brakes on in E-stop */
+	if (C.mo.rescaled) {
+		C.homed = false;
+		ctl_toast(true, "Steps/mm changed: position re-counted from the motors, nothing moved - home again");
+		C.mo.rescaled = 0;
+	}
+	if (C.mo.runaway) {
+		C.homed = false;
+		if (C.m == M_RUN || C.m == M_MOVE || C.m == M_HOMING) act(C_STOP, NULL, SRC_MACHINE);
+		ctl_toast(true, "%c: refused a step jump no move can make - stopped, nothing sent. Home again", AXIS_CH[C.mo.runaway - 1]);
+		C.mo.runaway = 0;
+	}
 	motion_events();
 	if (C.m == M_MOVE && motion_idle(&C.mo)) act(C_DONE, NULL, SRC_MACHINE);
 	if (C.m == M_RUN && C.tc_state == TC_GOING && motion_idle(&C.mo) && C.mo.ev == MEV_NONE) {
@@ -470,6 +546,7 @@ void ctl_tick(double dt)
 		hb = now_ms();
 		fpga_heartbeat(&C.fp);
 		fpga_positions(&C.fp, C.fpos);
+		trace_add();
 		/* compare only after everything has been at rest for 3 heartbeats in a row (so the
 		 * latched counters are current); then the counter is the truth - it is what stepped */
 		static int settle;

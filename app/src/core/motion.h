@@ -51,6 +51,7 @@ typedef struct {
 	int feed_ov, spin_ov;        /* % ; rapid % = min(feed %, 100) */
 	double nudge[NAXES];         /* pendant: distance still to move per axis */
 	int jog_axis, jog_dir;       /* continuous jog, jog_dir 0 = off */
+	double jv[NAXES], ja[NAXES]; /* jog / wheel S-curve state per axis: speed mm/s, accel mm/s² */
 	int last_dir[NAXES];
 	int burst_dir[NAXES];         /* direction of the last burst sent to the FPGA */
 	uint32_t deferred;           /* reversals held back until the axis stopped stepping */
@@ -59,7 +60,16 @@ typedef struct {
 	struct { bool on; int k, phase, axis; double travel; } home;
 	bool (*switch_active)(int axis);
 	bool (*range)(int axis, double *lo, double *hi);   /* soft/bench limits for jogs + nudges */
+	/* the controller's level gate: true = no burst on this axis this way (E-stop, drives off,
+	 * a tripped limit switch). Not asked while braking or homing, which handle switches
+	 * themselves. NULL = never blocked. */
+	bool (*burst_blocked)(int axis, int dir);
 	int soft_stop;               /* axis+1 when a jog braked to a standstill at its limit */
+	/* safety (2026-10-31: a steps/mm change once streamed 336 mm of X at full speed) */
+	double spm[NAXES];           /* the steps/mm that steps[] and pos[] were counted in */
+	uint8_t rescaled;            /* axes whose steps/mm changed: position rebased, homing lost */
+	int runaway;                 /* axis+1: a step delta no plan could produce was refused */
+	uint32_t blocked;            /* bursts held back by burst_blocked */
 	/* events for the controller */
 	mev_t ev; gc_op_t ev_op;
 } motion_t;

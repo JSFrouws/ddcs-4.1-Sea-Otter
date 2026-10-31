@@ -61,6 +61,7 @@ void io_render(fb_t *fb)
 	if (SET.out_spindle >= 1 && SET.out_spindle <= 3) ofn[SET.out_spindle - 1] = "spindle (M3)";
 	if (SET.out_flood >= 1 && SET.out_flood <= 3) ofn[SET.out_flood - 1] = "coolant (M8)";
 	if (SET.out_aux >= 1 && SET.out_aux <= 3) ofn[SET.out_aux - 1] = "aux (M10)";
+	if (SET.out_enable >= 1 && SET.out_enable <= 3) ofn[SET.out_enable - 1] = SET.enable_level ? "drive enable (high = on)" : "drive enable (low = on)";
 	for (int o = 0; o < 3; o++) {
 		int yy = y + 26 + o * 20;
 		bool on = (C.fp.outputs >> o) & 1;

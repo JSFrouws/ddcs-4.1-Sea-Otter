@@ -13,6 +13,7 @@
 void fpga_attach(fpga_t *f, bus_t *b)
 {
 	*f = (fpga_t){ .bus = b };
+	for (int a = 0; a < NAXES; a++) f->chan[a] = (int8_t)a;
 	f->last_mpg = bus_r(b, FR_MPG_COUNT);
 }
 
@@ -26,8 +27,18 @@ static void sel_w(fpga_t *f, int ax, uint8_t a, uint16_t v)
 extern const uint16_t FPGA_VENDOR_INIT[][2];
 extern const int FPGA_VENDOR_INIT_N;
 
-void fpga_init(fpga_t *f, const fpga_axis_cfg_t cfg[NAXES])
+void fpga_init(fpga_t *f, const fpga_axis_cfg_t axcfg[NAXES])
 {
+	/* per CHANNEL: the first axis on it, or a quiet default for an unused connector */
+	for (int a = 0; a < NAXES; a++) {
+		int o = axcfg[a].out;
+		f->chan[a] = (int8_t)(o == 0 ? a : o > 0 && o <= NAXES ? o - 1 : -1);
+	}
+	fpga_axis_cfg_t cfg[NAXES];
+	for (int ch = 0; ch < NAXES; ch++) {
+		cfg[ch] = (fpga_axis_cfg_t){ .pulse_high = true };
+		for (int a = NAXES - 1; a >= 0; a--) if (f->chan[a] == ch) cfg[ch] = axcfg[a];
+	}
 	/* 1. the vendor's complete start-up sequence (clock constants, motion parameters 0x10-0x1D,
 	 *    input filters, ...), captured on this unit, with three substitutions: our axis config,
 	 *    FPGA soft limits opened wide (ours are in software and homing must pass them), and no
@@ -122,6 +133,8 @@ void fpga_burst(fpga_t *f, int axis, int32_t steps, uint32_t rate)
 {
 	if (!steps)
 		return;
+	if (f->chan[axis] < 0) { f->virt[axis] += steps; return; }   /* no output: count, send nothing */
+	axis = f->chan[axis];
 	uint32_t n = (uint32_t)(steps < 0 ? -steps : steps);
 	uint32_t ra = rate ? (rate + 1) / 2 : RATE_A, rb = rate ? RATE_B_FAST : RATE_B;
 	if (ra < 16) ra = 16;
@@ -147,7 +160,13 @@ void fpga_status_sweep(fpga_t *f)
 
 bool fpga_busy(fpga_t *f) { return (bus_r(f->bus, FR_STATUS) & 0x0F00) != 0; }
 /* busy = active (bit n) or stepping (bit 8+n): a reversal is only safe when both are clear */
-uint8_t fpga_moving(fpga_t *f) { uint16_t s = bus_r(f->bus, FR_STATUS); return (uint8_t)((s | s >> 8) & 0x0F); }
+uint8_t fpga_moving(fpga_t *f)
+{
+	uint16_t s = bus_r(f->bus, FR_STATUS);
+	uint8_t ch = (uint8_t)((s | s >> 8) & 0x0F), ax = 0;
+	for (int a = 0; a < NAXES; a++) if (f->chan[a] >= 0 && (ch >> f->chan[a] & 1)) ax |= (uint8_t)(1u << a);
+	return ax;
+}
 void fpga_heartbeat(fpga_t *f) { bus_w(f->bus, FW_HEARTBEAT, 0); }
 
 uint16_t fpga_status(fpga_t *f) { return bus_r(f->bus, FR_STATUS); }
@@ -155,13 +174,17 @@ uint16_t fpga_status(fpga_t *f) { return bus_r(f->bus, FR_STATUS); }
 void fpga_positions(fpga_t *f, int32_t pos[NAXES])
 {
 	for (int a = 0; a < NAXES; a++) {
-		uint32_t hi = bus_r(f->bus, (uint8_t)(FR_POS_LO + 2 * a + 1)), lo = bus_r(f->bus, (uint8_t)(FR_POS_LO + 2 * a));
+		int ch = f->chan[a];
+		if (ch < 0) { pos[a] = f->virt[a]; continue; }
+		uint32_t hi = bus_r(f->bus, (uint8_t)(FR_POS_LO + 2 * ch + 1)), lo = bus_r(f->bus, (uint8_t)(FR_POS_LO + 2 * ch));
 		pos[a] = (int32_t)(hi << 16 | lo);
 	}
 }
 
 void fpga_preset(fpga_t *f, int axis, int32_t steps)
 {
+	if (f->chan[axis] < 0) { f->virt[axis] = steps; return; }
+	axis = f->chan[axis];
 	bus_w(f->bus, FW_AXIS_SEL, (uint16_t)axis);
 	bus_w(f->bus, FW_PRESET_LO, (uint16_t)((uint32_t)steps & 0xFFFF));
 	bus_w(f->bus, FW_PRESET_LO + 1, (uint16_t)((uint32_t)steps >> 16));
@@ -172,6 +195,8 @@ void fpga_preset(fpga_t *f, int axis, int32_t steps)
 
 void fpga_stop(fpga_t *f, int axis)
 {
+	if (f->chan[axis] < 0) return;
+	axis = f->chan[axis];
 	bus_w(f->bus, FW_AXIS_SEL, (uint16_t)axis);
 	bus_w(f->bus, FW_MOVE_CMD, 4);
 	bus_w(f->bus, FW_MOVE_CMD, 0);

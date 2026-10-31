@@ -6,6 +6,7 @@
 typedef struct {
 	uint8_t limit_port_pos, limit_port_neg, home_port, alarm_port;  /* 0 = none, 1..18 = INnn */
 	bool dir_invert, pulse_high;
+	int8_t out;             /* pulse/dir connector: 0 = the axis' own, 1..4 = X Y Z A, -1 = none */
 } fpga_axis_cfg_t;
 
 typedef struct {
@@ -13,6 +14,11 @@ typedef struct {
 	uint8_t outputs;
 	uint16_t last_mpg;
 	uint32_t bursts, writes;
+	/* axis -> channel (user 2026-10-31: a dead X DIR output, X moved to the A connector).
+	 * Everything below takes AXES; only this layer knows channels. An axis without a
+	 * channel counts its own steps in virt[] so its position check stays consistent. */
+	int8_t chan[NAXES];
+	int32_t virt[NAXES];
 } fpga_t;
 
 /* Measured on the unit: no axis steps faster than ~40 000 steps/s, whatever the rate word
@@ -28,7 +34,8 @@ typedef struct {
 } pendant_t;
 
 void fpga_attach(fpga_t *f, bus_t *b);
-/* Axis electrical config + FPGA-internal limit/home/alarm port setup, in the vendor's order. */
+/* Axis electrical config + FPGA-internal limit/home/alarm port setup, in the vendor's order.
+ * cfg is per AXIS; each channel gets the config of the first axis mapped to it. */
 void fpga_init(fpga_t *f, const fpga_axis_cfg_t cfg[NAXES]);
 uint16_t fpga_version(fpga_t *f);
 
@@ -46,7 +53,7 @@ void fpga_spindle_pwm(fpga_t *f, int duty);      /* 0..3000 */
  * A burst sent while the axis still steps in the SAME direction is appended; one in the
  * OPPOSITE direction is silently IGNORED by the FPGA - callers must wait (fpga_moving). */
 void fpga_burst(fpga_t *f, int axis, int32_t steps, uint32_t rate);
-uint8_t fpga_moving(fpga_t *f);                  /* bit n = axis n active or stepping */
+uint8_t fpga_moving(fpga_t *f);                  /* bit n = axis n's channel active or stepping */
 /* The vendor's post-burst status sweep (0x2E = 0, then select each axis). */
 void fpga_status_sweep(fpga_t *f);
 bool fpga_busy(fpga_t *f);                       /* any axis stepping */
