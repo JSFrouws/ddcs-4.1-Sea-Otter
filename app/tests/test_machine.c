@@ -233,6 +233,21 @@ static void test_pacing(void)
 	CHECK(stops == 0);
 	CHECK(C.pos_faults == 0);
 
+	/* a 300 ms stall mid-jog (the FPGA busy, the plan going on): the backlog drains at no more
+	 * than the axis' top speed + 15 %, and the move still lands exactly */
+	y0 = SIM.pos[AX_Y];
+	j.dist = 20;
+	CHECK(act(C_JOG, &j, SRC_PANEL));
+	fx_run(400);
+	for (int k = 0; k < 30; k++) { ctl_tick(0.010); clock_advance(10); }   /* no sim_step: the axis stays busy */
+	uint32_t peak = 0;
+	for (int t2 = 0; t2 < 8000 && !motion_idle(&C.mo); t2 += 10) { fx_run(10); if (C.mo.rate[AX_Y] > peak) peak = C.mo.rate[AX_Y]; }
+	fx_run(200);
+	double top = SET.ax[AX_Y].max_vel / 60.0 * spm;
+	CHECK(peak <= top * 1.15 + 52);                      /* the planned-rate rule: +15 % + 50 */
+	CHECK(SIM.pos[AX_Y] - y0 == (int64_t)llround(20 * spm));
+	CHECK(C.pos_faults == 0);
+
 	/* a controlled stop that can't finish in time is cut dead, and says so */
 	motion_jog_cont(&C.mo, AX_Y, -1);
 	fx_run(1000);

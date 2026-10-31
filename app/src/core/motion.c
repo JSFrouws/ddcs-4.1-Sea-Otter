@@ -365,6 +365,9 @@ static int emit(motion_t *m, double dt)
 		/* not while homing: there the counter is preset mid-search, so every burst must be done
 		 * by the next slice (a longer burst still stepping at the preset ran the sim 20 steps off) */
 		if (planned > 100 && !m->home.on) r = fmax(planned * 1.15 + 50, ad / 0.120);   /* backlog gone within ~120 ms */
+		/* never faster than the axis' own top speed + 15 % (review 2026-10-31): a backlog after a
+		 * stall drains at most that fast, or it is the same spike again - a stepper stalls on it */
+		r = fmin(r, fmax(top * 1.15, planned * 1.15 + 50));   /* top: the guard's max_vel rate above */
 		uint32_t rate = r > FPGA_MAX_SPS ? FPGA_MAX_SPS : (uint32_t)r + 1;
 		m->rate[a] = rate;
 		while (d) {                                   /* bursts are 32-bit */
