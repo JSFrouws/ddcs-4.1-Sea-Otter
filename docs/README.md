@@ -11,8 +11,8 @@ material (boot logs, scans, dumps, captures) in its native format under `raw/`.
 | [api-reference.md](api-reference.md) | **The implemented HTTP API**, endpoint by endpoint, incl. all settings keys |
 | [boot-logo.md](boot-logo.md) | **The boot logo**: format (1024 x 600 24-bit BMP), how to replace it, image-generator prompts in several colour styles |
 | [io-map.md](io-map.md) | **Start here for I/O**: every connector pin and panel control → SoC GPIO / FPGA register, with status |
-| [hardware-setup.md](hardware-setup.md) | How the unit is wired on the desk for tests |
-| [network.md](network.md) | Ethernet access: IP settings, port scan results, login attempts |
+| [hardware-setup.md](hardware-setup.md) | How the unit is wired: on the machine in the garage (since 2026-10-31), and the earlier desk setup |
+| [network.md](network.md) | Ethernet access: IP settings, port scan results, login attempts, the garage wifi bridge (OpenWrt + relayd) |
 | [smb-shares.md](smb-shares.md) | The unit's Samba shares (`SYSDISK` = app folder, `CNCDISK` = G-code) |
 | [motiondev-ko.md](motiondev-ko.md) | Unit's stock driver vs. our register map + the modversions CRC fix |
 | [app-analysis.md](app-analysis.md) | ddcsv4.out: driver load, filesystem layout, system() calls, routes to a shell |

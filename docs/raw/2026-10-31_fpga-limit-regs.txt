@@ -1,0 +1,18 @@
+# 2026-10-31, unit on the machine (garage), app local-193 running, at rest after jogs that did not step.
+# One read each with /ddcsv4/fpgabus <reg> (0.3 s apart). NC limit switches on IN02-04, closed at rest.
+[0] FPGA reg 0x00 = 0x0bc0 (3008)
+[0] FPGA reg 0x01 = 0x0000 (0)
+[0] FPGA reg 0x1d = 0x0000 (0)
+[0] FPGA reg 0x1e = 0x0030 (48)
+[0] FPGA reg 0x1f = 0x0030 (48)
+[0] FPGA reg 0x20 = 0x0030 (48)
+[0] FPGA reg 0x21 = 0x0000 (0)
+[0] FPGA reg 0x37 = 0xfff1 (65521)
+[0] FPGA reg 0x38 = 0x01ff (511)
+[0] FPGA reg 0x41 = 0x0809 (2057)
+
+# API /status before the fix (jog X -0.5 mm, 500 steps/mm):
+# before: fpga x 273399  steps x 273409  bursts 545  posFaults 4
+# after:  fpga x 273399  steps x 273399  bursts 549  posFaults 5  "X position check: FPGA counter differs by 240 steps - re-synced"
+# Y +0.5 and Z +0.5 behaved the same (-250 re-sync each).
+# After the fix (local-195): X -0.5 -> fpga 273149 = steps; Y +0.5 -> 8360; Z +0.5 -> -37689; posFaults 0.

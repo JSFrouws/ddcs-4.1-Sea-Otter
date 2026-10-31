@@ -105,3 +105,23 @@ cryptographic empty-password proof: [cifs-handshake.md](cifs-handshake.md).
 Freeing port 445 needed more than stopping the Server service: the `srv2` and `srvnet`
 **kernel drivers** also had to be stopped (elevated). The Windows SMB stack auto-restarted
 afterward, so normal file sharing is back with no manual step.
+
+## In the garage: wifi client bridge (2026-10-31)
+
+The garage has no wired LAN and the home wifi there is weak, so a spare **TP-Link
+TL-WR1043ND v2** carries the unit onto the home network.
+
+- **Firmware:** OpenWrt 25.12.1 (`ath79/generic`, `tplink_tl-wr1043nd-v2`), flashed from the
+  stock web UI with the factory image (SHA-256 checked against the release's `sha256sums`).
+- **Uplink:** `wwan`, a 2.4 GHz station on the home SSID, DHCP from the home router:
+  **`192.168.1.245`** (LuCI at `http://192.168.1.245`). Signal in the garage -64 dBm, 50–195 Mbit/s.
+- **Bridge:** `relayd` (`network.stabridge`, proto `relay`, `lan` + `wwan`), so devices on the
+  LAN ports sit directly in `192.168.1.0/24`: the unit keeps its static `192.168.1.200`, a DHCP
+  client gets an address from the home router (verified: a PC got `192.168.1.65`). The
+  router's own DHCP, RA and DHCPv6 on `lan` are off; `wwan` is in the `lan` firewall zone.
+- **Fallback management:** `192.168.8.1` on the LAN side (a PC on the cable with a static
+  `192.168.8.x`).
+- **Unit:** LAN port 4, 100 Mbit full duplex. Ping from the house 1–2 ms; the first packet
+  after a quiet spell takes ~200 ms (relayd resolving the host) - harmless.
+- **Watch out:** the unit's placeholder MAC `00:04:00:00:00:00`, and reserve `.200` and
+  `.245` in the home router so DHCP never hands them out.

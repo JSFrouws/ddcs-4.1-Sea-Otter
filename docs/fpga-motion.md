@@ -78,7 +78,71 @@ assigning or clearing `axis.<X|Y|Z>.limit_port`. Controlled stop on (default):
 Not covered: the FPGA's **own** limit-input function (it sets `0x1E–0x20` = `0x0030` when
 IN02–04 close, see [io-map.md](io-map.md)) never saw an active input, because the inversion
 is in software. Whether the FPGA itself halts an axis on its limit input is still open: test
-it with a wire from IN02 to COM− during a jog.
+it with a wire from IN02 to COM− during a jog. **Answered 2026-10-31, see below: it does.**
+
+### 2026-10-31: the FPGA's own limit function froze every axis (local-193 → local-195)
+
+First run in the garage, with the NC limit/home switches connected (closed at rest, so
+IN02–04 read closed; `limits.level_high` = 1, the I/O screen showed "ok"). Jogs of 0.5 mm on
+X, Y and Z were accepted and sent (`bursts` 545 → 560), but **no FPGA counter moved**; every
+jog ended in a position-check re-sync of 240–250 steps. Single `fpgabus` reads at rest:
+
+| reg | value | meaning |
+|---|---|---|
+| `0x1E` / `0x1F` / `0x20` | `0x0030` | X / Y / Z limit/home function **active** |
+| `0x21` | `0x0000` | A (no switch) |
+| `0x01` | `0x0000` | no axis active |
+| `0x1D` | `0x0000` | no E-stop / alarm latch |
+| `0x37` | `0xFFF1` | IN02–IN04 closed |
+
+So the FPGA halts an axis on its own limit input, it treats a **closed** input as active,
+and with one shared switch for +, − and home it blocked both directions. The vendor init
+replay leaves no polarity bit we know of. Fix in `ctl_apply_axis_config()`: limit and home
+ports are no longer given to the FPGA (port 0 → enable bits `0x0400`/`0x0800`/`0x1000`,
+"none"); the alarm port still is. Limits and homing were already entirely in software, which
+is also the only place a braking stop along the path can happen. After the change (local-195):
+X −0.5, Y +0.5, Z +0.5 → counters exactly = commanded, 0 position faults.
+
+### 2026-10-31 INCIDENT: a steps/mm change moved all three axes (local-195 → local-201)
+
+**Commanded:** `PUT settings {"axis.X.steps":2000,"axis.Y.steps":2000,"axis.Z.steps":2000}`
+(was 500; the drives run 10 000 pulses/rev on a 5 mm pitch spindle, so 2000 is right and
+matches the vendor's #002–#010). State IDLE, drives on, nothing else commanded.
+
+**What moved** (FPGA counters, at the real 2000 steps/mm), until `machine/stop` + drives OFF:
+
+| axis | counter before → after | real move |
+|---|---|---|
+| X | 275 486 → 948 686 | **+336.6 mm**, at full speed |
+| Y | −7 941 → −31 764 | −11.9 mm |
+| Z | −28 579 → −114 314 | **−42.9 mm (down)** |
+
+Each axis went to `pos_mm × 2000` for the mm position it had at the 500 scale.
+X stayed inside its travel (~137 → ~474 mm), so its switch was probably never reached.
+
+**Root cause:** `motion.c emit()` sends `llround(pos × steps_per_mm) − steps` every slice.
+A new scale with the mm position kept turned the difference into hundreds of thousands of
+steps, streamed at up to `FPGA_MAX_SPS` and only clamped per slice. That bypasses the planner:
+no ramp, no soft limits. Separately, `emit()` had no switch or E-stop gating at all (limits
+acted only on a switch *edge*, via `motion_stop`), so it would not have stopped there either.
+
+**Fix (local-201):**
+- `rescale()` at the top of `motion_tick`: `motion_t.spm[]` is the scale `steps[]` was counted
+  in. On a change, `steps` stay (what the motors did), `pos = steps / new`, any motion stops
+  immediately, homing is lost and the panel says so. Zero bursts, also mid-jog, and also when
+  the change is made with the drives OFF (applied on the first tick after drives ON).
+- Runaway guard in `emit()`: a delta above one second at the axis' top speed (+100 steps) is
+  never sent. Motion stops, the position is rebased, and the program / move / homing is stopped.
+- Level gate in `emit()` (`burst_blocked`, ctl_tick.c): E-stop and drives OFF block every
+  burst, a tripped switch its own direction. Braking (`stopping`) and homing are exempt, so
+  the controlled stop still loses no steps. A blocked delta is dropped, not banked.
+- Tests: `test_scale_safety()` in `tests/test_machine.c`. 1285 passed. With the fix disabled,
+  the new tests fail (the motors move, pos 50 instead of 20).
+- Simulate (Start → Reset → end) is covered by unit tests only (test_machine.c, the Simulate
+  cases), not re-checked on the device.
+
+**After the incident:** the position reference is untrustworthy. Re-home every axis, and treat
+the work offsets and the resume point of the loaded program as suspect until re-zeroed.
 
 **Bug found and fixed:** Reset during **Simulate** drove the real machine. A simulated move
 that was braking stayed active after the simulation ended; once real output was back on,

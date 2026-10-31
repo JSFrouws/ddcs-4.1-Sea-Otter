@@ -154,6 +154,10 @@ Everything in one snapshot. Poll it (e.g. every 0.5–1 s).
 | `estimate` | `{"seconds":754,"remaining":true,"feed":120,"exact":true}`: the run time at the current feed override (`feed`, %), for every JOB part, from where the machine stands, rounded up. `remaining` true = the time left (running, on hold, tool change), false = the whole program. `exact` false = the first, model figure (×1.05 + 1 s on purpose), true = from the replay through the motion control (within ~0.5 % on the controller). −1 = not known (no program, feed 0 %), −2 = still being worked out. Tool changes by hand not included |
 | `inputs` | IN01–IN18 as read, bit 0 = IN01 (1 = high). What each one is: the I/O screen, or the settings |
 | `pendant` | `{"raw":1023,"held":false,"axis":-1,"mult":1,"estop":true,"wheel":0}`: register 0x3D, dead-man, axis switch (−1 OFF), multiplier, E-stop, wheel counts since start. `raw` 0x3FF = every line high: pendant unplugged, loose cable or no power (it then reads as E-stop pressed) |
+| `drives` | `{"on":true,"enableOut":"OUT3","enableOn":"low"}`: drives on (not OFF), the drive-enable output and its level while on |
+| `outputs` | OUT1–OUT3 as written, bit 0 = OUT1 (1 = on = pulled to COM-) |
+| `axisOutputs` | `{"x":"A","y":"Y","z":"Z","a":"-"}`: the pulse/dir connector each axis drives (`axis.*.output`) |
+| `blockedBursts` | Bursts held back by the level gate (E-stop, drives off, a tripped switch that way) since start |
 | `backend` | `real` (the unit's FPGA) or `sim` (simulator) |
 
 ### GET `offsets`
@@ -317,7 +321,11 @@ steps are ticked by the operator on the panel. Up to 8 steps.
 `PUT settings` (or POST) with `{"key": value, …}` changes any subset, e.g.
 `{"jog.feed": 1500, "motion.graceful_stop": true}`. Refused (409) while the machine is busy.
 `axis.*` keys re-initialise the FPGA and are also refused (409) while a jog is still
-moving.
+moving. A `steps` change never moves anything: the position is re-counted from the motors
+and homing is lost. **Ports** (inputs, outputs, drive connectors) are read and written by
+name: `"-"` = not used (never a bare 0), `"IN02"`, `"OUT1"`, `"A"`; a number still works.
+Choice settings also take their label, e.g. `{"drives.enable_on":"high"}`. An unknown name
+answers 400, an output already used by another function 409 `in_use`.
 Keys marked *panel only* answer 403: they decide who may control the machine, so they can
 only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 
@@ -350,12 +358,13 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `axis.<X|Y|Z|A>.accel` | Axes | acceleration | mm/s² | number, 1 to 10000 | yes |
 | `axis.<X|Y|Z|A>.jerk` | Axes | jerk (S-curve) | mm/s³ | number, 10 to 1000000 | yes |
 | `axis.<X|Y|Z|A>.corner_jump` | Axes | corner speed jump | mm/min | number, 0 to 6000 | yes |
-| `axis.<X|Y|Z|A>.dir_invert` | Axes | DIR invert |  | on/off | yes |
+| `axis.<X|Y|Z|A>.output` | Axes | drive output (pulse/dir connector, as printed on the back) |  | port: `"-"` · `"X"` · `"Y"` · `"Z"` · `"A"` (also `"A (AP/AD)"`); several axes may share one | yes |
+| `axis.<X|Y|Z|A>.dir_invert` | Axes | DIR invert (stays with the axis/drive, not the connector) |  | on/off | yes |
 | `axis.<X|Y|Z|A>.soft_min` | Homing & limits | soft limit − | mm | number, -9999 to 9999 | yes |
 | `axis.<X|Y|Z|A>.soft_max` | Homing & limits | soft limit + | mm | number, -9999 to 9999 | yes |
 | `axis.<X|Y|Z|A>.bench_min` | Homing & limits | bench limit − | mm | number, -99999 to 99999 | yes |
 | `axis.<X|Y|Z|A>.bench_max` | Homing & limits | bench limit + | mm | number, -99999 to 99999 | yes |
-| `axis.<X|Y|Z|A>.limit_port` | Homing & limits | limit/home switch input (IN, 0 = none) |  | whole number, 0 to 18 | yes |
+| `axis.<X|Y|Z|A>.limit_port` | Homing & limits | limit/home switch input |  | port: `"-"` · `"IN01"` … `"IN18"` | yes |
 | `axis.<X|Y|Z|A>.home_dir` | Homing & limits | home direction |  | choice index 0 to 1 | yes |
 | `axis.<X|Y|Z|A>.home_pos` | Homing & limits | position at switch | mm | number, -9999 to 9999 | yes |
 | `axis.<X|Y|Z|A>.home_backoff` | Homing & limits | back-off after home | mm | number, 0 to 500 | yes |
@@ -364,14 +373,16 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `home.retain` | Homing & limits | Keep the homed state after a restart / power cut (only if the machine was at rest; off by default) |  | on/off | yes |
 | `limits.bench` | Homing & limits | Bench limits (work box, also un-homed) |  | on/off | yes |
 | `limits.level_high` | Homing & limits | Limit/home active when open (NC) |  | on/off | yes |
-| `estop.port` | Homing & limits | External E-stop input (0 = none) | IN | whole number, 0 to 18 | yes |
+| `estop.port` | Homing & limits | External E-stop input |  | port: `"-"` · `"IN01"` … `"IN18"` | yes |
 | `estop.level_high` | Homing & limits | E-stop active when open (NC) |  | on/off | yes |
 | `spindle.max` | Spindle & outputs | Spindle max RPM (10 V) | rpm | number, 100 to 60000 | yes |
 | `spindle.default` | Spindle & outputs | Spindle RPM when none given | rpm | number, 0 to 60000 | yes |
 | `spindle.delay` | Spindle & outputs | Spin-up wait | s | number, 0 to 30 | yes |
-| `out.spindle` | Spindle & outputs | M3 output (OUT n, 0 = none) |  | whole number, 0 to 3 | yes |
-| `out.flood` | Spindle & outputs | M8 output |  | whole number, 0 to 3 | yes |
-| `out.aux` | Spindle & outputs | M10 output |  | whole number, 0 to 3 | yes |
+| `out.spindle` | Spindle & outputs | M3 output |  | port: `"-"` · `"OUT1"` · `"OUT2"` · `"OUT3"` (one function per output, else 409 `in_use`) | yes |
+| `out.flood` | Spindle & outputs | M8 output |  | port, as `out.spindle` | yes |
+| `out.aux` | Spindle & outputs | M10 output |  | port, as `out.spindle` | yes |
+| `drives.enable_out` | Spindle & outputs | Drive enable output, one for all axes: follows drives on/off |  | port, as `out.spindle`; default `"-"` | yes |
+| `drives.enable_on` | Spindle & outputs | Drive enable: drives on when the output is |  | 0 `"low"` (output pulls to COM-, OUT on) · 1 `"high"` (released) | yes |
 | `macro.park_x` | Macros | Park X (machine) | mm | number, -9999 to 9999 | yes |
 | `macro.park_y` | Macros | Park Y (machine) | mm | number, -9999 to 9999 | yes |
 | `macro.park_z` | Macros | Park Z (machine) | mm | number, -9999 to 9999 | yes |
