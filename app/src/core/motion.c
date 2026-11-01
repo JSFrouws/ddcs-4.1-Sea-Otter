@@ -722,13 +722,16 @@ static void tick_blocks(motion_t *m, double dt)
 	 * ioctl then hangs the process - so this is a fault, not something to wait out. */
 	if (m->q_est > 0 && !m->hw_busy) { if (++m->stuck_ticks >= 30) { m->fpga_stuck = true; motion_stop(m, true); return; } }
 	else m->stuck_ticks = 0;
-	for (int i = 0; i < 32 && m->q_est < FPGA_QUEUE_FULL; i++) {
+	/* the depth is checked BEFORE each block: sending one first "and then seeing" left the
+	 * queue one block deeper after every frame top-up, for good (sim trace 2026-11-01) */
+	int q0 = m->q_est, sent = 0;
+	for (int i = 0; i < 32 && m->q_est < target && m->q_est < FPGA_QUEUE_FULL; i++) {
 		if (m->home.on) run_home(m, BLOCK_DT);
 		else { run_lines(m, BLOCK_DT); run_simple(m, BLOCK_DT); }
 		if (!emit_block(m)) break;                         /* nothing to move: idle, or gated */
-		m->q_est++;
-		if (m->q_est >= target) break;
+		m->q_est++; sent++;
 	}
+	if (PERF.debug && (sent || q0)) fprintf(stderr, "%llu blocks: queue %d target %d sent %d busy %u\n", (unsigned long long)now_us() / 1000, q0, target, sent, m->hw_busy);
 }
 
 void motion_tick(motion_t *m, double dt)
