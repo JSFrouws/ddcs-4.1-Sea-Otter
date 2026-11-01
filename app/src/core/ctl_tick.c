@@ -531,6 +531,11 @@ void ctl_tick(double dt)
 
 	if (C.m == M_RUN) feed_program();
 	if ((C.m != M_ESTOP && C.m != M_OFF) || C.mo.stopping) motion_tick(&C.mo, dt);   /* a controlled stop brakes on in E-stop */
+	if (C.mo.fpga_stuck) {                                /* block mode: the FPGA stopped playing its queue (2026-11-01) */
+		C.mo.fpga_stuck = false;
+		if (C.m == M_RUN || C.m == M_HOLD || C.m == M_MOVE) act(C_STOP, NULL, SRC_MACHINE);
+		ctl_toast(true, "The FPGA stopped playing the motion queue (%d blocks stuck) - power-cycle the controller, then home", C.mo.q_est);
+	}
 	if (C.mo.rescaled) {
 		C.homed = false;
 		ctl_toast(true, "Steps/mm changed: position re-counted from the motors, nothing moved - home again");

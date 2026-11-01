@@ -86,7 +86,7 @@ uint16_t sim_read(uint8_t a)
 		return v;
 	}
 	case FR_VERSION: return 0x0809;
-	case FR_BLOCK_QUEUE: return (uint16_t)(SIM.blk_n > 0xff ? 0xff : SIM.blk_n);
+	case FR_BLOCK_QUEUE: return (uint16_t)SIM.blk_n;   /* a full queue reads 0x0100 on the unit (2026-11-01), not 0xff */
 	default:
 		if (a >= FR_AXIS_IOSTAT && a < FR_AXIS_IOSTAT + NAXES)
 			return sim_switch_active(a - FR_AXIS_IOSTAT) ? 0x0030 : 0;

@@ -13,7 +13,7 @@
  *     ignored until power-off (sim: sim_reset_machine) - the release is still unknown
  * Block mode as MEASURED 2026-11-01 (docs/fpga-motion.md "Block mode"):
  *   - 16 words to 0x50..0x5F, 0x66 = 1 then 0 queues them; 256 deep (a push into a full
- *     queue is dropped and counted in ignored_cmds); read 0x36 = blocks waiting (max 0xff)
+ *     queue is dropped and counted in ignored_cmds); read 0x36 = blocks waiting (0x100 when full)
  *   - the head block plays only with the watchdog alive: the dominant channel at 2 x w4
  *     steps/s for w8 steps, the others' steps spread evenly over the same time; the next
  *     block follows in the same ms (no gap, no start overhead); an empty queue just stops

@@ -50,7 +50,7 @@
 #define FR_INPUTS_HI    0x38  /* CONFIRMED: IN17 bit0, IN18 bit1 */
 #define FR_KEYS_EXT     0x3B  /* CONFIRMED: IN15..18 mirrored, active-high */
 #define FR_PENDANT      0x3D  /* CONFIRMED: see PD_* */
-#define FR_BLOCK_QUEUE  0x36  /* CONFIRMED 2026-11-01: blocks queued, 0xff = full (256 deep). Not the
+#define FR_BLOCK_QUEUE  0x36  /* CONFIRMED 2026-11-01: blocks queued, 0x0100 = full (256 deep). Not the
                                * register written at 0x36 (FW_ALARM_PORT, banked): read and write differ */
 #define FR_VERSION      0x41  /* CONFIRMED: FPGA version */
 

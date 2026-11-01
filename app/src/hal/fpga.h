@@ -72,7 +72,8 @@ void fpga_block_mode(fpga_t *f, bool on);
  * queues it behind the others and plays them back to back. Axes without a channel count in
  * virt[]. false = no channel has steps (nothing sent). Needs the watchdog to play. */
 bool fpga_block(fpga_t *f, const int32_t steps[NAXES], double dt_s);
-int fpga_block_queue(fpga_t *f);                 /* blocks queued (0xff = full) */
+#define FPGA_QUEUE_FULL 255                      /* never push at or above this: a full queue reads 0x100 and the block ioctl then hangs */
+int fpga_block_queue(fpga_t *f);                 /* blocks queued, 0x100 = full */
 void fpga_block_flush(fpga_t *f);                /* empty the queue: mode off/on - TO BE MEASURED */
 
 #endif

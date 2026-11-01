@@ -68,7 +68,7 @@ static void test_fpga_blocks(void)
 	bool seq = ngot == 18;
 	for (int i = 0; i < 16 && seq; i++) seq = got[i].a == 0x50 + i;
 	CHECK(seq && got[16].a == 0x66 && got[16].v == 1 && got[17].a == 0x66 && got[17].v == 0);
-	CHECK(gw(0) == 0x03e3 && gw(1) == 0x3020 && gw(2) == 0 && gw(4) == 1000 && gw(6) == 0x0d05 && gw(8) == 20);
+	CHECK(gw(0) == 0x03e3 && gw(1) == 0x3020 && gw(2) == 0x000c && gw(4) == 1000 && gw(6) == 0x0d05 && gw(8) == 20);   /* word 2 constant: a running counter halted the FPGA (2026-11-01) */
 	CHECK(gw(10) == 0 && gw(12) == 0 && gw(14) == 0 && gw(3) == 0 && gw(5) == 0 && gw(15) == 0);
 	CHECK(f.blocks == 1 && f.block_seq == 1 && SIM.blocks == 1 && fpga_block_queue(&f) == 1);
 	CHECK(!fpga_block(&f, (int32_t[NAXES]){ 0 }, 0.010) && f.blocks == 1);   /* nothing to move: nothing sent */
@@ -76,7 +76,7 @@ static void test_fpga_blocks(void)
 	/* (b) X-Y- = the vendor's 00e1: X dominant on a tie, Y's direction on bit 8 */
 	ngot = 0;
 	fpga_block(&f, (int32_t[NAXES]){ -20, -20, 0, 0 }, 0.010);
-	CHECK(gw(0) == 0x00e1 && gw(2) == 1 && gw(8) == 20 && gw(10) == 20 && gw(12) == 0);
+	CHECK(gw(0) == 0x00e1 && gw(2) == 0x000c && gw(8) == 20 && gw(10) == 20 && gw(12) == 0);
 	ngot = 0;
 	fpga_block(&f, (int32_t[NAXES]){ -19, -20, 0, 0 }, 0.010);   /* |Y| > |X|: Y dominant, X first remaining */
 	CHECK(gw(0) == 0x00e3 && gw(8) == 20 && gw(10) == 19);
@@ -95,12 +95,12 @@ static void test_fpga_blocks(void)
 	for (int i = 0; i < 60; i++) tick1(&f);
 	CHECK(SIM.cnt[1] - c0[1] == 20 && SIM.cnt[0] - c0[0] == -39 && SIM.cnt[2] - c0[2] == -20);
 	CHECK(fpga_block_queue(&f) == 0 && SIM.blocks_played == 4 && !fpga_moving(&f) && !fpga_busy(&f));
-	/* a full queue: 256 deep, reads 0xff, the 257th is dropped, still nothing without heartbeat */
+	/* a full queue: 256 deep, reads 0x100 (measured on the unit), the 257th is dropped, still nothing without heartbeat */
 	sim_reset_machine();
 	for (int i = 0; i < SIM_BLOCK_QUEUE + 1; i++) fpga_block(&f, (int32_t[NAXES]){ 0, 1, 0, 0 }, 0.010);
 	memcpy(c0, SIM.cnt, sizeof c0);
 	sim_step(200);
-	CHECK(fpga_block_queue(&f) == 0xff && SIM.ignored_cmds == 1 && SIM.cnt[1] == c0[1]);
+	CHECK(fpga_block_queue(&f) == 0x100 && SIM.ignored_cmds == 1 && SIM.cnt[1] == c0[1]);
 
 	/* (d) 10 blocks of +20 Y at 4000 steps/s: 4 steps every ms, no gap between blocks */
 	sim_reset_machine();

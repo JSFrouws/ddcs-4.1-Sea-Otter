@@ -110,14 +110,20 @@ int main(int argc, char **argv)
 		long n = (long)(v * dt + 0.5); if (n < 1) n = 1; if (n > left) n = left;
 		uint16_t blk[16] = { w0, 0x3020, seq, 0, (uint16_t)(v / 2), 0, (uint16_t)w6, 0, (uint16_t)n, 0, 0, 0, 0, 0, 0, 0 };
 		if (ax2 >= 0) blk[ax2w] = (uint16_t)n;            /* the second axis' steps: which word? AX2W=10|12|14 */
-		while (!dry && R(0x36) >= depth) { waits++; usleep(500); W(0x67, 0); }   /* FIFO at the chosen depth: wait for a slot */
+		while (!dry && R(0x36) >= depth) {                /* FIFO at the chosen depth: wait for a slot */
+			waits++; usleep(500); W(0x67, 0);
+			if (waits % 2000 == 0) printf("  FPGA not consuming: queue %02x status %04x pos %d after %d waits\n", R(0x36), R(0x01), pos(axis) - p0, waits);
+			if (waits >= 6000) { printf("  giving up: the FPGA stopped playing\n"); goto done; }
+		}
 		BLOCK(blk);
 		left -= n; sent += n; blocks++; seg += n;
+		if (getenv("SEQINC")) seq++;                      /* word 2 as a running block counter: does the FPGA mind? */
 		W(0x67, 0);                                       /* the motion watchdog: bursts are accepted but never stepped without it (docs/fpga-motion.md); the vendor app writes it constantly (the shim filtered it out) */
 		if (!dry && !t_first && pos(axis) != p0) t_first = now();
 		if (!dry && blocks <= 12) printf("%8.4f block %d: %ld steps w4 %u -> fifo %02x pos %d\n", now() - t0, blocks, n, (unsigned)(v / 2), R(0x36), pos(axis) - p0);
 		if (now() - hb > 0.1) { hb = now(); clock_const(); if (!dry) printf("%8.3f fifo %02x pos %d\n", now() - t0, R(0x36), pos(axis) - p0); }
 	}
+done:
 	printf("sent %ld steps in %d blocks (%d FIFO waits); fifo now %02x status %04x; draining\n", sent, blocks, waits, dry ? 0 : R(0x36), dry ? 0 : R(0x01));
 	for (int i = 0; i < 300 && !dry; i++) {
 		usleep(10000); W(0x67, 0);

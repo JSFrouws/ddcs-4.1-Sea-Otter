@@ -717,7 +717,12 @@ static void tick_blocks(motion_t *m, double dt)
 	int target = (m->feed_ahead_ms > SET.queue_ms ? m->feed_ahead_ms : SET.queue_ms) / 10;
 	if (target < 1) target = 1;
 	m->feed_ahead_ms = 0;
-	for (int i = 0; i < 32; i++) {
+	/* The FPGA stopped playing (2026-11-01: a bad word in a block did it): blocks queued, the
+	 * counters frozen, nothing reported moving. Pushing on would fill the queue and the block
+	 * ioctl then hangs the process - so this is a fault, not something to wait out. */
+	if (m->q_est > 0 && !m->hw_busy) { if (++m->stuck_ticks >= 30) { m->fpga_stuck = true; motion_stop(m, true); return; } }
+	else m->stuck_ticks = 0;
+	for (int i = 0; i < 32 && m->q_est < FPGA_QUEUE_FULL; i++) {
 		if (m->home.on) run_home(m, BLOCK_DT);
 		else { run_lines(m, BLOCK_DT); run_simple(m, BLOCK_DT); }
 		if (!emit_block(m)) break;                         /* nothing to move: idle, or gated */

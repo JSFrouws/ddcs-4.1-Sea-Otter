@@ -35,7 +35,11 @@ bool fpga_block(fpga_t *f, const int32_t steps[NAXES], double dt_s)
 	uint16_t w[16] = { 0 };
 	w[0] = (uint16_t)(BLK_W0_BASE | (uint16_t)(dom << 1) | (c[dom] > 0 ? BLK_W0_DOM_DIR : 0));
 	w[1] = BLK_W1;
-	w[2] = (uint16_t)f->block_seq++;
+	/* word 2: the vendor keeps it constant within a move (0x0c, 0x0d, ... per G-code line);
+	 * a running per-block counter stopped the FPGA playing after ~55 blocks on the first
+	 * program run (2026-11-01) - whatever it is, it is not a free sequence number */
+	w[2] = 0x000c;
+	f->block_seq++;
 	w[4] = w4;
 	w[6] = BLK_W6;
 	w[8] = (uint16_t)n;
@@ -54,7 +58,10 @@ bool fpga_block(fpga_t *f, const int32_t steps[NAXES], double dt_s)
 	return true;
 }
 
-int fpga_block_queue(fpga_t *f) { return bus_r(f->bus, FR_BLOCK_QUEUE) & 0xFF; }
+/* blocks queued. A FULL queue reads 0x0100 (256), not 0xff - masking it to 0 made the app
+ * push 5 blocks a tick into a halted FPGA (2026-11-01); the block ioctl then hangs the
+ * process. Never push at FPGA_QUEUE_FULL or above. */
+int fpga_block_queue(fpga_t *f) { return bus_r(f->bus, FR_BLOCK_QUEUE) & 0x1FF; }
 
 /* The only candidate we have for emptying the queue (an immediate stop): the vendor's
  * end-of-stream mode write, then back into block mode. TO BE MEASURED on the unit - whether
