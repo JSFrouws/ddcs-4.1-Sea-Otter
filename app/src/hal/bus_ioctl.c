@@ -63,6 +63,8 @@ static void beep(bus_t *b, bool on)
 	ioctl(((io_t *)b->priv)->fd, on ? MOTION_IOC_BEEP_ON : MOTION_IOC_BEEP_OFF, 0);
 }
 
+static void settle(bus_t *b, uint32_t us) { (void)b; usleep(us); }
+
 static void cl(bus_t *b)
 {
 	close(((io_t *)b->priv)->fd);
@@ -80,5 +82,6 @@ bus_t *bus_ioctl_open(const char *dev)
 	p->fd = fd;
 	b->priv = p;
 	b->write = w; b->read = r; b->block = blk; b->pwm = pwm; b->beep = beep; b->close = cl;
+	b->settle = settle;
 	return b;
 }

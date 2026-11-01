@@ -24,6 +24,9 @@ struct bus {
 	 * the vendor driver does the latch itself, docs/fpga-motion.md "Block mode") */
 	void (*block)(bus_t *, const uint16_t w[16]);
 	void (*close)(bus_t *);
+	/* wall-clock pause the hardware needs between writes (the vendor's init has ~50 and
+	 * 250 ms gaps that the FPGA's block engine depends on, 2026-11-02); the sim does nothing */
+	void (*settle)(bus_t *, uint32_t us);
 	void *priv;
 	/* trace hook: dir 'W' / 'R' / 'P' */
 	void (*trace)(void *ctx, char dir, uint8_t addr, uint16_t val);
@@ -43,6 +46,10 @@ static inline uint16_t bus_r(bus_t *b, uint8_t a)
 	uint16_t v = b->read(b, a);
 	if (b->trace) b->trace(b->trace_ctx, 'R', a, v);
 	return v;
+}
+static inline void bus_settle(bus_t *b, uint32_t us)
+{
+	if (us && b->settle) b->settle(b, us);
 }
 static inline void bus_pwm(bus_t *b, int duty)
 {

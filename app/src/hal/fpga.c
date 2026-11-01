@@ -24,8 +24,7 @@ static void sel_w(fpga_t *f, int ax, uint8_t a, uint16_t v)
 	f->writes += 2;
 }
 
-extern const uint16_t FPGA_VENDOR_INIT[][2];
-extern const int FPGA_VENDOR_INIT_N;
+#include "fpga_vendor_init.h"
 
 void fpga_init(fpga_t *f, const fpga_axis_cfg_t axcfg[NAXES])
 {
@@ -45,8 +44,12 @@ void fpga_init(fpga_t *f, const fpga_axis_cfg_t axcfg[NAXES])
 	 *    position restore (the FPGA keeps its counters while powered) */
 	int sel = 0x0F;
 	for (int i = 0; i < FPGA_VENDOR_INIT_N; i++) {
-		uint8_t a = (uint8_t)FPGA_VENDOR_INIT[i][0];
-		uint16_t v = FPGA_VENDOR_INIT[i][1];
+		uint8_t a = FPGA_VENDOR_INIT[i].addr;
+		uint16_t v = FPGA_VENDOR_INIT[i].val;
+		/* the vendor's own pauses are part of the sequence: 0x44 resets the block-motion
+		 * engine and it needs ~50 ms before it takes configuration (2026-11-02, bisected on
+		 * the unit: replayed back to back, every block stream ended in the halted FPGA) */
+		bus_settle(f->bus, FPGA_VENDOR_INIT[i].wait_us);
 		bool banked = sel >= 0 && sel < NAXES;
 		if (a == FW_AXIS_SEL) sel = v;
 		if (banked && (a == FW_PRESET_LO || a == FW_PRESET_LO + 1 || a == FW_POS_PRESET)) continue;

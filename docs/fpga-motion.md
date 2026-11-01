@@ -220,6 +220,29 @@ full** - `fpga_block_queue` keeps the 9th bit, nothing is pushed at `FPGA_QUEUE_
 and blocks queued with nothing playing for 300 ms is reported as a fault. (3) The halted
 state survived the vendor init and the mode writes; a power cycle clears it.
 
+**The post-stream halt is an INITIALISATION problem (2026-11-02, ~25 power cycles via the
+Home Assistant plug, `tools/blockmove.c` knobs `IDLE_MS`/`ENDSWEEP`/`ENDMODE`/`ENDCTRL`/
+`NOHB`/`NOREAD_MS`/`REOPEN`/`X3E`/`INIT_FILE`)**. With the FPGA initialised by the vendor
+app (boot with `USE_VENDOR`, kill it), streams end cleanly and `0x36` reads 0 afterwards,
+however many in a row; register `0x00` reads `0x0000` idle and `0x1000` at the moment the
+last block finishes (the vendor acknowledges that with `R 01; W 2e=0; W 00=0..3`). After
+Sea Otter's `fpga_init` the same stream plays exactly, register `0x00` reads `0x0800` from
+the start, and ~150 ms after the drain the FPGA halts (`0x36 = 0x100`). Nothing done after
+the drain changes that - measured dead ends: the vendor's acknowledge at +0 ms, mode
+`0x20` at +0 / +110 ms, the two end control blocks, no `0x67` heartbeat, the `0x23/0x24`
+clock pair every 100 ms, no reads at all for 1 s, close/reopen of `/dev/motion`,
+`0x3e=1`, the position preset per axis. Bisecting Sea Otter's init table on a vendor-
+initialised FPGA found write #56 (`0x44=0`, a reset line of the block engine; the
+`0x44..0x48` writes are a bit-banged serial configuration, `0x40` the read-back): replayed
+back to back it poisons the FPGA, replayed with the vendor's own pauses (51 ms after
+`0x44=1`, 50/250 ms after `0x45` writes - `vendor_start_reads.log` has the time stamps,
+the old writes-only capture did not) it does not. `fpga_init` now honours those pauses
+(`fpga_init_write_t.wait_us`, `bus_settle`). **That is not yet enough on a freshly powered
+FPGA**: local-340's init still leaves `0x00 = 0x0800` and the first stream halts, while
+the vendor's init on the same fresh FPGA does not. Open: what else differs - the reads
+inside the serial sequence (replay with reads built, untested), the substituted registers
+on a fresh FPGA, or something the vendor app writes after its init table ends.
+
 **Caveats found**: the very first run after killing the vendor app mid-session counted
 double (800 for 400 steps) — never again in ~30 runs, including with the whole queue pushed
 at once; treat it as stale FPGA state from the kill. A mid-stream *stop* (`0x04 = 4`) is
