@@ -7,6 +7,7 @@
 #include "ui/ui.h"
 #include "sim/fpga_sim.h"
 #include "hal/display.h"
+#include "net/api_message.h"
 
 static fb_t fb;
 
@@ -422,6 +423,37 @@ void test_ui(void)
 		ui_key(K_ENTER); CHECK(C.m == M_RUN && WD.loaded_tool == 4);
 		fx_until_idle(30000);
 		CHECK(C.m == M_IDLE);
+	}
+	/* HMI message (net/api_message.h): posted over the API, boxed on every screen, Shift+F7
+	 * acknowledges it - and only that, not the usual "back to the last screen" */
+	{
+		char o[1600];
+		HMSG.id = 0;
+		CHECK(api_message("GET", NULL, o, sizeof o) == 200 && !strcmp(o, "{\"id\":0}"));
+		CHECK(api_message("POST", "{\"text\":\"  \"}", o, sizeof o) == 400);
+		CHECK(api_message("POST", "{\"button\":\"Go\"}", o, sizeof o) == 400);
+		CHECK(api_message("POST", "{\"text\":\"first\"}", o, sizeof o) == 200 && !strcmp(HMSG.button, "OK"));   /* default label */
+		unsigned id0 = HMSG.id;
+		const char *body = "{\"text\":\"Turn the part over and clamp it on the left fence, the long edge against the stops. "
+			"Check that the vise jaw is clear of the \\\"Ø6\\\" drill path before you acknowledge.\\nThen step back from the machine.\","
+			"\"button\":\"Part clamped\"}";
+		CHECK(api_message("POST", body, o, sizeof o) == 200 && HMSG.id == id0 + 1 && strstr(o, "\"ok\":true"));   /* replaces it */
+		CHECK(strchr(HMSG.text, '\n') && strstr(HMSG.text, "\"Ø6\"") && !strcmp(HMSG.button, "Part clamped"));
+		CHECK(api_message("GET", NULL, o, sizeof o) == 200 && strstr(o, "\"acked\":false") && strstr(o, "acknowledge.\\nThen") && strstr(o, "\"button\":\"Part clamped\""));
+		hmsg_json(o, sizeof o, false);                    /* what /status carries */
+		CHECK(strstr(o, "\"acked\":false") && !strstr(o, "text"));
+		U.screen = SCR_FILES; U.last_screen = SCR_RUN;
+		ui_key(K_F7); CHECK(U.pagesel); ui_key(K_F7); CHECK(!U.pagesel);   /* plain F7 is still the screen menu */
+		ui_key(K_SHIFT);
+		snap("30_hmi_message");
+		ui_key(K_F7);
+		CHECK(HMSG.acked && !hmsg_pending() && U.screen == SCR_FILES && !U.shift);
+		CHECK(api_message("GET", NULL, o, sizeof o) == 200 && strstr(o, "\"acked\":true") && strstr(o, "Part clamped"));
+		ui_key(K_SHIFT); ui_key(K_F7);                    /* nothing pending: Shift+F7 is "last screen" again */
+		CHECK(U.screen == SCR_RUN);
+		char big[800]; memset(big, 'x', sizeof big); memcpy(big, "{\"text\":\"", 9); memcpy(big + sizeof big - 3, "\"}", 3);
+		CHECK(api_message("POST", big, o, sizeof o) == 400 && HMSG.acked);   /* too long: refused, the old record stays */
+		CHECK(api_message("DELETE", NULL, o, sizeof o) == 200 && HMSG.id == 0);
 	}
 	free(fb.px);
 }

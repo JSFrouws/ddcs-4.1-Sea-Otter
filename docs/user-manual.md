@@ -54,7 +54,7 @@ Remote access with a password: [ssh-setup.md](ssh-setup.md).
 |---|---|
 | **Mode** | Run ↔ Jog. Jog is locked while a program runs or holds (not during a tool change). |
 | **F7 Page R** | Opens the **screen menu**: the soft keys become the screens, press one to go there (see below). Page R again or Cancel closes it |
-| **Shift + F7** | Back to the last screen |
+| **Shift + F7** | Back to the last screen. While a **message box** is up: acknowledges it instead (below) |
 | **Tab** | Next pane on the screen (e.g. Toolpath ↔ Program) |
 | **Shift** | ALT layer for the next key (lit while active): touch-off, second functions (below) |
 | **Y± / X±** | Move in lists and tables; jog in Jog |
@@ -82,6 +82,13 @@ Jog isn't in the menu: **Mode** goes there directly. While something moves, F2 a
 | Work | | | | **Job: none** (clears every JOB mark) | | |
 
 A running program still pauses with F2 and resets with F3, Shift or not.
+
+**Message box.** Someone working remotely can put an instruction on the screen over the
+network (amber box above the soft keys, on whatever screen you are on, headed *MESSAGE FOR
+THE OPERATOR*). Do what it says, then press **Shift**, then **F7**: the line at the bottom
+says what that confirms (*Shift+F7: Part clamped*). The box goes and the sender sees it
+done. While the box is up, Shift + F7 only acknowledges; it does not change the screen.
+Every other key works as usual, F2 Pause and F3 Reset included.
 
 ## 3. Daily procedure
 

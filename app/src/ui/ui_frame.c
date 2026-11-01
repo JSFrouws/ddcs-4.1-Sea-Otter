@@ -1,8 +1,10 @@
 /* Screen frame: top bar, banner, the 8 soft-key boxes (F1-F7 above their keys, the
- * 8th above GOTO 0 shows build date + pipeline id), the Tab/Shift/Mode strip, toast. */
+ * 8th above GOTO 0 shows build date + pipeline id), the Tab/Shift/Mode strip, the HMI
+ * message, toast. */
 #include <stdio.h>
 #include <string.h>
 #include "ui.h"
+#include "../net/api_message.h"
 
 #ifndef BUILD_ID
 #define BUILD_ID "dev"
@@ -189,6 +191,7 @@ static void side_strip(fb_t *fb)
 		else snprintf(s2, sizeof s2, "axis = 0");
 	} else if (U.screen == SCR_RUN || U.screen == SCR_JOG) { snprintf(s1, sizeof s1, "ALT"); snprintf(s2, sizeof s2, "2nd functions F1-F6"); }
 	else { snprintf(s1, sizeof s1, "ALT"); snprintf(s2, sizeof s2, "reverse Tab, last screen"); }
+	if (hmsg_pending()) snprintf(s2, sizeof s2, "then F7 = message OK");
 	if (U.shift) { char t[96]; snprintf(t, sizeof t, "ON · %.80s", s2); snprintf(s2, sizeof s2, "%s", t); }
 	bool lock = ctl_busy() && U.screen != SCR_JOG;
 	side_label(fb, 166, "TAB", tab, tsub, U.ed.on ? 2 : 0);
@@ -234,6 +237,63 @@ static void tc_prompt(fb_t *fb)
 	gfx_text_r(fb, &font_16, x + bw - 18, y + bh - 34, COL_DIM, "Cancel = stay here");
 }
 
+/* The HMI message (net/api_message.h): on every screen, above the toast, until Shift+F7.
+ * Word-wrapped; a word wider than the box is broken, more than MAXL lines end in "…". */
+enum { MSG_MAXL = 8, MSG_LW = 160 };
+static int wrap(const char *s, const font_t *fn, int maxw, char out[][MSG_LW], bool *more)
+{
+	int n = 0;
+	char cur[MSG_LW] = "", t[MSG_LW];
+#define PUSH() (snprintf(out[n++], MSG_LW, "%s", cur), cur[0] = 0)
+	while (*s && n < MSG_MAXL) {
+		if (*s == '\n') { PUSH(); s++; continue; }
+		size_t wl = strcspn(s, " \n"), cl = strlen(cur);
+		if (wl > MSG_LW - 10) wl = MSG_LW - 10;
+		int tl = snprintf(t, sizeof t, "%s%s%.*s", cur, cl ? " " : "", (int)wl, s);
+		if (tl < MSG_LW - 1 && gfx_text_w(fn, t) <= maxw) { memcpy(cur, t, (size_t)tl + 1); s += wl; while (*s == ' ') s++; continue; }
+		if (cl) { PUSH(); continue; }                  /* the word starts the next line */
+		size_t k = 0;                                 /* one word wider than the box: what fits */
+		while (k < wl) {
+			size_t c = 1;
+			while (k + c < wl && ((unsigned char)s[k + c] & 0xC0) == 0x80) c++;
+			memcpy(t, s, k + c); t[k + c] = 0;
+			if (k && gfx_text_w(fn, t) > maxw) break;
+			k += c;
+		}
+		memcpy(cur, s, k); cur[k] = 0; s += k; PUSH();
+	}
+	if (cur[0] && n < MSG_MAXL) PUSH();
+#undef PUSH
+	*more = *s != 0;
+	return n;
+}
+
+static void hmi_message(fb_t *fb)
+{
+	if (!hmsg_pending()) return;
+	char ln[MSG_MAXL][MSG_LW], b[MSG_LW + 48];
+	const font_t *fn = &font_20;
+	int bw = CONTENT_W - 60, x = 30, tw = bw - 44;
+	bool more;
+	int n = wrap(HMSG.text, fn, tw, ln, &more), lh = fn->height + 4;
+	int bh = 40 + n * lh + 52, y = SCR_H - SK_H - 48 - bh, top = BODY_Y + ui_banner_h() + 6;
+	if (y < top) y = top;
+	gfx_fill(fb, x, y, bw, bh, RGB(0x06, 0x14, 0x2a));
+	gfx_fill(fb, x, y, bw, 32, gfx_mix(RGB(0x06, 0x14, 0x2a), COL_AMBER, 5));
+	for (int i = 0; i < 3; i++) gfx_rect(fb, x + i, y + i, bw - 2 * i, bh - 2 * i, COL_AMBER);   /* hard to miss */
+	gfx_text(fb, &font_16, x + 18, y + 7, COL_AMBER, "MESSAGE FOR THE OPERATOR");
+	snprintf(b, sizeof b, "#%u", HMSG.id);
+	gfx_text_r(fb, &font_14, x + bw - 18, y + 8, COL_DIM, b);
+	for (int i = 0; i < n; i++) {
+		if (more && i == n - 1) { snprintf(b, sizeof b, "%.150s …", ln[i]); gfx_text_fit(fb, fn, x + 22, y + 42 + i * lh, tw, COL_TXT, b); }
+		else gfx_text(fb, fn, x + 22, y + 42 + i * lh, COL_TXT, ln[i]);
+	}
+	gfx_fill(fb, x + 12, y + bh - 44, bw - 24, 1, COL_EDGE);
+	snprintf(b, sizeof b, "Shift+F7: %s", HMSG.button);
+	gfx_text_fit(fb, &font_20, x + 22, y + bh - 36, bw - 260, COL_AMBER, b);
+	gfx_text_r(fb, &font_14, x + bw - 18, y + bh - 31, COL_DIM, U.shift ? "now press F7" : "press Shift, then F7");
+}
+
 void ui_frame(fb_t *fb, const sk_t sk[7])
 {
 	topbar(fb);
@@ -241,5 +301,6 @@ void ui_frame(fb_t *fb, const sk_t sk[7])
 	softkeys(fb, sk);
 	side_strip(fb);
 	tc_prompt(fb);
+	hmi_message(fb);
 	toast(fb);
 }
