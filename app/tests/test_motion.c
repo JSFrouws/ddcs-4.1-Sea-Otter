@@ -74,11 +74,12 @@ void test_motion(void)
 	/* pendant nudges: 0.001 mm counts add up exactly */
 	double x0 = m->pos[0];
 	for (int i = 0; i < 37; i++) motion_nudge(m, 0, 0.001);
-	fx_run(50);
-	double at50 = phys(0);
-	fx_run(50);                                        /* accel-only ramp (2026-10-31): the first burst
-	                                                    * is long enough to defer the next slice's */
-	printf("  37 x 0.001 mm nudges: %.4f of 0.037 mm after 50 ms, %.4f after 100 ms\n", at50 - x0, phys(0) - x0);
+	fx_run(100);
+	double at100 = phys(0);
+	fx_run(900);                                       /* pendant.smooth_ms 200 (2026-11-01): the queue
+	                                                    * settles exponentially, floor 0.05 mm/s */
+	printf("  37 x 0.001 mm nudges: %.4f of 0.037 mm after 100 ms, %.4f after 1 s\n", at100 - x0, phys(0) - x0);
+	CHECK(at100 - x0 > 0.005 && at100 - x0 < 0.030);   /* under way, not done: a gentle move */
 	CHECK_NEAR(phys(0), x0 + 0.037, 0.00051);
 
 	/* a long rapid: bursts respect the FPGA ceiling measured on the unit (40 000 steps/s) */

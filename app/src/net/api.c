@@ -16,6 +16,7 @@
 #include "../sim/fpga_sim.h"
 #include "../ui/ui.h"
 #include "../perf.h"
+#include "api_message.h"
 
 extern const char WEB_PANEL[];
 extern const unsigned WEB_PANEL_LEN;
@@ -89,10 +90,11 @@ static void doit(http_resp_t *r, cmd_t c, const arg_t *a)
 
 static void status(http_resp_t *r)
 {
-	char pos[NAXES][48], wp[NAXES][48], nm[160], msg[200];
+	char pos[NAXES][48], wp[NAXES][48], nm[160], msg[200], hm[128];
 	for (int a = 0; a < NAXES; a++) { snprintf(pos[a], 48, "%.4f", C.mo.pos[a]); snprintf(wp[a], 48, "%.4f", ctl_work(a)); }
 	json_escape(nm, sizeof nm, C.prog.name);
 	json_escape(msg, sizeof msg, C.msg);
+	hmsg_json(hm, sizeof hm, false);                     /* the HMI message, short: id, acked, button */
 	char dw[200], mac[100];
 	json_escape(dw, sizeof dw, C.driver_warn);
 	json_escape(mac, sizeof mac, C.macro_on ? C.macro_name : "");
@@ -108,7 +110,7 @@ static void status(http_resp_t *r)
 		"\"posChecks\":%u,\"posFaults\":%u,\"posErr\":[%d,%d,%d,%d],\"faultLine\":%d,\"busErrors\":%u,\"busRetries\":%u,\"busErrno\":%d,\"reversalsWaited\":%u,\"bursts\":%u,"
 		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u},\"tool\":{\"loaded\":%d,\"changeTo\":%d,\"confirm\":%s},\"jobPart\":\"%s\",\"estimate\":{\"seconds\":%.0f,\"remaining\":%s,\"feed\":%d,\"exact\":%s},\"inputs\":%u,\"pendant\":{\"raw\":%u,\"held\":%s,\"axis\":%d,\"mult\":%d,\"estop\":%s,\"wheel\":%d},"
 		"\"drives\":{\"on\":%s,\"enableOut\":\"%s\",\"enableOn\":\"%s\"},\"outputs\":%u,\"axisOutputs\":{\"x\":\"%s\",\"y\":\"%s\",\"z\":\"%s\",\"a\":\"%s\"},\"blockedBursts\":%u,"
-		"\"message\":\"%s\",\"driverWarning\":\"%s\",\"macro\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
+		"\"message\":\"%s\",\"hmiMessage\":%s,\"driverWarning\":\"%s\",\"macro\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
 		STATE_NAMES[C.m], C.homed ? "true" : "false", pos[0], pos[1], pos[2], pos[3], wp[0], wp[1], wp[2], wp[3], 54 + WD.active,
 		nm, C.prog.loaded ? "true" : "false", C.prog.nlines, ctl_cur_line() + 1,
 		C.mo.feed_ov, rapid_override(C.mo.feed_ov), C.mo.spin_ov, C.mo.applied_pct, C.spindle ? "true" : "false", C.rpm, C.coolant,
@@ -123,7 +125,7 @@ static void status(http_resp_t *r)
 		(unsigned)C.inputs, (unsigned)C.pend.raw, C.pend.held ? "true" : "false", C.pend.axis, C.pend.mult, C.pend.estop ? "true" : "false", (int)U.wheel_total,
 		C.m != M_OFF ? "true" : "false", OUTN[CLAMP(SET.out_enable, 0, 3)], SET.enable_level ? "high" : "low", (unsigned)C.fp.outputs,
 		AXO[CLAMP(SET.ax[0].output, 0, 4)], AXO[CLAMP(SET.ax[1].output, 0, 4)], AXO[CLAMP(SET.ax[2].output, 0, 4)], AXO[CLAMP(SET.ax[3].output, 0, 4)], C.mo.blocked,
-		msg, dw, mac, C.sim ? "sim" : "real", DSP ? DSP->frame_no : 0);
+		msg, hm, dw, mac, C.sim ? "sim" : "real", DSP ? DSP->frame_no : 0);
 }
 
 static void settings_json(http_resp_t *r)
@@ -374,7 +376,7 @@ void api_handle(const http_req_t *q, http_resp_t *r)
 		const char *enc = "none";
 		r->status = 200; r->type = "application/octet-stream";
 		if (since == DSP->frame_no) { r->static_body = ""; r->len = 0; }
-		else { r->static_body = frame_encoded(&r->len, &enc); }
+		else STALL_WATCH("frame-encode", r->static_body = frame_encoded(&r->len, &enc));
 		snprintf(h, sizeof h, "X-Frame: %u\r\nX-Leds: %u\r\nX-Enc: %s\r\n", DSP->frame_no, (unsigned)ui_leds(), enc);
 		r->extra_headers = h;
 		return;
@@ -403,6 +405,13 @@ void api_handle(const http_req_t *q, http_resp_t *r)
 		}
 		k += (size_t)snprintf(o + k, cap - k, "]}");
 		r->body = o; r->len = k; r->status = 200; r->type = "application/json";
+		return;
+	}
+	if (!strcmp(p, "message")) {                         /* GET / POST / DELETE: net/api_message.c */
+		if ((post || del) && !allowed(r, SET.api_panel, "Panel messages and screens", "api.panel")) return;
+		char *o = malloc(1600);
+		r->status = api_message(q->method, b, o, 1600);
+		r->body = o; r->len = strlen(o); r->type = "application/json";
 		return;
 	}
 	if (!post && !del) {

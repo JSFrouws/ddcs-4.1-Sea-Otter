@@ -49,5 +49,9 @@ double est_span(const program_t *p, int a, int b, int ov);
  * otherwise the whole run. -1 = not known (no program, feed override 0 %), -2 = still being
  * worked out. */
 double est_now(bool *left);
+/* The start correction (the way from where the machine stands to the program's start) is
+ * normally worked out in the background once the machine has stood still for a second;
+ * this computes it now, in one go (tests, and anything that must not wait). */
+void est_settle(void);
 
 #endif

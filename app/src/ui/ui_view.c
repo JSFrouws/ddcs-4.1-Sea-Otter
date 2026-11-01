@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ui.h"
+#include "../perf.h"
 
 bool ui_view_key(pkey_t k)
 {
@@ -137,7 +138,7 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 	bool same = vc.px && vc.valid && !memcmp(key, vc.key, sizeof key) && vc.done_mode == done_mode && cur >= vc.cur && pick >= vc.pick
 		&& (!multi || (vc.focus == focus && vc.seg == C.job_seg && (running || vc.pick == pick)));
 	if (!same) {
-		draw_view(fb, x, y, w, h, mini);                  /* full draw, without the tool marker */
+		STALL_WATCH("view:draw", draw_view(fb, x, y, w, h, mini));   /* full draw, without the tool marker */
 		if (!vc.px) return;
 		vc.x0 = x0; vc.y0 = y0; vc.x1 = x1; vc.y1 = y1;
 		memcpy(vc.key, key, sizeof key); vc.done_mode = done_mode; vc.cur = cur; vc.valid = true;
@@ -145,9 +146,9 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 		while (vc.vi < pg->npv && pg->pv[vc.vi].line <= cur) vc.vi++;
 		vc.pick = pick; vc.pvi = 0; vc.focus = focus; vc.seg = C.job_seg;
 		while (vc.pvi < pg->npv && pg->pv[vc.pvi].line < pick) vc.pvi++;
-		cache_io(fb, true);
+		STALL_WATCH("view:cache-save", cache_io(fb, true));
 	} else {
-		cache_io(fb, false);
+		STALL_WATCH("view:cache-blit", cache_io(fb, false));
 		if (cur > vc.cur) {                              /* paint the newly done segments */
 			gfx_clip(fb, x0, y0, x1, y1);
 			proj_t p;

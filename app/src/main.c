@@ -234,10 +234,11 @@ int main(int argc, char **argv)
 			/* the wheel BEFORE the slice: a click read after it waited a whole tick (review 2026-10-31) */
 			int counts = fpga_wheel_delta(&C.fp);
 			ui_pendant(&C.pend, counts);
-			motion_slice();
+			STALL_WATCH("tick", motion_slice());
 			if (t - last_scan >= 20) {                          /* keys: 50 Hz, debounced over two scans */
 				last_scan = t;
-				uint32_t k = panel->scan(panel) | panel->sim_keys;   /* + keys from the browser panel */
+				uint32_t k;
+				STALL_WATCH("scan", k = panel->scan(panel) | panel->sim_keys);   /* + keys from the browser panel */
 				U.keys_raw = 0;                                   /* held keys, by key (I/O screen) */
 				for (int bb = 0; bb < 32; bb++) if ((k >> bb) & 1) { int key = panel_bit_to_key(bb); if (key > 0 && key < 32) U.keys_raw |= 1u << key; }
 				if (k == keys_cand && k != keys_prev) {
@@ -251,7 +252,7 @@ int main(int argc, char **argv)
 					keys_prev = k;
 				}
 				keys_cand = k;
-				panel->leds(panel, ui_leds());
+				STALL_WATCH("leds", panel->leds(panel, ui_leds()));
 			}
 			uint64_t s = signature();
 			/* jogs and wheel moves count as moving too: a full redraw (~40 ms in one piece) every
@@ -274,11 +275,11 @@ int main(int argc, char **argv)
 			if (!splash_until && (U.dirty || s != sig) && t - last_render >= gap) {
 				uint64_t r_us = now_us();
 				if (mv) motion_slice_ahead(CLAMP(PERF.draw_us_avg / 1000 + 5, TICK_MS, 40u));
-				ui_render(&dsp.back);
+				STALL_WATCH("render", ui_render(&dsp.back));
 				slice_if_due();                                   /* a frame is ~60 ms here: keep motion */
 				uint64_t p_us = now_us();                         /* ticking between its parts so no gap */
 				for (int band = 0; band < 4; band++) {            /* exceeds one 40 ms motion slice */
-					display_present_rows(&dsp, band * (SCR_H / 4), SCR_H / 4);
+					STALL_WATCH("present", display_present_rows(&dsp, band * (SCR_H / 4), SCR_H / 4));
 					slice_if_due();
 				}
 				dsp.frame_no++;
@@ -290,10 +291,10 @@ int main(int argc, char **argv)
 				last_render = t; sig = s;
 			}
 			/* three fsyncs (~0.5 s each on the eMMC): never with a hand on the wheel or an axis moving */
-			if (t - last_save > 30000 && (C.m == M_IDLE || C.m == M_LIMIT || C.m == M_OFF) && !C.pend.held && motion_idle(&C.mo)) { ctl_save(); last_save = t; }
+			if (t - last_save > 30000 && (C.m == M_IDLE || C.m == M_LIMIT || C.m == M_OFF) && !C.pend.held && motion_idle(&C.mo)) { STALL_WATCH("save", ctl_save()); last_save = t; }
 		}
 		int wait = (int)(g_next > now_ms() ? g_next - now_ms() : 0);
-		http_poll(wait);
+		STALL_WATCH("http", http_poll(wait));
 	}
 	ctl_save();
 	if (trace_f) trace_dump(trace_f);

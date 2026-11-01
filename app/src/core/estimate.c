@@ -259,18 +259,35 @@ static bool job_run(program_t *p, int budget_ms)
 	return true;
 }
 
+static bool prefix_run(const program_t *p, int budget_ms);
+static bool pfx_force;                                      /* est_settle: compute now, whatever moves */
+
 bool est_background(int budget_ms)
 {
 	program_t *p = &C.prog;
-	if (!p->loaded || !p->text || p->exact_cum || (p->est_cum && !J.on)) { if (J.on && (!p->loaded || J.gen != p->gen)) job_stop(); return true; }
+	if (!p->loaded || !p->text || p->exact_cum || (p->est_cum && !J.on)) {
+		if (J.on && (!p->loaded || J.gen != p->gen)) job_stop();
+		return prefix_run(p, budget_ms);                    /* the start correction, same budget */
+	}
 	if (!J.on || J.gen != p->gen) if (!job_start(p)) return true;
 	return job_run(p, budget_ms);
 }
+
+static void prefix_update(const program_t *p);
 
 void est_compute(program_t *p)
 {
 	if (!p->loaded || !p->text) return;
 	if (job_start(p)) job_run(p, -1);
+	prefix_update(p); prefix_run(p, -1);                    /* the start correction too, in one go */
+}
+
+void est_settle(void)
+{
+	program_t *p = &C.prog;
+	if (!p->loaded || !p->text) return;
+	pfx_force = true; prefix_update(p); pfx_force = false;
+	prefix_run(p, -1);
 }
 
 /* the model's time for lines [a, b) at override ov % */
@@ -322,72 +339,124 @@ static struct {
 static gc_op_t pfx_a[PFX_OPS], pfx_b[PFX_OPS];
 static motion_t pfx_m;
 
-/* replay a list of ops through the executor from `start`; per-line times into cum (optional) */
-static double replay_list(const gc_op_t *ops, int n, const double start[NAXES], float *cum, int nl)
+/* The correction is computed as a background job (a few ms per tick from est_background),
+ * never inline: the scan plus two replays took 535-920 ms on the unit (4928 lines,
+ * 2026-11-01), and the wheel moves the start on every click, so it ran between clicks from
+ * the run screen's redraw and from every /status poll and stalled the pendant for half a
+ * second each time. The old correction serves until the new one is in. */
+static struct {
+	int stage;                            /* 0 idle, 1 scanning ops, 2 replaying from S, 3 from P */
+	uint32_t gen; int wcs; double pos[NAXES], off[NAXES], s[NAXES];   /* the start it is for */
+	gc_t ga, gb; int n, met_line, end;
+	int i, filled; long ticks; bool fed; double tS;
+	float cumP[PFX_LINES + 1];
+} PW;
+
+static bool pfx_for(uint32_t gen, int wcs, const double pos[NAXES], const double off[NAXES], const double *p0, const double *o0)
+{
+	if (gen != PW.gen || wcs != PW.wcs || memcmp(off, o0, NAXES * sizeof *off)) return false;
+	for (int a = 0; a < NAXES; a++) if (fabs(pos[a] - p0[a]) >= 0.01) return false;
+	return true;
+}
+
+static void pw_replay_begin(const double start[NAXES])
 {
 	motion_init(&pfx_m, NULL, start);
 	pfx_m.dry = true;
-	int i = 0, filled = 0;
-	bool fed = false;
-	long ticks = 0;
-	for (;;) {
-		while (!fed && motion_space(&pfx_m) > 4) {
-			if (i < n) motion_push(&pfx_m, &ops[i++]);
-			else { gc_op_t e = { .kind = OP_END, .line = -1 }; if (motion_push(&pfx_m, &e)) fed = true; break; }
-		}
-		motion_tick(&pfx_m, REPLAY_DT);
-		ticks++;
-		int ln = pfx_m.line;
-		if (cum && ln >= 0 && ln < nl) while (filled < ln) cum[++filled] = (float)((ticks - 1) * REPLAY_DT);
-		mev_t ev = pfx_m.ev;
-		if (ev == MEV_END || ticks > 360000) break;
-		if (ev != MEV_NONE) { pfx_m.ev = MEV_NONE; if (ev == MEV_PAUSE) pfx_m.hold = false; }
+	PW.i = 0; PW.filled = 0; PW.ticks = 0; PW.fed = false;
+}
+
+/* one tick of the replay of ops[0..n) through the executor; per-line times into cum (optional) */
+static bool pw_replay_tick(const gc_op_t *ops, int n, float *cum, int nl)
+{
+	while (!PW.fed && motion_space(&pfx_m) > 4) {
+		if (PW.i < n) motion_push(&pfx_m, &ops[PW.i++]);
+		else { gc_op_t e = { .kind = OP_END, .line = -1 }; if (motion_push(&pfx_m, &e)) PW.fed = true; break; }
 	}
-	double t = ticks * REPLAY_DT;
-	if (cum) while (filled < nl) cum[++filled] = (float)t;
+	motion_tick(&pfx_m, REPLAY_DT);
+	PW.ticks++;
+	int ln = pfx_m.line;
+	if (cum && ln >= 0 && ln < nl) while (PW.filled < ln) cum[++PW.filled] = (float)((PW.ticks - 1) * REPLAY_DT);
+	mev_t ev = pfx_m.ev;
+	if (ev == MEV_END || PW.ticks > 360000) return true;
+	if (ev != MEV_NONE) { pfx_m.ev = MEV_NONE; if (ev == MEV_PAUSE) pfx_m.hold = false; }
+	return false;
+}
+
+static double pw_replay_end(float *cum, int nl)
+{
+	double t = PW.ticks * REPLAY_DT;
+	if (cum) while (PW.filled < nl) cum[++PW.filled] = (float)t;
 	return t;
 }
 
-/* (re)compute the start correction for the machine's position now, if anything changed */
+/* no correction for this start (never met, too long): remember that, so it is not retried
+ * until the start moves */
+static void pw_none(void)
+{
+	PFX.valid = false; PFX.gen = PW.gen; PFX.wcs = PW.wcs;
+	memcpy(PFX.pos, PW.pos, sizeof PFX.pos); memcpy(PFX.off, PW.off, sizeof PFX.off);
+	PW.stage = 0;
+}
+
+/* the prefix job, budget_ms at a time; true when nothing is pending */
+static bool prefix_run(const program_t *p, int budget_ms)
+{
+	if (!PW.stage) return true;
+	if (!p->loaded || PW.gen != p->gen) { PW.stage = 0; return true; }
+	uint64_t t0 = now_ms();
+	for (int k = 1;; k++) {
+		if (budget_ms >= 0 && (k & 7) == 0 && now_ms() - t0 >= (uint64_t)budget_ms) return false;
+		if (PW.stage == 1) {
+			if (PW.n >= PFX_OPS) { pw_none(); return true; }
+			int ra = gc_next(&PW.ga, &pfx_a[PW.n]), rb = gc_next(&PW.gb, &pfx_b[PW.n]);
+			if (ra <= 0 || rb <= 0) { pw_none(); return true; }   /* never met (or the end): no correction */
+			if (PW.met_line >= 0 && pfx_a[PW.n].line > PW.met_line) {   /* the rest of the meeting line is in too */
+				PW.end = PW.met_line + 1;                 /* the paths are the same from this line on */
+				if (PW.end > PFX_LINES || PW.end > p->nlines) { pw_none(); return true; }
+				pw_replay_begin(PW.s); PW.stage = 2;      /* both beginnings, whole lines up to and including the meeting line */
+				continue;
+			}
+			if (PW.met_line < 0) {
+				bool met = pfx_a[PW.n].kind == OP_LINE && pfx_b[PW.n].kind == OP_LINE;
+				/* X Y Z only: an axis the program never moves (A, found on the unit at 82.4 deg) would
+				 * never meet, and costs no time either */
+				for (int a = 0; a < 3 && met; a++) met = fabs(pfx_a[PW.n].end[a] - pfx_b[PW.n].end[a]) < 1e-6;
+				if (met) PW.met_line = pfx_a[PW.n].line;
+			}
+			PW.n++;
+		} else if (PW.stage == 2) {
+			if (pw_replay_tick(pfx_a, PW.n, NULL, 0)) { PW.tS = pw_replay_end(NULL, 0); pw_replay_begin(PW.pos); PW.stage = 3; }
+		} else {
+			if (pw_replay_tick(pfx_b, PW.n, PW.cumP, PW.end)) {
+				PFX.tP = pw_replay_end(PW.cumP, PW.end); PFX.tS = PW.tS;
+				memcpy(PFX.cumP, PW.cumP, sizeof PFX.cumP);
+				PFX.end_line = PW.end; PFX.gen = PW.gen; PFX.wcs = PW.wcs;
+				memcpy(PFX.pos, PW.pos, sizeof PFX.pos); memcpy(PFX.off, PW.off, sizeof PFX.off);
+				PFX.valid = true; PW.stage = 0;
+				return true;
+			}
+		}
+	}
+}
+
+/* start the correction for the machine's position now, if anything changed */
 static void prefix_update(const program_t *p)
 {
 	const double *off = WD.wcs[WD.active].off;
-	if (PFX.valid && PFX.gen == p->gen && !motion_idle(&C.mo)) return;   /* jogging: once it stands still */
-	if (PFX.valid && PFX.gen == p->gen && PFX.wcs == WD.active && !memcmp(PFX.off, off, sizeof PFX.off)) {
-		bool same = true;
-		for (int a = 0; a < NAXES; a++) same &= fabs(PFX.pos[a] - C.mo.pos[a]) < 0.01;
-		if (same) return;
-	}
-	PFX.valid = false; PFX.gen = p->gen; PFX.wcs = WD.active;
-	memcpy(PFX.off, off, sizeof PFX.off); memcpy(PFX.pos, C.mo.pos, sizeof PFX.pos);
-	double s[NAXES];
-	for (int a = 0; a < NAXES; a++) s[a] = off[a];
-	s[AX_Z] = off[AX_Z] + SET.safe_z;
-	static gc_t ga, gb;
-	gc_begin(&ga, p->text, p->len, s);
-	gc_begin(&gb, p->text, p->len, C.mo.pos);
-	int n = 0, met_line = -1;
-	while (n < PFX_OPS) {
-		int ra = gc_next(&ga, &pfx_a[n]), rb = gc_next(&gb, &pfx_b[n]);
-		if (ra <= 0 || rb <= 0) return;                     /* never met (or the end): no correction */
-		if (met_line >= 0 && pfx_a[n].line > met_line) break;   /* the rest of the meeting line is in too */
-		if (met_line < 0) {
-			bool met = pfx_a[n].kind == OP_LINE && pfx_b[n].kind == OP_LINE;
-			/* X Y Z only: an axis the program never moves (A, found on the unit at 82.4 deg) would
-			 * never meet, and costs no time either */
-			for (int a = 0; a < 3 && met; a++) met = fabs(pfx_a[n].end[a] - pfx_b[n].end[a]) < 1e-6;
-			if (met) met_line = pfx_a[n].line;
-		}
-		n++;
-	}
-	if (n >= PFX_OPS || met_line < 0) return;
-	int end = met_line + 1;                                 /* the paths are the same from this line on */
-	if (end > PFX_LINES || end > p->nlines) return;
-	/* both beginnings, whole lines up to and including the line where they meet */
-	PFX.tS = replay_list(pfx_a, n, s, NULL, 0);
-	PFX.tP = replay_list(pfx_b, n, C.mo.pos, PFX.cumP, end);
-	PFX.end_line = end;
-	PFX.valid = true;
+	static uint64_t settled;                                /* last seen moving, or the wheel held */
+	bool busy = !motion_idle(&C.mo) || C.pend.held;
+	if (busy) settled = now_ms();
+	if (pfx_for(p->gen, WD.active, C.mo.pos, off, PFX.pos, PFX.off) && PFX.gen == p->gen) return;   /* have it (or know there is none) */
+	if (PW.stage && pfx_for(p->gen, WD.active, C.mo.pos, off, PW.pos, PW.off)) return;             /* on its way */
+	if (!pfx_force && (busy || now_ms() - settled < 1000)) return;   /* not with a hand on the wheel: once it stands still */
+	PW.gen = p->gen; PW.wcs = WD.active;
+	memcpy(PW.off, off, sizeof PW.off); memcpy(PW.pos, C.mo.pos, sizeof PW.pos);
+	for (int a = 0; a < NAXES; a++) PW.s[a] = off[a];
+	PW.s[AX_Z] = off[AX_Z] + SET.safe_z;
+	gc_begin(&PW.ga, p->text, p->len, PW.s);
+	gc_begin(&PW.gb, p->text, p->len, PW.pos);
+	PW.n = 0; PW.met_line = -1; PW.stage = 1;
 }
 
 /* idle: what the start adds (or saves) */

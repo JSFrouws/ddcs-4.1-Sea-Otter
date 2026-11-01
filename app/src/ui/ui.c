@@ -3,6 +3,8 @@
 #include <string.h>
 #include <strings.h>
 #include "ui.h"
+#include "../perf.h"
+#include "../net/api_message.h"
 
 ui_t U;
 void (*ui_yield)(void);
@@ -87,6 +89,9 @@ void ui_key(pkey_t k)
 	U.dirty = true;
 	bool sh = U.shift;
 	bool moving = ctl_busy() || !motion_idle(&C.mo);
+	/* the HMI message box is up: Shift+F7 acknowledges it on every screen (even over the digit
+	 * editor) and does nothing else - not "last screen", which would yank the page away */
+	if (k == K_F7 && sh && hmsg_pending()) { U.shift = false; hmsg_ack(); ctl_toast(false, "Message acknowledged: %s", HMSG.button); return; }
 	if (U.ed.on && (k == K_F2 || k == K_F3) && moving) U.ed.on = false;   /* Pause / Reset always work: the edit is dropped */
 	if (U.ed.on) {
 		if (k == K_SHIFT) U.shift = !U.shift;
@@ -144,9 +149,9 @@ void ui_render(fb_t *fb)
 	sk_t sk[7];
 	memset(sk, 0, sizeof sk);
 	gfx_noclip(fb);
-	gfx_vgrad(fb, 0, 0, SCR_W, 140, COL_BG0, COL_BG1);
-	gfx_fill(fb, 0, 140, SCR_W, SCR_H - 140, COL_BG1);
-	if (ui_yield) ui_yield();                            /* the long draws outside the toolpath yield too (2026-10-31) */
+	STALL_WATCH("render:bg", { gfx_vgrad(fb, 0, 0, SCR_W, 140, COL_BG0, COL_BG1);
+	gfx_fill(fb, 0, 140, SCR_W, SCR_H - 140, COL_BG1); });
+	if (ui_yield) STALL_WATCH("render:yield", ui_yield());   /* the long draws outside the toolpath yield too (2026-10-31) */
 	if (C.m == M_RUN && U.screen == SCR_JOG) U.screen = SCR_RUN;   /* started remotely while on Jog */
 	/* CPU saver ends on an E-stop or a limit: the operator needs to see where the tool is
 	 * (user requirement). It stays on ISO until changed again with F4. */
@@ -158,7 +163,7 @@ void ui_render(fb_t *fb)
 	last_m = C.m;
 	gfx_clip(fb, 0, BODY_Y + ui_banner_h(), CONTENT_W, SCR_H - SK_H);
 	switch (U.screen) {
-	case SCR_RUN: run_render(fb); run_sk(sk); break;
+	case SCR_RUN: STALL_WATCH("render:run", run_render(fb)); run_sk(sk); break;
 	case SCR_JOG: jog_render(fb); jog_sk(sk); break;
 	case SCR_FILES: files_render(fb); files_sk(sk); break;
 	case SCR_WORK: work_render(fb); work_sk(sk); break;
@@ -184,6 +189,7 @@ void ui_render(fb_t *fb)
 		sk[6] = (sk_t){ "Close", "" };
 	}
 	sk[6] = (sk_t){ "Page R", U.shift ? "last screen" : "screens" };
+	if (hmsg_pending()) sk[6] = (sk_t){ U.shift ? "Message" : "Page R", U.shift ? "acknowledge" : "Shift = msg OK", COL_AMBER };
 	if (U.pagesel) {                        /* the screen menu: F1-F6 = the screens */
 		for (int i = 0; i < 6; i++) sk[i] = (sk_t){ SCR_SHORT[PAGE_KEYS[i]], PAGE_KEYS[i] == U.screen ? "screen · here" : "screen" };
 		sk[6] = (sk_t){ "Page R", "close" };

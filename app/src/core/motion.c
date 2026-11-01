@@ -561,6 +561,16 @@ static void run_simple(motion_t *m, double dt)
 				if (fabs(m->nudge[a]) > cap) m->nudge[a] = s * cap;
 			}
 			dist = fmin(fabs(m->nudge[a]), r);
+			/* Speed follows the distance still to go: what is queued is covered in about
+			 * pendant.smooth_ms, so a single click is a gentle move, a steady turn becomes one
+			 * continuous move lagging the wheel by that time, and the stop is an exponential
+			 * settle instead of a stop-and-go per click (user 2026-11-01: "the machine makes
+			 * interrupted steps, it never sums them up"; 0.5 mm in 0.2 s is already too fast).
+			 * A floor keeps a tiny remainder from crawling: at least a 0.01 mm click's pace. */
+			if (SET.pendant_smooth_ms > 0) {
+				double tau = SET.pendant_smooth_ms / 1000.0;
+				vcap = fmin(vcap, fmax(dist / tau, fmax(0.01 / tau, 50.0 / SET.ax[a].steps_per_mm)));
+			}
 		} else if (fabs(m->jv[a]) < 1e-12) continue;
 		double step = follow(m, a, s, dist, vcap, dt);
 		m->pos[a] += step;

@@ -22,6 +22,7 @@ static const hint_t HINTS[] = {
 	{ "pendant.quick_ms", "A press of the dead-man shorter than this, without turning the wheel, counts as Enter on the focused item." },
 	{ "pendant.wheel_div", "How many raw wheel counts make one click (detent). Set it so one click is one step." },
 	{ "pendant.follow", "Exact: the axis moves every click, however long that takes (a fast spin runs on). Velocity: the axis stops about 100 ms after the wheel does and the clicks it could not keep up with are dropped." },
+	{ "pendant.smooth_ms", "The wheel's speed follows what is still queued: that distance is covered in about this time. A single click is a gentle move, a steady turn one continuous move lagging the wheel by this much, and the stop settles instead of jolting. 0 = every click at full speed." },
 	{ "jog.jerk", "Jerk for jogs and wheel moves only; programs use each axis' own jerk. 0 = acceleration only (a plain ramp): the quickest response to the wheel. A value softens the start and stop but adds that ramp time to every click." },
 	{ "limits.approach_pct", "Inside the approach zone - between the bench and the soft limit, at least 10 mm - jogs and wheel moves TOWARDS the nearer limit are capped at this % of the axis' max speed. Away from it the full speed stays. Braking distance grows with the square of the speed." },
 	{ "pendant.wheel_reverse", "Flips the wheel direction, so clockwise moves + and increases values on this pendant." },

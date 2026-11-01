@@ -85,10 +85,17 @@ void ui_pendant(const pendant_t *pd, int counts)
 	U.wheel_total += counts;
 	if (!SET.pendant) return;
 	int div = SET.wheel_div > 0 ? SET.wheel_div : 4;
-	if (SET.wheel_reverse) counts = -counts;     /* clockwise = +, everywhere: jog, values, lists */
-	U.wheel_rem += counts;
-	int detents = U.wheel_rem / div;
-	U.wheel_rem -= detents * div;
+	/* Detents from the ABSOLUTE count, not from a running remainder: the wheel rests at
+	 * multiples of `div` (trace 2026-11-01: every rest value was 0 mod 4), and a remainder
+	 * left over from the other direction ate the first click after every reversal - the
+	 * "ignores a step back". The boundary sits half a detent past rest, so a count of
+	 * jitter at rest cannot toggle it. U.wheel_rem holds the last detent index. */
+	int total = SET.wheel_reverse ? -U.wheel_total : U.wheel_total;   /* clockwise = +, everywhere */
+	int t2 = total + div / 2;
+	int idx = t2 >= 0 ? t2 / div : -((-t2 + div - 1) / div);
+	int detents = idx - U.wheel_rem;
+	U.wheel_rem = idx;
+	(void)counts;
 	static int held_axis = -1;                   /* the switch is only readable while held */
 	if (pd->held && !U.held) { U.held = true; U.held_t = now_ms(); U.held_counts = 0; }
 	int axis = ui_edit_modal() ? -1 : pd->axis;      /* see ui_edit_modal */

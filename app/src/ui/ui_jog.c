@@ -77,13 +77,15 @@ void jog_render(fb_t *fb)
 		gfx_text_r(fb, &font_16, sx + sw - 12, y - 1, COL_TXT, v[i]);
 	}
 	gfx_panel(fb, sx, top + 158, sw, h - 158, false);
+	/* three topics: the first line of each bright, the rest dim - a wrapped line that changed
+	 * colour mid-sentence read as a different message (user 2026-11-01) */
 	const char *hint[] = {
 		"Jog: X−  X+  Y+  Y−  ·  Cancel Z+  ·  Enter Z−", "Select A+  ·  Modify A−",
-		"Touch-off: Shift + the key you", "approached the part with.",
-		SET.edge_dia > 0 ? "With an edge Ø: axis = −dir·Ø/2;" : "No Ø set: the axis becomes 0.",
-		SET.edge_dia > 0 ? "same key again = 0 (centre)." : "", "Z touch-off always sets 0.",
+		"Touch-off: Shift + the key you approached with",
+		SET.edge_dia > 0 ? "With an edge Ø: axis = −dir·Ø/2," : "No Ø set: the axis becomes 0.",
+		SET.edge_dia > 0 ? "the same key again = 0 (centre)." : "", "Z touch-off always sets 0.",
 		"Pendant: hold + X Y Z 4 lights it, wheel jogs." };
-	for (size_t i = 0; i < ARRAY_LEN(hint); i++) gfx_text(fb, &font_12, sx + 12, top + 166 + (int)i * 19, i == 2 || i == 0 ? COL_TXT : COL_DIM, hint[i]);
+	for (size_t i = 0; i < ARRAY_LEN(hint); i++) gfx_text(fb, &font_12, sx + 12, top + 166 + (int)i * 19, i == 0 || i == 2 || i == 6 ? COL_TXT : COL_DIM, hint[i]);
 }
 
 void jog_sk(sk_t sk[7])

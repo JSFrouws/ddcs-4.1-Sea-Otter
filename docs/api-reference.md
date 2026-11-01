@@ -52,7 +52,7 @@ changed on the panel, never over the API. A switched-off action answers
 | `api.tools` | on | `tools/…` |
 | `api.settings` | on | `PUT settings`, `settings/defaults` |
 | `api.overrides` | on | `overrides` |
-| `api.panel` | on | `panel/toast`, `panel/instructions`, `panel/screen` |
+| `api.panel` | on | `panel/toast`, `panel/instructions`, `panel/screen`, `POST`/`DELETE message` (reading it is always allowed) |
 | `api.remote_start` | **off** | `run/start`, `run/resume-from`, `move/macro`, and Start during a tool change |
 | `api.jog` | **off** | `jog` |
 | `api.moves` | **off** | `machine/home`, `move/gotozero` (Goto 0 / Safe Z) |
@@ -127,7 +127,8 @@ Everything in one snapshot. Poll it (e.g. every 0.5–1 s).
   "perf": {"loops": 32533, "tickUs": 141, "tickUsMax": 9000, "renderUs": 50694,
            "renderUsMax": 340000, "drawUs": 26466, "presentUs": 24231, "gapMsMax": 4410,
            "motionMs": 344855, "lostMs": 0, "replanIters": 26556},
-  "message": "Program started", "driverWarning": "", "macro": "", "backend": "real", "frame": 10422
+  "message": "Program started", "hmiMessage": {"id": 3, "acked": false, "button": "Part clamped"},
+  "driverWarning": "", "macro": "", "backend": "real", "frame": 10422
 }
 ```
 
@@ -147,6 +148,7 @@ Everything in one snapshot. Poll it (e.g. every 0.5–1 s).
 | `posChecks` / `posFaults` / `posErr` / `faultLine` | Position checks at rest, mismatches, last mismatch per axis (steps), program line of the last mismatch |
 | `perf.lostMs` | Motion time lost to the loop being busy (should stay 0) |
 | `message` | The last panel message (toast) |
+| `hmiMessage` | The operator message box ([below](#operator-message-box)): `{"id":3,"acked":false,"button":"OK"}`, `{"id":0}` when there is none. `GET message` has the text and times |
 | `driverWarning` | Not empty when the FPGA driver is not the one Sea Otter was tested with |
 | `macro` | The macro armed or running (empty: none; `program` is then the macro) |
 | `tool` | `{"loaded":3,"changeTo":4,"confirm":false}`: the tool in, the tool an M6 asks for (0 = no change going on), and whether the first `run/start` of a tool change was given (the return move is shown on the panel; the next `run/start` goes) |
@@ -259,6 +261,9 @@ curl -X POST --data-binary @part.nc "http://192.168.1.200:8080/api/v1/program/up
 | POST | `panel/toast` | `{"text":"Coffee break - back at 3"}` | Show a message on the panel (max 63 characters) |
 | POST | `panel/instructions` | see below | Show a checklist card on the Run screen (an agent preparing a job) |
 | DELETE | `panel/instructions` | – | Remove the card |
+| POST | `message` | `{"text":"Clamp the part on the left fence\nthen step back","button":"Part clamped"}` | Put up the [operator message box](#operator-message-box) on every screen, acknowledged with **Shift+F7**. Replaces any earlier one. Answers `{"ok":true,"id":4}` |
+| GET | `message` | – | The message and whether it was acknowledged (below) |
+| DELETE | `message` | – | Take it down and forget it. Answers `{"ok":true,"cleared":true}` |
 | POST | `key` | `{"key":"F1","down":true}` then `{"key":"F1","down":false}` | Press / release a panel key. Names: `F1`…`F7`, `TAB`, `SEL`, `SHIFT`, `MOD`, `MODE`, `CANCEL`, `YP`, `YM`, `XP`, `XM`, `ENTER`. A remote F1 on the Run screen counts as a remote start (403 if those are off) |
 
 `panel/instructions` body:
@@ -274,6 +279,25 @@ curl -X POST --data-binary @part.nc "http://192.168.1.200:8080/api/v1/program/up
 Each step is ticked off by itself when its `check` becomes true: `homed`,
 `loaded:<file>`, `touched:<axes>` (touch-off done on those axes), `running`. `operator`
 steps are ticked by the operator on the panel. Up to 8 steps.
+
+### Operator message box
+For a remote operator telling the person at the machine what to do. `POST message` puts an
+amber box above the soft keys on **every** screen: the text word-wrapped (`\n` starts a new
+line; up to 599 bytes, about 8 lines show, longer is cut with "…") and **Shift+F7:** followed by the
+`button` label (optional, default `OK`, up to 31 bytes). Shift+F7 acknowledges it: the box goes,
+and Shift+F7 does nothing else while a message is up (normally it is *back to the last
+screen*). One message at a time, RAM only: a restart forgets it and the ids start at 1
+again.
+
+`GET message`:
+```json
+{"id": 4, "text": "Clamp the part on the left fence\nthen step back", "button": "Part clamped",
+ "postedMs": 5123400, "acked": true, "ackedMs": 5161020, "ageMs": 41200}
+```
+`{"id":0}` when there is none. The record stays after the acknowledgement, until the next
+`POST` or a `DELETE`; poll `status.hmiMessage` (same `id`, `acked`) to see it done. Times are
+the controller's uptime clock in ms (`ackedMs` 0 while not acknowledged), `ageMs` = since
+posted. 400 `need text` / `too_long`; 403 with `api.panel` off.
 
 ## Complete control: the panel and its API calls
 
@@ -295,7 +319,7 @@ steps are ticked by the operator on the panel. Up to 8 steps.
 | Settings: every value · defaults | `GET`/`PUT settings` · `settings/defaults` (except `api.*`, panel only) |
 | I/O overview | `GET status` (`inputs`, `pendant`, outputs via `spindle` / `coolant`), `panel/screen {"screen":"io"}` |
 | Screens · any key | `panel/screen` · `key` |
-| Messages, checklists for the operator | `panel/toast` · `panel/instructions` |
+| Messages, checklists for the operator | `panel/toast` · `panel/instructions` · `message` (acknowledged with Shift+F7) |
 | The screen itself | `GET /frame` (raw image), `/` (live browser panel) |
 
 ## Not over the API (on purpose)
@@ -348,6 +372,7 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `pendant.wheel_div` | Pendant | Counts per wheel detent |  | whole number, 1 to 8 |  |
 | `pendant.wheel_reverse` | Pendant | Reverse wheel direction |  | on/off |  |
 | `pendant.follow` | Pendant | Wheel follow mode: `Exact: every click is moved` / `Velocity: stops with the wheel, surplus dropped` |  | choice index 0 to 1, or the name |  |
+| `pendant.smooth_ms` | Pendant | Wheel smoothing: queued distance covered in | ms | whole number, 0 to 2000 (default 200; 0 = full speed per click) |  |
 | `pendant.estop` | Pendant | Pendant E-stop enabled |  | on/off | yes |
 | `api.on` | API | ENABLE the REST API endpoint (HTTP) *(panel only)* |  | on/off |  |
 | `api.port` | API | Port, restart to apply *(panel only)* |  | whole number, 1 to 65535 |  |

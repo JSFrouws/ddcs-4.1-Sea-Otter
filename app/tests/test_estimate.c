@@ -25,6 +25,7 @@ static double run_time(const char *name, const char *text, double *est)
 	fx_until_idle(120000);
 	C.resume_line = -1; C.work_done = -1;
 	bool left;
+	est_settle();
 	*est = est_now(&left);
 	act(C_START, NULL, SRC_PANEL);
 	int ms = 0;
@@ -128,9 +129,11 @@ void test_estimate(void)
 		for (int k = 0; k < NAXES; k++) p[k] = o[k];
 		p[AX_Z] = o[AX_Z] + SET.safe_z;
 		motion_move_to(&C.mo, p, 0, true); fx_until_idle(60000);
+		est_settle();
 		double near = est_now(&left);
 		p[AX_X] += 200; p[AX_Y] += 150;
 		motion_move_to(&C.mo, p, 0, true); fx_until_idle(60000);
+		est_settle();                                        /* the start correction is a background job (2026-11-01) */
 		double far = est_now(&left);
 		CHECK(far > near + 250 / 20.0 * 0.9);                 /* ~250 mm of rapid more (diagonal: up to 20 mm/s) */
 		act(C_START, NULL, SRC_PANEL);
@@ -158,6 +161,7 @@ void test_estimate(void)
 		p[AX_X] += 120; p[AX_Y] += 40; p[AX_Z] = o[AX_Z] - 40; p[AX_A] += 82.4;   /* A off too, as on the unit */
 		motion_move_to(&C.mo, p, 0, true); fx_until_idle(60000);
 		bool left;
+		est_settle();
 		double est = est_now(&left);
 		act(C_START, NULL, SRC_PANEL);
 		int ms = 0; bool ok = true;
@@ -222,6 +226,7 @@ void test_estimate(void)
 		for (int k = 0; k < NAXES; k++) p[k] = o[k];
 		p[AX_Z] = o[AX_Z] + SET.safe_z;
 		motion_move_to(&C.mo, p, 0, true); fx_until_idle(60000);
+		est_settle();
 		double one = est_now(&left);
 		memcpy(WD.wcs[1].off, WD.wcs[0].off, sizeof WD.wcs[1].off);
 		WD.wcs[1].off[AX_X] += 20;

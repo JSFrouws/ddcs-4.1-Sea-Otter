@@ -41,6 +41,7 @@ typedef struct {
 	bool pendant; int quick_ms, wheel_div;
 	double jog_jerk;           /* jogs + wheel: 0 = acceleration only (trapezoid, user 2026-10-31), else their own jerk */
 	int pendant_follow;        /* 0 exact: every click is moved; 1 velocity: the axis stops ~100 ms after the wheel, surplus dropped */
+	int pendant_smooth_ms;     /* wheel speed = distance still queued / this time (0 = full speed per click) */
 	int approach_pct;          /* % of max_vel allowed towards a limit inside the approach zone (bench..soft, >= 10 mm) */
 	bool wheel_reverse;        /* flip the raw count: on this pendant clockwise counts DOWN */
 	bool api; int api_port; bool remote_start; int start_delay; bool agent_msgs;

@@ -63,6 +63,7 @@ const setting_desc_t SETTINGS[] = {
 	{ "pendant.wheel_div", "Pendant", "Counts per wheel detent", "", ST_INT, O(wheel_div), 1, 8, 0, 0, 0, 0 },
 	{ "pendant.wheel_reverse", "Pendant", "Reverse wheel direction", "", ST_BOOL, O(wheel_reverse), 0, 1, 0, 0, 0, 0 },
 	{ "pendant.follow", "Pendant", "Wheel follow mode", "", ST_ENUM, O(pendant_follow), 0, 1, 0, FOLLOW, 0, 0 },
+	{ "pendant.smooth_ms", "Pendant", "Wheel smoothing: queued distance covered in", "ms", ST_INT, O(pendant_smooth_ms), 0, 2000, 0, 0, 0, 0 },
 	{ "pendant.estop", "Pendant", "Pendant E-stop enabled", "", ST_BOOL, O(pendant_estop), 0, 1, 0, 0, 1, 0 },
 	{ "api.on", "API", "ENABLE the REST API endpoint (HTTP)", "", ST_BOOL, O(api), 0, 1, 0, 0, 0, 1 },
 	{ "api.port", "API", "Port (restart to apply)", "", ST_INT, O(api_port), 1, 65535, 0, 0, 0, 1 },
@@ -150,6 +151,7 @@ void settings_defaults(settings_t *s)
 	s->pos_dec = 3; s->tool_dec = 2; s->view_iso = 0; s->edge_dia = 0;
 	s->pendant = true; s->quick_ms = 400; s->wheel_div = 4;
 	s->jog_jerk = 0; s->pendant_follow = 0; s->approach_pct = 40;   /* user 2026-10-31 */
+	s->pendant_smooth_ms = 200;   /* user 2026-11-01: 0.5 mm in 0.2 s is already too fast */
 	s->wheel_reverse = true;   /* user, 2026-10-18: clockwise (numbers up) must move + and increase values */
 	s->api = true; s->api_port = 8080; s->start_delay = 5; s->agent_msgs = true;
 	/* user 2026-10-24: reading, programs, offsets, tools, settings, overrides and panel

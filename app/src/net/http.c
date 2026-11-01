@@ -90,7 +90,10 @@ static void try_dispatch(conn_t *c)
 	c->in[hl + clen] = 0;                                /* in_len < in_cap always */
 	http_req_t rq = { c->in, sp1 + 1, q ? q : "", c->in + hl, clen, auth };
 	http_resp_t rs = { 404, "text/plain", NULL, 0, NULL, NULL };
+	uint64_t h_us = now_us();
 	handler(&rq, &rs);
+	uint32_t h_ms = (uint32_t)((now_us() - h_us) / 1000);
+	if (h_ms > 100) { fprintf(stderr, "stall: handler %s took %u ms\n", rq.path, h_ms); PERF.stalls++; }
 	size_t blen = rs.static_body ? rs.len : (rs.body ? rs.len : 0);
 	char hdr[512];
 	int n = snprintf(hdr, sizeof hdr, "HTTP/1.0 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n"

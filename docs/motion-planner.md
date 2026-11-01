@@ -160,4 +160,48 @@ reviewing, owner's choices):
 - A click at x1 / x10 / x100 is 0.001 / 0.01 / 0.1 mm (`ui_pendant.c`).
 - `GET trace` now also records `mpg` (raw wheel count), `bursts` and `held`, and records
   while the pendant is held, so a click's latency (count → burst → FPGA counter) can be
-  read from one CSV.
+  read from one CSV (`app/tools/wheel_trace.py` does the reading).
+
+## The "half a second late" pendant (2026-11-01, measured on the unit)
+
+Five pendant sessions traced through the real `api → loop → FPGA` path, with the owner at
+the wheel and the instructions posted on the screen (`POST /api/v1/message`). What the
+first trace showed: click-to-step latency of **20–65 ms**, but **73 holes of 520–570 ms**
+in one session — the loop simply stopped, about every 700 ms. Three separate causes, each
+invisible from the code and from the perf averages:
+
+1. **`fsync()` on the position file at every move start.** `pos_track()` marks the file
+   "moving" when an axis leaves rest, and the wheel leaves rest on every click. An fsync on
+   this ext3/eMMC blocks the single thread ~550 ms. The tick now writes without fsync
+   (kernel commit interval 5 s; the file is stale-marked either way); only the 30 s idle
+   save and exit sync, and the idle save is skipped while the wheel is held.
+2. **The start-correction replay.** `est_now()` (run screen + every `/status` poll) calls
+   `prefix_update()`, which replays the program's first ~2000 ops twice whenever the machine
+   position changed by ≥ 0.01 mm at rest — i.e. between every two clicks. 535–920 ms on a
+   4928-line program. It is now a background job (`prefix_run`, same 1–3 ms budget as the
+   estimate itself, from `est_background`), started only once the machine has stood still
+   for a second with the wheel released; the old correction serves meanwhile
+   (`est_settle()` computes it in one go for tests).
+3. **The browser panel's raw 1.2 MB `/frame` poll** at 8 Hz: ~1 MB/s and half the CPU at
+   idle. `/frame?since=N` + RLE and a 3 ms HTTP budget per tick (see api-reference.md).
+
+Two wheel bugs found in the same traces:
+
+- **"Skips a click / ignores a step back"**: detents were derived from a running
+  remainder of counts, and the remainder left from the previous direction ate the first
+  click after every reversal (11 lost clicks in one session). `ui_pendant.c` now takes the
+  detent index from the absolute count — the wheel rests at multiples of `wheel_div`
+  (every rest value in the traces was 0 mod 4) — with the boundary half a detent past rest,
+  so a count of jitter cannot toggle it. 0 lost clicks since; counts in = steps out.
+- **Stop-and-go per click.** Every click was its own full-speed move. `pendant.smooth_ms`
+  (default 200) makes the wheel speed follow what is still queued: speed = queued
+  distance / 0.2 s (floor: a 0.01 mm click's pace). One click is a gentle move, a steady
+  turn one continuous move lagging the wheel by 0.2 s (traces: 2.5–3.3 s unbroken
+  stretches), and the stop settles exponentially. Owner's rule: 0.5 mm in 0.2 s is
+  already too fast.
+
+After all four: no loop hole over 110 ms during a session (the only ones left are the
+first draw after start, and `GET trace` itself rendering 3500 rows — don't fetch it
+mid-test), command reaction from standstill median 42 ms, p90 87 ms. Any loop section
+over 100 ms is now named on stderr (`STALL_WATCH` in `perf.h`, `perf.stalls` counts them):
+tick, scan, leds, render (and its parts), present, save, http, and the HTTP handler by path.

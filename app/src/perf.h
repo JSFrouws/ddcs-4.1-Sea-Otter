@@ -11,9 +11,16 @@ typedef struct {
 	uint32_t draw_us_avg, present_us_avg;   /* the two halves of a render */
 	uint32_t gap_ms_max;                    /* longest real time between two ticks */
 	uint64_t motion_ms, lost_ms;            /* motion time given to ticks / real time lost to the clamp */
+	uint32_t stalls;                        /* loop sections over 100 ms, named on stderr (STALL_WATCH) */
 } perf_t;
 
 extern perf_t PERF;
 uint64_t now_us(void);
+
+/* Which part of the loop held the machine up: anything over 100 ms (a motion slice is 10)
+ * is named on stderr. The pendant trace showed 550 ms holes it could not attribute. */
+#include <stdio.h>
+#define STALL_WATCH(name, stmt) do { uint64_t sw_ = now_us(); stmt; uint32_t sw_ms = (uint32_t)((now_us() - sw_) / 1000); \
+	if (sw_ms > 100) { fprintf(stderr, "stall: %s took %u ms\n", name, sw_ms); PERF.stalls++; } } while (0)
 
 #endif
