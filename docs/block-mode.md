@@ -2,7 +2,7 @@
 
 _2026-11-01. The decoded interface and the measurements are in
 [fpga-motion.md](fpga-motion.md) "Block mode = continuous motion". This file is the
-architecture the app builds on it. Status: being implemented (replaces the burst emitter
+architecture the app builds on it. Status: implemented 2026-11-01 (cc64bbb, 2ef7448); first machine run found the word-2 and full-queue traps (fpga-motion.md); re-test after a power cycle pending. Replaces the burst emitter
 for jog, wheel, programs and homing; burst mode stays behind `motion.block_mode = off`)._
 
 ## The contract with the FPGA (what we rely on, all measured)

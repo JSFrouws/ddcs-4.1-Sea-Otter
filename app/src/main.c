@@ -139,7 +139,7 @@ static void motion_slice(void)
 	g_last_tick = t;
 	g_next = t + TICK_MS;
 	ctl_tick(el / 1000.0);
-	if (g_sim) sim_step(el);
+	if (g_sim) sim_step(SET.block_mode ? real : el);      /* block mode: the sim is the FPGA and must keep wall time, or its queue grows */
 	set_wake(t);                                          /* slice again the moment the burst in flight ends */
 	uint32_t tk = (uint32_t)(now_us() - t_us);
 	PERF.tick_us_last = tk;

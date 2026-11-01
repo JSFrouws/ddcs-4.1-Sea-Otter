@@ -211,6 +211,15 @@ on demand with a shallow queue, and "stop" = stop feeding after ramping down in 
   start/end control blocks (`0400 6f62…`, `0800 4242…`, `0400 0000…`) — a run without any of
   them was identical.
 
+**Found on the first Sea Otter program run (2026-11-01 evening)**: (1) **word 2 must not be a
+running counter** - numbered per block, the FPGA stopped playing after ~55 blocks; the vendor
+keeps it constant within a move (`0x0c`, `0x0d`, ... per G-code line), so does the app now.
+(2) **A full queue reads `0x0100`**, not `0xff`: masked to a byte it read 0, the app kept
+pushing into the halted FPGA, and **the block ioctl hangs the process when the queue is
+full** - `fpga_block_queue` keeps the 9th bit, nothing is pushed at `FPGA_QUEUE_FULL` (255),
+and blocks queued with nothing playing for 300 ms is reported as a fault. (3) The halted
+state survived the vendor init and the mode writes; a power cycle clears it.
+
 **Caveats found**: the very first run after killing the vendor app mid-session counted
 double (800 for 400 steps) — never again in ~30 runs, including with the whole queue pushed
 at once; treat it as stale FPGA state from the kill. A mid-stream *stop* (`0x04 = 4`) is
