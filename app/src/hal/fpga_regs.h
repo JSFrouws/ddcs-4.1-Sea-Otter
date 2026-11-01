@@ -78,6 +78,7 @@
 #define BLK_W0_DOM_DIR  0x0200u
 #define BLK_W1          0x3020u
 #define BLK_W6          0x0d05u
+#define BLK_W4_MIN      0x64u    /* the vendor never sends a rate word under 100 (200 steps/s); below it the FPGA halted (2026-11-01) */
 
 #define PD_X1      (1u << 0)  /* pendant bits 0..6 active-low, only while the dead-man is held */
 #define PD_X10     (1u << 1)

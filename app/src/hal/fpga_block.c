@@ -31,7 +31,11 @@ bool fpga_block(fpga_t *f, const int32_t steps[NAXES], double dt_s)
 	if (n > 0xFFFF) n = 0xFFFF;    /* a 10 ms block at the 40 000 steps/s ceiling is 400 steps */
 	/* rate word = steps/s / 2 (measured); with 10 ms blocks exactly steps x 50 */
 	double r = dt_s > 0 ? n / (2.0 * dt_s) + 0.5 : 0xFFFF;
-	uint16_t w4 = (uint16_t)(r < 1 ? 1 : r > 0xFFFF ? 0xFFFF : (uint32_t)r);
+	/* never below the vendor's floor of 200 steps/s (rate word 0x64 is the lowest it ever
+	 * sends; its ramps start and end there): a 1-step block at rate word 50 is the one thing
+	 * Sea Otter sent that blockmove never did, and the FPGA halted right after such a move
+	 * (2026-11-01 evening). Below the floor the block simply plays a little faster. */
+	uint16_t w4 = (uint16_t)(r < BLK_W4_MIN ? BLK_W4_MIN : r > 0xFFFF ? 0xFFFF : (uint32_t)r);
 	uint16_t w[16] = { 0 };
 	w[0] = (uint16_t)(BLK_W0_BASE | (uint16_t)(dom << 1) | (c[dom] > 0 ? BLK_W0_DOM_DIR : 0));
 	w[1] = BLK_W1;
