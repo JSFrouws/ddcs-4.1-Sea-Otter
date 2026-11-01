@@ -79,7 +79,7 @@ Also served on the same port (not under `/api/v1/`):
 | Method | Path | Returns |
 |---|---|---|
 | GET | `/` or `/panel` | The browser panel: the live LCD image and clickable keys |
-| GET | `/frame` | The current screen: raw RGB565, 1024 × 600, little-endian (1 228 800 bytes). Headers `X-Frame` (frame counter) and `X-Leds` (LED bits) |
+| GET | `/frame?since=N` | The current screen, 1024 × 600 RGB565 little-endian. Header `X-Enc`: `rle` = (count, pixel) uint16 pairs (a UI frame is 20–100× smaller than raw), `none` = the raw 1 228 800 bytes (only when RLE would not be smaller). With `since` equal to the current frame counter the body is empty — poll with the last `X-Frame` you saw. Headers `X-Frame` (frame counter) and `X-Leds` (LED bits). Serving is budgeted at 3 ms per 10 ms tick; the machine always comes first (2026-11-01) |
 
 ## Status codes
 

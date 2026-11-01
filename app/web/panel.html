@@ -100,10 +100,12 @@ const cv=document.getElementById('lcd'),cx=cv.getContext('2d'),img=cx.createImag
 let lastFrame=-1,busy=false;
 async function frame(){
   if(busy)return;busy=true;
-  try{const r=await fetch('/frame');const f=+r.headers.get('X-Frame'),leds=+r.headers.get('X-Leds');
+  try{const r=await fetch('/frame?since='+lastFrame);const f=+r.headers.get('X-Frame'),leds=+r.headers.get('X-Leds'),enc=r.headers.get('X-Enc');
     setLeds(leds);
     if(f!==lastFrame){lastFrame=f;const b=new Uint16Array(await r.arrayBuffer()),d=img.data;
-      for(let i=0,j=0;i<b.length;i++,j+=4){const v=b[i];d[j]=(v>>8)&0xF8|(v>>13);d[j+1]=(v>>3)&0xFC|(v>>9)&3;d[j+2]=(v<<3)&0xF8|(v>>2)&7;d[j+3]=255}
+      const put=(v,j)=>{d[j]=(v>>8)&0xF8|(v>>13);d[j+1]=(v>>3)&0xFC|(v>>9)&3;d[j+2]=(v<<3)&0xF8|(v>>2)&7;d[j+3]=255};
+      if(enc==='rle'){for(let i=0,j=0;i<b.length;i+=2){const n=b[i],v=b[i+1];for(let k=0;k<n;k++,j+=4)put(v,j)}}   /* (count, RGB565) pairs */
+      else for(let i=0,j=0;i<b.length;i++,j+=4)put(b[i],j);
       cx.putImageData(img,0,0)}else await r.arrayBuffer();
   }catch(e){}busy=false}
 function setLeds(l){const s=(id,on,c)=>{const e=document.getElementById(id);e.className=(id[0]=='l'&&id!='lEth'&&id!='lUsb'?'led':'')+(on?' on':'')+(on&&c?' '+c:'')};

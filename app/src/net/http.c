@@ -9,11 +9,14 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/socket.h>
+#include <stdbool.h>
 #include <unistd.h>
 #include "http.h"
+#include "../perf.h"
 
 #define MAXC 8
 #define MAX_REQ (8u << 20)      /* program uploads */
+#define HTTP_BUDGET_US 3000     /* serving time per poll; the rest of the 10 ms tick is the machine's */
 
 typedef struct {
 	int fd;
@@ -122,10 +125,16 @@ void http_poll(int timeout_ms)
 			else { fcntl(fd, F_SETFL, O_NONBLOCK); memset(&cs[slot], 0, sizeof cs[slot]); cs[slot].fd = fd; }
 		}
 	}
+	/* the browser is served in the time the motion tick leaves over, never the other way round:
+	 * one dispatch per poll, and the writes stop at the budget (a slow wifi client drains the
+	 * socket buffers slowly, so a poll rarely needs more than one write per connection) */
+	uint64_t t0 = now_us();
+	bool dispatched = false;
 	for (int i = 0; i < MAXC; i++) {
 		conn_t *c = &cs[i];
 		if (c->fd < 0) continue;
 		if (!c->out) {
+			if (dispatched || now_us() - t0 > HTTP_BUDGET_US) continue;
 			if (c->in_cap - c->in_len < 65536) {
 				size_t cap = c->in_cap ? c->in_cap * 2 : 131072;
 				if (cap > MAX_REQ + 65536) { drop(c); continue; }
@@ -133,10 +142,11 @@ void http_poll(int timeout_ms)
 			}
 			ssize_t r = read(c->fd, c->in + c->in_len, c->in_cap - c->in_len - 1);
 			if (r == 0 || (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) { drop(c); continue; }
-			if (r > 0) { c->in_len += (size_t)r; c->in[c->in_len] = 0; try_dispatch(c); }
+			if (r > 0) { c->in_len += (size_t)r; c->in[c->in_len] = 0; try_dispatch(c); dispatched = c->out != NULL; }
 			if (c->fd < 0 || !c->out) continue;
 		}
 		for (int k = 0; k < 8; k++) {                       /* bounded work per poll */
+			if (now_us() - t0 > HTTP_BUDGET_US) return;
 			ssize_t w;
 			if (c->out_off < c->out_len) w = write(c->fd, c->out + c->out_off, c->out_len - c->out_off);
 			else if (c->ext_off < c->ext_len) w = write(c->fd, (const char *)c->ext + c->ext_off, c->ext_len - c->ext_off);

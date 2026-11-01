@@ -331,16 +331,51 @@ static void get_program(const http_req_t *q, http_resp_t *r, bool lines)
 	jb_send(r, &j);
 }
 
+/* The screen for the browser panel, run-length encoded: (count, RGB565) pairs. The raw frame
+ * is 1.2 MB and the panel polled it 8x a second whether it had changed or not - ~1 MB/s over
+ * the garage wifi and half the CPU of a single-core controller while idle (2026-11-01). A
+ * UI frame is mostly flat colour, so RLE is 20-100x smaller; a frame that encodes no smaller
+ * (a dense wireframe) goes raw. Encoded once per frame_no and cached; the encoder yields to
+ * motion slices between row bands like a draw does. */
+static const void *frame_encoded(size_t *len, const char **enc)
+{
+	enum { N = SCR_W * SCR_H, BAND = SCR_W * 50 };
+	static uint16_t *buf; static size_t blen; static uint32_t fno = ~0u; static bool raw;
+	if (!buf) buf = malloc(N * 2);
+	if (fno != DSP->frame_no) {
+		const uint16_t *px = DSP->front;
+		size_t i = 0, o = 0, yield_at = BAND;
+		raw = false;
+		while (i < N) {
+			uint16_t c = px[i];
+			size_t j = i + 1;
+			while (j < N && px[j] == c && j - i < 65535) j++;
+			buf[o++] = (uint16_t)(j - i); buf[o++] = c;
+			i = j;
+			if (o >= N) { raw = true; break; }                   /* no gain: serve the frame itself */
+			if (i >= yield_at) { yield_at += BAND; if (ui_yield) ui_yield(); }
+		}
+		blen = o * 2; fno = DSP->frame_no;
+	}
+	*enc = raw ? "none" : "rle";
+	*len = raw ? N * 2 : blen;
+	return raw ? (const void *)DSP->front : (const void *)buf;
+}
+
 void api_handle(const http_req_t *q, http_resp_t *r)
 {
 	const char *p = q->path, *b = q->body;
 	bool post = !strcmp(q->method, "POST") || !strcmp(q->method, "PUT"), del = !strcmp(q->method, "DELETE");
 	if (!strcmp(p, "/") || !strcmp(p, "/panel")) { r->status = 200; r->type = "text/html; charset=utf-8"; r->static_body = WEB_PANEL; r->len = WEB_PANEL_LEN; return; }
-	if (!strcmp(p, "/frame")) {
+	if (!strcmp(p, "/frame")) {                           /* /frame?since=N: nothing when unchanged */
+		static char h[96];
+		char v[16];
+		unsigned since = qarg(q->query, "since", v, sizeof v) ? (unsigned)strtoul(v, NULL, 10) : ~0u;
+		const char *enc = "none";
 		r->status = 200; r->type = "application/octet-stream";
-		r->static_body = DSP->front; r->len = SCR_W * SCR_H * 2;
-		static char h[64];
-		snprintf(h, sizeof h, "X-Frame: %u\r\nX-Leds: %u\r\n", DSP->frame_no, (unsigned)ui_leds());
+		if (since == DSP->frame_no) { r->static_body = ""; r->len = 0; }
+		else { r->static_body = frame_encoded(&r->len, &enc); }
+		snprintf(h, sizeof h, "X-Frame: %u\r\nX-Leds: %u\r\nX-Enc: %s\r\n", DSP->frame_no, (unsigned)ui_leds(), enc);
 		r->extra_headers = h;
 		return;
 	}
