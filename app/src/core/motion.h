@@ -49,7 +49,13 @@ typedef struct {
 	bool dry;
 	uint8_t hw_busy;             /* FPGA axes still active/stepping (read once per tick) */                    /* simulate: positions advance, no bursts reach the FPGA */
 	int feed_ov, spin_ov;        /* % ; rapid % = min(feed %, 100) */
-	uint64_t burst_end_us[NAXES]; /* when each axis' last burst ends (0 = none sent): the main loop slices then */
+	uint64_t burst_end_us[NAXES]; /* burst mode: when each axis' last burst ends (0 = none sent): the main loop slices then */
+	/* block mode (2026-11-01, docs/block-mode.md): the FPGA's queue is the clock */
+	int q_est;                   /* blocks queued in the FPGA as of this tick (read once + sent since) */
+	int feed_ahead_ms;           /* main loop: fill the queue up to this much before a long frame (one tick) */
+	uint32_t blocks;             /* blocks sent (perf) */
+	bool stop_resync;            /* an immediate stop flushed the queue: adopt the counters silently at rest */
+	int8_t fpga_mode;            /* what the FPGA was last told: 1 block mode, 0 burst mode, -1 unknown (after fpga_init) */
 	double nudge[NAXES];         /* pendant: distance still to move per axis */
 	double nudge_in[NAXES];      /* pendant: distance clicked in since the last slice */
 	double wheel_v[NAXES];       /* pendant: the wheel's own speed, mm/s, averaged over ~80 ms (feedforward) */

@@ -15,6 +15,8 @@ static const hint_t HINTS[] = {
 	{ "jog.speed", "Speed of jogs with the panel keys and of continuous jogs, in mm/s (20 = 1200 mm/min). Capped by each axis' max speed. Macros may still write {jog.feed} for it in mm/min." },
 	{ "jog.safe_z", "Height above the work zero that Goto 0, Safe Z, part changes, resumes and tool changes go up to before moving across. Set it above clamps and stock." },
 	{ "motion.graceful_stop", "On: Reset, E-stop and limits brake along the path at full deceleration, so no step is lost (about 1 mm run-on at full speed). Off: stop at once; the drives may lose steps." },
+	{ "motion.block_mode", "On: moves are streamed to the FPGA's own motion queue, one 10 ms block at a time, so the pulses never pause (the vendor app's way). Off: the old step bursts, one per 10 ms with a ~2 ms gap at every joint." },
+	{ "motion.queue_ms", "How much motion stays queued in the FPGA ahead of now. More absorbs a slow screen redraw; less makes a jog key or wheel click answer sooner. 50 ms is a good start." },
 	{ "planner.lookahead", "How many program moves the planner looks ahead to keep speed through short segments. More = smoother on dense 3D code, slightly more CPU." },
 	{ "planner.junction_dev", "How far (mm) a corner may be rounded off in speed terms: larger corners are taken faster. 0 = only the per-axis corner speed jump counts." },
 	{ "gcode.default_feed", "The feed used for G1/G2/G3 moves when the program never set an F word." },

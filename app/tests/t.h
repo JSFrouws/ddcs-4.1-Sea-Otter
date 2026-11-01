@@ -14,6 +14,8 @@ extern int t_fail, t_pass;
 void fx_reset(void);
 void fx_run(int ms);                 /* advance controller + sim in 10 ms ticks */
 void fx_until_idle(int max_ms);
-void fx_restart(void);               /* ctl_init again on the same files (app restart) */
+void fx_restart(void);
+/* the FPGA rate the planner may sustain: the full 40 000 steps/s in block mode, 80 % with bursts (their ~2 ms start) */
+#define CAP_SPS (SET.block_mode ? (double)FPGA_MAX_SPS : FPGA_MAX_SPS * 0.8)               /* ctl_init again on the same files (app restart) */
 
 #endif

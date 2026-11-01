@@ -19,7 +19,7 @@ DEFS := -DBUILD_ID='"$(PIPELINE_ID)"' -DBUILD_DATE='"$(BUILD_DATE)"'
 
 CORE := src/common.c src/core/settings.c src/core/settings_hints.c src/core/gcode.c src/core/motion.c src/core/program.c src/core/estimate.c src/core/macro.c \
         src/core/machine.c src/core/ctl_tick.c \
-        src/hal/fpga.c src/hal/fpga_vendor_init.c src/hal/bus_sim.c src/sim/fpga_sim.c
+        src/hal/fpga.c src/hal/fpga_block.c src/hal/fpga_vendor_init.c src/hal/bus_sim.c src/sim/fpga_sim.c
 UI   := src/ui/fonts.c src/ui/gfx.c src/ui/ui.c src/ui/ui_frame.c src/ui/ui_run.c src/ui/ui_jog.c \
         src/ui/ui_files.c src/ui/ui_work.c src/ui/ui_macros.c src/ui/ui_settings.c src/ui/ui_io.c src/ui/ui_view.c src/ui/ui_editor.c \
         src/ui/ui_pendant.c src/net/api_message.c

@@ -54,7 +54,7 @@ void test_estimate(void)
 		CHECK_NEAR(est_span(&C.prog, 0, C.prog.nlines, 100), 100 / v + v / ae + 0.03, 0.02);
 		CHECK_NEAR(est_span(&C.prog, 0, C.prog.nlines, 50), 2 * est_span(&C.prog, 0, C.prog.nlines, 100), 0.05);   /* below 100 %: x 1/override */
 		double t200 = est_span(&C.prog, 0, C.prog.nlines, 200), t150 = est_span(&C.prog, 0, C.prog.nlines, 150);
-		double vc = fmin(20, fmin(SET.ax[AX_X].max_speed, FPGA_MAX_SPS * 0.8 / SET.ax[AX_X].steps_per_mm));   /* 200 % is above the FPGA's sustained rate */
+		double vc = fmin(20, fmin(SET.ax[AX_X].max_speed, CAP_SPS / SET.ax[AX_X].steps_per_mm));   /* 200 % is above the FPGA's sustained rate */
 		CHECK_NEAR(t200, 100 / vc + vc / ae, 0.1);                    /* (a_eff stays the planner's, from the programmed F) */
 		CHECK(t150 > t200 && t150 < est_span(&C.prog, 0, C.prog.nlines, 100));
 		CHECK(C.prog.est_s > est_span(&C.prog, 0, C.prog.nlines, 100));                    /* the margin */
@@ -135,7 +135,8 @@ void test_estimate(void)
 		motion_move_to(&C.mo, p, 0, true); fx_until_idle(60000);
 		est_settle();                                        /* the start correction is a background job (2026-11-01) */
 		double far = est_now(&left);
-		CHECK(far > near + 250 / 20.0 * 0.9);                 /* ~250 mm of rapid more (diagonal: up to 20 mm/s) */
+		printf("  far start correction: near %.2f s, far %.2f s\n", near, far);
+		CHECK(far > near + 250 / (CAP_SPS / SET.ax[AX_X].steps_per_mm * 1.25) * 0.9);   /* ~250 mm of rapid more: X carries 200/250 of the path at the FPGA cap */
 		act(C_START, NULL, SRC_PANEL);
 		int ms = 0; bool ok = true;
 		double seen[400]; int ns = 0;
@@ -233,7 +234,7 @@ void test_estimate(void)
 		bool j0 = WD.wcs[0].job, j1 = WD.wcs[1].job;
 		WD.wcs[0].job = WD.wcs[1].job = true;
 		double two = est_now(&left);
-		CHECK_NEAR(two, 2 * one - EST_XMARGIN_S, 0.05);       /* twice the cutting, the fixed margin once */
+		CHECK_NEAR(two, 2 * one - EST_XMARGIN_S - EST_END_S, 0.05);   /* twice the cutting, the fixed margins once */
 		SET.job_order = 1;                                   /* one part at a time: the same total */
 		CHECK_NEAR(est_now(&left), two, 0.05);
 		SET.job_order = 0;

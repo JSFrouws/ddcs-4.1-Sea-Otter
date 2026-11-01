@@ -67,6 +67,7 @@ uint16_t sim_read(uint8_t a)
 		for (int i = 0; i < NAXES; i++) {
 			if (SIM.left[i] || SIM.held[i]) s |= (uint16_t)(1u << i);
 			if (SIM.left[i]) s |= (uint16_t)(1u << (8 + i));
+			if (SIM.blk_on && SIM.blk_steps[i]) s |= (uint16_t)FR_STATUS_BLOCK(i);
 		}
 		return s;
 	}
@@ -85,6 +86,7 @@ uint16_t sim_read(uint8_t a)
 		return v;
 	}
 	case FR_VERSION: return 0x0809;
+	case FR_BLOCK_QUEUE: return (uint16_t)(SIM.blk_n > 0xff ? 0xff : SIM.blk_n);
 	default:
 		if (a >= FR_AXIS_IOSTAT && a < FR_AXIS_IOSTAT + NAXES)
 			return sim_switch_active(a - FR_AXIS_IOSTAT) ? 0x0030 : 0;
@@ -117,8 +119,21 @@ void sim_write(uint8_t a, uint16_t v)
 		for (int i = 0; i < NAXES; i++) SIM.latched[i] = (int32_t)SIM.cnt[i];
 		return;
 	}
+	if (a >= FW_BLOCK_FIRST && a < FW_BLOCK_FIRST + 16) { SIM.blk_stage[a - FW_BLOCK_FIRST] = v; return; }
+	if (a == FW_BLOCK_LATCH) {
+		if (!v && (prev & 1)) {          /* 1 -> 0 queues the staged block */
+			if (SIM.blk_n >= SIM_BLOCK_QUEUE) { SIM.ignored_cmds++; return; }
+			memcpy(SIM.blk_q[(SIM.blk_head + SIM.blk_n) % SIM_BLOCK_QUEUE], SIM.blk_stage, sizeof SIM.blk_stage);
+			SIM.blk_n++; SIM.blocks++;
+		}
+		return;
+	}
 	bool banked = SIM.sel >= 0 && SIM.sel < NAXES;
 	if (banked) {
+		if (a == FW_AXIS_MODE) {
+			SIM.axis_mode[SIM.sel] = v;
+			if ((v & 0xF0) == 0x20 && SIM.flush_on_mode_off) SIM.blk_n = 0;
+		}
 		SIM.bank[SIM.sel][a] = v;
 		if (a == FW_AXIS_CFG) SIM.axis_cfg[SIM.sel] = v;
 		if (a == FW_POS_PRESET && (v & 1) && !(prev & 1))
@@ -131,6 +146,59 @@ void sim_write(uint8_t a, uint16_t v)
 		}
 	}
 	if (a == FW_OUTPUTS) SIM.outputs = (uint8_t)(v & 7);
+}
+
+/* n steps in counter sense dir on channel a: counter, physical motor, crash accounting */
+static void emit(int a, int dir, int32_t n)
+{
+	SIM.cnt[a] += (int64_t)dir * n;
+	int phys = dir;
+	if (SIM.axis_cfg[a] & 2) phys = -phys;      /* DIR invert flips the DIR line ... */
+	if (SIM.wiring_rev[a]) phys = -phys;        /* ... and reversed wiring flips it back */
+	SIM.pos[a] += (int64_t)phys * n;
+	if (SIM.pos[a] < SIM.hard_lo[a]) { SIM.pos[a] = SIM.hard_lo[a]; SIM.crashes++; }
+	if (SIM.pos[a] > SIM.hard_hi[a]) { SIM.pos[a] = SIM.hard_hi[a]; SIM.crashes++; }
+}
+
+/* load the head of the queue as the playing block (layout: hal/fpga_regs.h BLOCK WORDS) */
+static bool next_block(void)
+{
+	SIM.blk_on = false;
+	if (!SIM.blk_n) return false;
+	const uint16_t *w = SIM.blk_q[SIM.blk_head];
+	SIM.blk_head = (SIM.blk_head + 1) % SIM_BLOCK_QUEUE;
+	SIM.blk_n--;
+	int dom = (w[0] >> 1) & 3;
+	for (int ch = 0, k = 0; ch < NAXES; ch++) {
+		SIM.blk_done[ch] = 0;
+		if (ch == dom) { SIM.blk_steps[ch] = w[8]; SIM.blk_dir[ch] = (w[0] & 0x200) ? +1 : -1; continue; }
+		SIM.blk_steps[ch] = w[10 + 2 * k];
+		SIM.blk_dir[ch] = (w[0] >> (8 - k) & 1) ? +1 : -1;
+		k++;
+	}
+	double r = 2.0 * (w[4] ? w[4] : 1) / 1000.0;               /* steps per ms */
+	if (r > MAX_RATE_PER_MS) r = MAX_RATE_PER_MS;
+	SIM.blk_ms = w[8] / r;
+	SIM.blk_t = 0;
+	SIM.blk_on = true;
+	return true;
+}
+
+/* play the queue for ms: steps spread evenly over each block, blocks back to back */
+static void play_blocks(double ms)
+{
+	while (ms > 0 && (SIM.blk_on || next_block())) {
+		double run = SIM.blk_ms - SIM.blk_t;
+		if (run > ms) run = ms;
+		SIM.blk_t += run; ms -= run;
+		bool end = SIM.blk_t >= SIM.blk_ms - 1e-9;
+		for (int ch = 0; ch < NAXES; ch++) {
+			uint32_t tot = SIM.blk_steps[ch];
+			uint32_t want = end ? tot : (uint32_t)(tot * SIM.blk_t / SIM.blk_ms);
+			if (want > SIM.blk_done[ch]) { emit(ch, SIM.blk_dir[ch], (int32_t)(want - SIM.blk_done[ch])); SIM.blk_done[ch] = want; }
+		}
+		if (end) { SIM.blocks_played++; next_block(); }   /* the next one starts at once: no idle status between */
+	}
 }
 
 void sim_step(uint32_t ms)
@@ -146,13 +214,8 @@ void sim_step(uint32_t ms)
 		if (n > SIM.left[a]) n = SIM.left[a];
 		SIM.acc[a] -= n;
 		SIM.left[a] -= n;
-		SIM.cnt[a] += (int64_t)SIM.dir[a] * n;
-		int phys = SIM.dir[a];
-		if (SIM.axis_cfg[a] & 2) phys = -phys;      /* DIR invert flips the DIR line ... */
-		if (SIM.wiring_rev[a]) phys = -phys;        /* ... and reversed wiring flips it back */
-		SIM.pos[a] += (int64_t)phys * n;
-		if (SIM.pos[a] < SIM.hard_lo[a]) { SIM.pos[a] = SIM.hard_lo[a]; SIM.crashes++; }
-		if (SIM.pos[a] > SIM.hard_hi[a]) { SIM.pos[a] = SIM.hard_hi[a]; SIM.crashes++; }
+		emit(a, SIM.dir[a], n);
 		if (!SIM.left[a]) SIM.acc[a] = 0;
 	}
+	if (alive) play_blocks(ms);
 }

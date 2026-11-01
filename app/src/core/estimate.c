@@ -482,7 +482,7 @@ static double current_line(const program_t *p, int line, int ov)
 
 static double margin(const program_t *p, double t)
 {
-	return p->exact_cum ? t * EST_XMARGIN + EST_XMARGIN_S : t * EST_MARGIN + EST_MARGIN_S;
+	return (p->exact_cum ? t * EST_XMARGIN + EST_XMARGIN_S : t * EST_MARGIN + EST_MARGIN_S) + EST_END_S;
 }
 
 double est_remaining(const program_t *p, int from, int ov)

@@ -14,6 +14,7 @@ typedef struct {
 	uint8_t outputs;
 	uint16_t last_mpg;
 	uint32_t bursts, writes;
+	uint32_t blocks, block_seq;  /* blocks pushed; w2 of the next block */
 	/* axis -> channel (user 2026-10-31: a dead X DIR output, X moved to the A connector).
 	 * Everything below takes AXES; only this layer knows channels. An axis without a
 	 * channel counts its own steps in virt[] so its position check stays consistent. */
@@ -53,15 +54,25 @@ void fpga_spindle_pwm(fpga_t *f, int duty);      /* 0..3000 */
  * A burst sent while the axis still steps in the SAME direction is appended; one in the
  * OPPOSITE direction is silently IGNORED by the FPGA - callers must wait (fpga_moving). */
 void fpga_burst(fpga_t *f, int axis, int32_t steps, uint32_t rate);
-uint8_t fpga_moving(fpga_t *f);                  /* bit n = axis n's channel active or stepping */
+uint8_t fpga_moving(fpga_t *f);                  /* bit n = axis n's channel active or stepping (burst or block) */
 /* The vendor's post-burst status sweep (0x2E = 0, then select each axis). */
 void fpga_status_sweep(fpga_t *f);
-bool fpga_busy(fpga_t *f);                       /* any axis stepping */
-uint16_t fpga_status(fpga_t *f);                 /* raw 0x01: bit n active, bit 8+n stepping */
+bool fpga_busy(fpga_t *f);                       /* any channel stepping (burst or block) */
+uint16_t fpga_status(fpga_t *f);                 /* raw 0x01: bit n active, bit 8+n stepping; blocks: 4+n, 12+n */
 /* Watchdog + position latch: must be written at least every ~50 ms or nothing steps. */
 void fpga_heartbeat(fpga_t *f);
 void fpga_positions(fpga_t *f, int32_t pos[NAXES]);  /* latched counters (call after a heartbeat) */
 void fpga_preset(fpga_t *f, int axis, int32_t steps); /* set an axis' position counter */
 void fpga_stop(fpga_t *f, int axis);             /* 0x04 = 4: decelerating stop (leaves the axis held!) */
+
+/* ---- block mode (continuous motion, docs/block-mode.md; fpga_block.c) ----
+ * Per channel the vendor's mode write: on = 0x30+ch before a stream, off = 0x20+ch after. */
+void fpga_block_mode(fpga_t *f, bool on);
+/* ONE block of dt_s seconds from per-AXIS signed step deltas, all channels together; the FPGA
+ * queues it behind the others and plays them back to back. Axes without a channel count in
+ * virt[]. false = no channel has steps (nothing sent). Needs the watchdog to play. */
+bool fpga_block(fpga_t *f, const int32_t steps[NAXES], double dt_s);
+int fpga_block_queue(fpga_t *f);                 /* blocks queued (0xff = full) */
+void fpga_block_flush(fpga_t *f);                /* empty the queue: mode off/on - TO BE MEASURED */
 
 #endif

@@ -56,3 +56,12 @@ for m in mv:
     else: runs.append((cur, n)); cur, n = m, 1
 runs.append((cur, n))
 print("continuous moving stretches >= 1 s:", [f"{n * 20 / 1000:.1f}" for on, n in runs if on and n >= 50], "s")
+
+# block mode (2026-11-01): the FPGA's queue must never run dry while something moves
+if "queue" in rows[0]:
+    q = [int(r["queue"]) for r in rows]
+    moving_rows = [i for i in range(1, len(rows)) if int(rows[i][fpga]) != int(rows[i - 1][fpga])]
+    dry = [i for i in moving_rows if q[i] == 0]
+    if moving_rows:
+        print(f"FPGA queue while moving: min {min(q[i] for i in moving_rows)}, median {statistics.median(q[i] for i in moving_rows):.0f}, "
+              f"max {max(q[i] for i in moving_rows)} blocks; rows with an empty queue while moving: {len(dry)} of {len(moving_rows)}")

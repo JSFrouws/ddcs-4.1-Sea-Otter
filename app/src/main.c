@@ -130,6 +130,7 @@ static void motion_slice(void)
 	 * (loop log 2026-11-01: 767-step bursts for 60 ms planned, the backlog never drained) */
 	uint32_t real = !g_last_tick ? TICK_MS : t <= g_last_tick ? 0u : (uint32_t)(t - g_last_tick);
 	uint32_t el = real > 40u ? 40u : real;
+	if (SET.block_mode && !el) el = 1;                    /* block mode plans by the FPGA's queue, not by el: a forced slice (before a frame) must still run */
 	if (PERF.debug && (C.m == M_RUN || C.mo.active || !motion_idle(&C.mo))) fprintf(stderr, "%llu slice el %u (real %u) busy %u\n", (unsigned long long)now_us() / 1000, el, real, C.mo.hw_busy);
 	PERF.loops++;
 	if (real > PERF.gap_ms_max) PERF.gap_ms_max = real;
@@ -341,7 +342,13 @@ int main(int argc, char **argv)
 			if (splash_until && (t >= splash_until || keys_prev)) { splash_until = 0; U.dirty = true; }
 			if (!splash_until && (U.dirty || s != sig) && t - last_render >= gap) {
 				uint64_t r_us = now_us();
-				if (mv) slice_for_frame(CLAMP(PERF.draw_us_avg / 1000 + 5, TICK_MS, 40u));
+				if (mv) {
+					uint32_t frame_ms = CLAMP(PERF.draw_us_avg / 1000 + 5, TICK_MS, 40u);
+					/* block mode: top the FPGA's queue up to the frame plus the normal depth, in one
+					 * tick; the yields inside the draw refill it. Burst mode: the old dance. */
+					if (SET.block_mode) { C.mo.feed_ahead_ms = (int)(PERF.draw_us_avg / 1000 + PERF.present_us_avg / 1000 + SET.queue_ms); motion_slice(); }
+					else slice_for_frame(frame_ms);
+				}
 				STALL_WATCH("render", ui_render(&dsp.back));
 				slice_if_due();                                   /* a frame is ~60 ms here: keep motion */
 				uint64_t p_us = now_us();                         /* ticking between its parts so no gap */

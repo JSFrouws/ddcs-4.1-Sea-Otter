@@ -11,6 +11,16 @@
  *   - same-direction bursts while stepping are appended, opposite ones are IGNORED
  *   - 0x04 = 4 while stepping stops within ~20 ms and leaves the axis HELD: bursts are
  *     ignored until power-off (sim: sim_reset_machine) - the release is still unknown
+ * Block mode as MEASURED 2026-11-01 (docs/fpga-motion.md "Block mode"):
+ *   - 16 words to 0x50..0x5F, 0x66 = 1 then 0 queues them; 256 deep (a push into a full
+ *     queue is dropped and counted in ignored_cmds); read 0x36 = blocks waiting (max 0xff)
+ *   - the head block plays only with the watchdog alive: the dominant channel at 2 x w4
+ *     steps/s for w8 steps, the others' steps spread evenly over the same time; the next
+ *     block follows in the same ms (no gap, no start overhead); an empty queue just stops
+ *   - 0x01 bits 4+ch and 12+ch while a block plays on channel ch (0x2020 measured for Y)
+ *   - ASSUMPTIONS: the playing block is not counted in 0x36; the mode write 0x42 is
+ *     recorded but not required; 0x20+ch flushes the waiting blocks only when
+ *     flush_on_mode_off is set (what the real FPGA does is not measured yet)
  */
 #ifndef FPGA_SIM_H
 #define FPGA_SIM_H
@@ -18,6 +28,7 @@
 
 #define SIM_BURST_MS 10
 #define SIM_WATCHDOG_MS 100
+#define SIM_BLOCK_QUEUE 256
 
 typedef struct {
 	/* machine model, in steps, in the sim's own physical frame */
@@ -50,6 +61,17 @@ typedef struct {
 	int64_t cnt[NAXES];           /* FPGA position counter (counts in DIR-bit sense, preset via 0x05) */
 	int32_t latched[NAXES];       /* counter value at the last heartbeat */
 	bool held[NAXES];
+	/* block mode */
+	bool flush_on_mode_off;       /* tests: 0x42 = 0x20+ch empties the queue (unmeasured) */
+	uint16_t axis_mode[NAXES];    /* last 0x42 written per channel */
+	uint32_t blocks, blocks_played;   /* pushed into the queue / finished playing */
+	uint16_t blk_stage[16];
+	uint16_t blk_q[SIM_BLOCK_QUEUE][16];
+	int blk_head, blk_n;          /* waiting blocks (the playing one not included) */
+	bool blk_on;                  /* a block is playing */
+	int blk_dir[NAXES];           /* counter sense of the playing block per channel */
+	uint32_t blk_steps[NAXES], blk_done[NAXES];
+	double blk_ms, blk_t;         /* its duration and elapsed time */
 } fpga_sim_t;
 
 extern fpga_sim_t SIM;

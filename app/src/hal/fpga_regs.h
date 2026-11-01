@@ -26,8 +26,13 @@
 #define FW_STATUS_ACK   0x2E  /* TRACE: 0 written before each status sweep (not the done-ack, tested) */
 #define FW_LIMIT_PORTS  0x34  /* TRACE: banked, low byte = +limit input port, high = -limit */
 #define FW_HOME_PORT    0x35  /* TRACE: banked, home input port */
-#define FW_ALARM_PORT   0x36  /* TRACE: banked, drive-alarm input port << 8 */
+#define FW_ALARM_PORT   0x36  /* TRACE: banked, drive-alarm input port << 8 (READ 0x36 = FR_BLOCK_QUEUE, unrelated) */
 #define FW_OUTPUTS      0x3E  /* CONFIRMED: bit n = OUT(n+1), whole mask each time */
+#define FW_AXIS_MODE    0x42  /* CONFIRMED 2026-11-01 (vendor trace, copied in blockmove): banked by 0x00;
+                               * 0x30+ch before a block stream = block mode, 0x20+ch after it */
+#define FW_BLOCK_FIRST  0x50  /* CONFIRMED 2026-11-01: 16 block words 0x50..0x5F (see BLOCK WORDS below) */
+#define FW_BLOCK_LATCH  0x66  /* CONFIRMED 2026-11-01: 1 then 0 pushes the staged block into the queue
+                               * (the vendor driver's ioctl 0x4622 does words + latch itself) */
 #define FW_HEARTBEAT    0x67  /* CONFIRMED 2026-10-18: motion WATCHDOG + position latch. Without it a burst
                                * is accepted but never stepped; each write latches the position counters */
 
@@ -45,10 +50,34 @@
 #define FR_INPUTS_HI    0x38  /* CONFIRMED: IN17 bit0, IN18 bit1 */
 #define FR_KEYS_EXT     0x3B  /* CONFIRMED: IN15..18 mirrored, active-high */
 #define FR_PENDANT      0x3D  /* CONFIRMED: see PD_* */
+#define FR_BLOCK_QUEUE  0x36  /* CONFIRMED 2026-11-01: blocks queued, 0xff = full (256 deep). Not the
+                               * register written at 0x36 (FW_ALARM_PORT, banked): read and write differ */
 #define FR_VERSION      0x41  /* CONFIRMED: FPGA version */
 
 #define FR_STATUS_MOVING(ax) (1u << (8 + (ax)))
 #define FR_STATUS_ACTIVE(ax) (1u << (ax))
+/* block mode uses other bits: 0x2020 while a stream plays on channel 1 (measured 2026-11-01) */
+#define FR_STATUS_BLOCK(ch)  (1u << (4 + (ch)) | 1u << (12 + (ch)))
+
+/* BLOCK WORDS (decoded + driven on the unit 2026-11-01, docs/fpga-motion.md "Block mode"):
+ *   w0   flags: bit 9 = direction of the dominant channel (1 = +), bits 8/7/6 = directions of
+ *        the remaining channels in index order, bits 1-2 = dominant channel (X 0, Y 2, Z 4,
+ *        A 6), bit 0 = feed (1) / rapid (0, vendor G0), bit 5 always set.
+ *        vendor: X+ 03e1, X- 01e1, Y+ 03e3, Y- 01e3, X-Y- 00e1, Z 03e4
+ *   w1   0x3020, constant
+ *   w2   sequence id (the vendor: per G-code line; any value works)
+ *   w4   rate word of the dominant channel = steps/s / 2 (as the burst rate 0x12)
+ *   w6   0x0d05 (3333); 0x126a on the vendor's 45 deg diagonal - NOT a time base (3333 and
+ *        4714 give the same 1.385 s), kept at 3333
+ *   w8   steps of the dominant channel in this block (20 mm = 410 blocks, sum 8000 exact)
+ *   w10, w12, w14  steps of the remaining channels in index order (Y dominant: X, Z, A;
+ *        Z rode in w12)
+ *   others 0. A block lasts w8 / (2 * w4) s; the queue plays back to back with no gap,
+ *   direction may change from one block to the next, an empty queue stops the axes. */
+#define BLK_W0_BASE     0x0021u  /* bit 5 + feed */
+#define BLK_W0_DOM_DIR  0x0200u
+#define BLK_W1          0x3020u
+#define BLK_W6          0x0d05u
 
 #define PD_X1      (1u << 0)  /* pendant bits 0..6 active-low, only while the dead-man is held */
 #define PD_X10     (1u << 1)

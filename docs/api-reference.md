@@ -124,6 +124,7 @@ Everything in one snapshot. Poll it (e.g. every 0.5–1 s).
   "steps": {"x": 928414, "y": 503986, "z": -182402, "a": -2000},
   "posChecks": 12, "posFaults": 0, "posErr": [0,0,0,0], "faultLine": -1,
   "busErrors": 0, "busRetries": 0, "busErrno": 0, "reversalsWaited": 0, "bursts": 18233,
+  "blocks": 41870, "queue": 5,
   "perf": {"loops": 32533, "tickUs": 141, "tickUsMax": 9000, "renderUs": 50694,
            "renderUsMax": 340000, "drawUs": 26466, "presentUs": 24231, "gapMsMax": 4410,
            "motionMs": 344855, "lostMs": 0, "replanIters": 26556},
@@ -146,6 +147,7 @@ Everything in one snapshot. Poll it (e.g. every 0.5–1 s).
 | `leds` | Panel LEDs: 1 Start, 2 Pause, 4 Reset, 8 Spindle, 16 Shift, 32 Ethernet, 64 USB |
 | `fpga` / `steps` | FPGA step counters / steps the app commanded. Equal at rest = no lost steps |
 | `posChecks` / `posFaults` / `posErr` / `faultLine` | Position checks at rest, mismatches, last mismatch per axis (steps), program line of the last mismatch |
+| `bursts` / `blocks` / `queue` | Step bursts sent since start (burst mode, `motion.block_mode` off) / 10 ms blocks sent to the FPGA's motion queue since start (block mode) / blocks queued in the FPGA at the last tick (≈ `motion.queue_ms` / 10 while moving, 0 at rest) |
 | `perf.lostMs` | Motion time lost to the loop being busy (should stay 0) |
 | `message` | The last panel message (toast) |
 | `hmiMessage` | The operator message box ([below](#operator-message-box)): `{"id":3,"acked":false,"button":"OK"}`, `{"id":0}` when there is none. `GET message` has the text and times |
@@ -188,6 +190,15 @@ See [Moving](#moving).
 ### GET `settings`
 All settings as `{"key": value, …}` (on/off as 0/1, choices as their index). The keys are
 listed in [Settings keys](#settings-keys) below.
+
+### GET `trace` · `trace?clear=1`
+The motion trace as CSV, one row per 20 ms heartbeat (when the FPGA counters are latched) while something moves or the pendant
+is held (and for 1 s after), last 4096 rows; `clear=1` empties it after reading. Columns:
+`t_ms, x_cmd, x_fpga, y_cmd, y_fpga, z_cmd, z_fpga, a_cmd, a_fpga, x_spm, y_spm, z_spm,
+a_spm, mpg, bursts, held, busy, tick_us, queue` — steps commanded / FPGA counter per axis,
+steps/mm, the raw wheel count, motion commands sent (bursts + blocks), dead-man held, FPGA
+axes still stepping, the previous tick's cost (µs) and the blocks queued in the FPGA (block
+mode, since 2026-11-01). Rendering a full trace takes a while: don't fetch it mid-test.
 
 ---
 
@@ -364,6 +375,8 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `jog.jerk` | Jog & touch-off | Jog / wheel jerk (0 = acceleration only) | mm/s³ | number, 0 to 1000000 | yes |
 | `limits.approach_pct` | Homing & limits | Speed towards a limit inside the approach zone (bench..soft, ≥ 10 mm) | % | whole number, 10 to 100 | yes |
 | `motion.graceful_stop` | Homing & limits | Controlled stop on Reset, E-stop, limit (no lost steps) |  | on/off | yes |
+| `motion.block_mode` | Axes | Continuous motion (FPGA block queue): moves are streamed to the FPGA's own motion queue one 10 ms block at a time, so the pulses never pause (the vendor app's way); off = the old step bursts, with a ~2 ms gap at every joint |  | on/off, default on | yes |
+| `motion.queue_ms` | Axes | Motion kept queued in the FPGA: more absorbs a slow screen redraw, less makes a jog key or wheel click answer sooner (latency ≈ this) | ms | whole number, 20 to 200 (default 50) | yes |
 | `planner.lookahead` | Axes | Planner lookahead (segments) |  | whole number, 4 to 400 | yes |
 | `planner.junction_dev` | Axes | Corner tolerance | mm | number, 0 to 1 | yes |
 | `gcode.default_feed` | Jog & touch-off | Feed when a program sets none | mm/min | number, 1 to 20000 | yes |

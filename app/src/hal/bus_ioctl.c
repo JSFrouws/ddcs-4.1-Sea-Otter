@@ -2,12 +2,14 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include "bus.h"
 
 #define MOTION_IOC_WRITE    0x4620u   /* {u32 addr; u32 data} */
 #define MOTION_IOC_READ     0x4621u   /* {u32 addr; u32 data} in/out */
+#define MOTION_IOC_BLOCK    0x4622u   /* u16[18]: 16 block words + 2 zero (as the vendor app) */
 #define MOTION_IOC_BEEP_ON  0x4623u
 #define MOTION_IOC_BEEP_OFF 0x4624u
 #define MOTION_IOC_SPINDLE  0x4627u   /* s32 duty 0..3000 */
@@ -39,6 +41,17 @@ static uint16_t r(bus_t *b, uint8_t a)
 	return (uint16_t)io[1];
 }
 
+/* Block into the queue: the driver writes 0x50..0x5F and the 0x66 latch itself
+ * (proven with tools/blockmove.c 2026-11-01). NOT retried like a write: whether a failed
+ * 0x4622 can have latched the block is unknown, and a doubled block is a silent extra move.
+ * A failure is counted; the position check at rest catches the lost steps. */
+static void blk(bus_t *b, const uint16_t w16[16])
+{
+	uint16_t io[18] = { 0 };
+	memcpy(io, w16, 16 * sizeof *io);
+	if (ioctl(((io_t *)b->priv)->fd, MOTION_IOC_BLOCK, io) < 0) { bus_last_errno = errno; bus_errors++; }
+}
+
 static void pwm(bus_t *b, int duty)
 {
 	int32_t d = CLAMP(duty, 0, 3000);
@@ -66,6 +79,6 @@ bus_t *bus_ioctl_open(const char *dev)
 	io_t *p = calloc(1, sizeof *p);
 	p->fd = fd;
 	b->priv = p;
-	b->write = w; b->read = r; b->pwm = pwm; b->beep = beep; b->close = cl;
+	b->write = w; b->read = r; b->block = blk; b->pwm = pwm; b->beep = beep; b->close = cl;
 	return b;
 }

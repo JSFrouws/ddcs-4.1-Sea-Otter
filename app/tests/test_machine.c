@@ -132,7 +132,7 @@ static void test_jog_ramp_outputs(void)
 	fx_run(10);
 	CHECK(C.mo.jv[AX_Y] > 0 && C.mo.jv[AX_Y] < SET.jog_speed * 0.2);
 	fx_run(1500);
-	CHECK_NEAR(C.mo.jv[AX_Y], fmin(SET.jog_speed, 32000 / spm), 1e-6);
+	CHECK_NEAR(C.mo.jv[AX_Y], fmin(SET.jog_speed, CAP_SPS / spm), 1e-6);
 	int64_t at_release = SIM.pos[AX_Y];
 	motion_jog_cont(&C.mo, AX_Y, 0);
 	CHECK(!motion_idle(&C.mo));                         /* still braking */
@@ -272,6 +272,7 @@ static void test_pacing(void)
 	SUITE("burst pacing under an irregular loop, braking time bound");
 	fx_reset();
 	SET.ax[AX_Y].steps_per_mm = 400;                     /* the machine: the FPGA has 5x headroom here */
+	SET.queue_ms = 50;                                   /* block mode at its real queue depth: the irregular loop must not run it dry */
 	fx_run(50);
 	const double spm = SET.ax[AX_Y].steps_per_mm, v = SET.jog_speed;
 	arg_t j = { .axis = AX_Y, .dir = 1, .dist = 20 };
@@ -602,11 +603,12 @@ void test_machine(void)
 	fx_until_idle(5000);
 	CHECK(C.m == M_LIMIT && C.limit_axis == AX_Y && C.limit_dir == -1);
 	CHECK(can(C_JOG, &sj, SRC_PANEL) != NULL);     /* Y- blocked */
-	arg_t ok1 = J(AX_X, 1, 1), ok2 = J(AX_Y, 1, 1);
+	arg_t ok1 = J(AX_X, 1, 1), ok2 = J(AX_Y, 1, 3);   /* 3 mm: the brake from 20 mm/s + a queue of motion overran the switch by ~1.3 mm */
 	CHECK(can(C_JOG, &ok1, SRC_PANEL) == NULL);    /* other axes free */
 	CHECK(can(C_START, NULL, SRC_PANEL) != NULL);
 	CHECK(act(C_JOG, &ok2, SRC_PANEL));            /* the way off */
 	fx_until_idle(5000);
+	if (C.m != M_IDLE) printf("  after jogging off the switch: state %d, limit axis %d dir %d, switch %d, y %.3f, q %d busy %u idle %d\n", (int)C.m, C.limit_axis, C.limit_dir, sim_switch_active(AX_Y), sim_pos_mm(AX_Y), C.mo.q_est, C.mo.hw_busy, motion_idle(&C.mo));
 	CHECK(C.m == M_IDLE);
 	SIM.switch_at[AX_Y] = 0;
 

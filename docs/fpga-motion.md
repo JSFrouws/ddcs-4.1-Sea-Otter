@@ -215,7 +215,9 @@ on demand with a shallow queue, and "stop" = stop feeding after ramping down in 
 double (800 for 400 steps) — never again in ~30 runs, including with the whole queue pushed
 at once; treat it as stale FPGA state from the kill. A mid-stream *stop* (`0x04 = 4`) is
 untested in block mode (in burst mode it leaves the axis held until power-off). Status
-`0x01` reads `0x2020` while a Y block stream runs — not the burst-mode bit layout.
+`0x01` reads `0x2020` while a Y block stream runs — not the burst-mode bit layout. The
+app's immediate stop uses the per-axis mode write `0x20+ch` as the flush — effect on the
+real FPGA not yet measured (worst case the queue, at most `motion.queue_ms`, plays out).
 
 **Vendor timing, for reference**: it pushes a block per 0.7 ms until `0x36` reads `0xff`,
 then ~22 blocks every 110 ms (the drain rate at 4000 steps/s), reads positions (`0x02`+)

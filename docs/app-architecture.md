@@ -11,7 +11,7 @@ Code: [../app/](../app/README.md). Operator model: [operator-procedures.md](oper
 | FPGA access | **Reuse the vendor's `motiondev.ko`** (already loaded by `rcS`) through its ioctls `0x4620/0x4621` (register write/read), `0x4627` (spindle PWM), `0x4623/24` (beep) | Proven on this unit, CRC-valid for its kernel. Our rebuilt `motiondrv.ko` still can't load without the BSP's `Module.symvers` ([motiondev-ko.md](motiondev-ko.md)) |
 | Keys / LEDs | **TM1638 from userspace via `/dev/mem`**, same code path as `mockup/ioctl-probe/tm1638read.c` | `MOTION_IOC_KEY` returns nothing ([ui-controls-map.md](ui-controls-map.md)); the direct scan is proven. Only compiled-in for ARM |
 | Display | `/dev/fb0` mmap, RAM back buffer, copy **changed rows only** | 1024×600×16 = 1.2 MB per full copy; most frames change a few DRO digits |
-| Motion | **Software interpolation**: every 10 ms the planner advances along the line (trapezoid, one-segment lookahead), each axis gets one **step burst** | The burst command (vendor MPG-jog sequence) is the only motion command proven on hardware. The FPGA's own coordinated block (`0x50..0x60`) isn't decoded |
+| Motion | **Software interpolation, streamed through the FPGA's block queue** (since 2026-11-01, [block-mode.md](block-mode.md)): the planner ([motion-planner.md](motion-planner.md)) is advanced in fixed 10 ms blocks, each block carries all four axes, and the loop keeps `motion.queue_ms` (default 50 ms) queued in the FPGA. The old one-**step-burst**-per-axis emitter stays behind `motion.block_mode = off` | The FPGA's block interface (`0x4622` → `0x50…0x5F`) is decoded and drove ~30 moves step-exact on the machine ([fpga-motion.md](fpga-motion.md)); it plays blocks back to back with no gap, where bursts left ~2 ms at every joint. Until then the burst command (vendor MPG-jog sequence) was the only motion command proven on hardware |
 | Concurrency | **Single thread**, one loop: 10 ms tick → inputs, state machine, program feeder, motion, outputs; keys at 50 Hz; render ≤ 10 fps when something changed; HTTP polled non-blocking in the idle time | No locks, deterministic, and a slow network client can't delay a motion slice |
 | Settings | One descriptor table `SETTINGS[]` (key, group, label, type, limits, decimals, "idle only", "panel only") | The settings screen, the API and the file format can't drift apart |
 | Safety model | One dispatcher `act()` + state table `ALLOW[state]` | No input path (key, pendant, API, internal event) can reach motion without the same guard |
@@ -24,7 +24,7 @@ Code: [../app/](../app/README.md). Operator model: [operator-procedures.md](oper
         ui/ (screens, editor, view) ─── act() ──► core/machine.c  ALLOW[state] / NEXT
                                                    │  core/ctl_tick.c: inputs, feeder, events, outputs
                                                    ▼
-                       core/gcode.c ──ops──► core/motion.c (planner, homing, bursts)
+                       core/gcode.c ──ops──► core/motion.c (planner, homing, blocks/bursts)
                                                    ▼
                                            hal/fpga.c (typed registers)
                                                    ▼
@@ -50,7 +50,9 @@ from a machine model (one shared NC switch per axis at the X/Y negative and Z to
 like this machine; E-stop button on IN01), pendant `0x3D` gated by the dead-man, wheel
 `0x0E`, outputs `0x3E`, PWM. Unknowns are explicit options, not hidden guesses: a burst's
 pulse rate (spread over 10 ms, capped at 100 kHz), and the `strict_latch` that reproduces
-the real FPGA ignoring moves after the first one.
+the real FPGA ignoring moves after the first one. Block mode adds a model of the FPGA's block
+queue: blocks played back to back at their own rate, and nothing plays without the `0x67`
+watchdog ([block-mode.md](block-mode.md)).
 
 ## Rendering budget
 
@@ -119,7 +121,7 @@ decisions were taken once per controller tick, and the unit's ticks are uneven (
 redraw makes a 30–40 ms tick). The real `Sign_rosette.nc` ran 2.4 % slower with a 32 ms tick
 every 18 and 11.7 % slower with a 40 ms tick every 9 than at steady 10 ms ticks. The machine
 braked early whenever the screen redrew. `motion_tick` now runs the path in steps of at most
-10 ms (still one burst per tick), and the time no longer depends on the tick pattern
+10 ms (then still one burst per tick; in block mode one 10 ms block per step), and the time no longer depends on the tick pattern
 (±0.2 %, `tests/test_estimate.c`).
 
 Measured on the unit (2026-10-25):
@@ -147,5 +149,8 @@ Tool changes by hand count 0 s.
 
 The former blocker (the "done latch") is solved: `0x67` is a motion watchdog. With the fixes
 in [fpga-motion.md](fpga-motion.md) the app ran step-exact on the real FPGA (0 position
-faults, Reset overrun ≤ 1 mm; controlled stop ≤ 1 mm at 16 mm/s). Still to do: test with a real motor (bursts are stop-go),
-homing on real switches, and decoding the coordinated block interface (`0x50…0x60`).
+faults, Reset overrun ≤ 1 mm; controlled stop ≤ 1 mm at 16 mm/s). The coordinated block
+interface is decoded and is the default emitter since 2026-11-01 ([block-mode.md](block-mode.md)),
+so motion is no longer stop-go. Still to do: homing on real switches, and measuring on the
+unit whether the immediate stop's queue flush (the per-axis mode write `0x20+ch`) cuts the
+queue or lets it (≤ `motion.queue_ms`) play out.

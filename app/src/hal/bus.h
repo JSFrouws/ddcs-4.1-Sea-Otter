@@ -2,7 +2,7 @@
  *
  * Two implementations with the same interface:
  *   bus_ioctl.c  the vendor's own motiondev.ko (/dev/motion, loaded by rcS at boot):
- *                MOTION_IOC_WRITE 0x4620 / READ 0x4621 / SPINDLE 0x4627 / BEEP 0x4623-24.
+ *                MOTION_IOC_WRITE 0x4620 / READ 0x4621 / BLOCK 0x4622 / SPINDLE 0x4627 / BEEP 0x4623-24.
  *                Reused as-is: it is CRC-valid for this kernel and proven (docs/fpga-outputs.md),
  *                while our own rebuilt driver can't load without the BSP's Module.symvers.
  *   bus_sim.c    an in-process FPGA model (sim/fpga_sim.c) at register level, so every
@@ -20,6 +20,9 @@ struct bus {
 	uint16_t (*read)(bus_t *, uint8_t addr);
 	void (*pwm)(bus_t *, int duty);            /* spindle PWM6, 0..3000 = 0..10 V on VSO */
 	void (*beep)(bus_t *, bool on);
+	/* one 16-word motion block into the FPGA's block queue (regs 0x50..0x5F, latched by 0x66;
+	 * the vendor driver does the latch itself, docs/fpga-motion.md "Block mode") */
+	void (*block)(bus_t *, const uint16_t w[16]);
 	void (*close)(bus_t *);
 	void *priv;
 	/* trace hook: dir 'W' / 'R' / 'P' */
@@ -45,6 +48,18 @@ static inline void bus_pwm(bus_t *b, int duty)
 {
 	if (b->trace) b->trace(b->trace_ctx, 'P', 0, (uint16_t)duty);
 	b->pwm(b, duty);
+}
+
+/* The trace sees a block as the register writes the driver makes of it, so register-level
+ * comparisons (tests, the vendor trace) keep working whatever the transport. */
+static inline void bus_block(bus_t *b, const uint16_t w[16])
+{
+	if (b->trace) {
+		for (int i = 0; i < 16; i++) b->trace(b->trace_ctx, 'W', (uint8_t)(0x50 + i), w[i]);
+		b->trace(b->trace_ctx, 'W', 0x66, 1);
+		b->trace(b->trace_ctx, 'W', 0x66, 0);
+	}
+	b->block(b, w);
 }
 
 #endif

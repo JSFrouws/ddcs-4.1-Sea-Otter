@@ -12,7 +12,7 @@
 
 void fpga_attach(fpga_t *f, bus_t *b)
 {
-	*f = (fpga_t){ .bus = b };
+	*f = (fpga_t){ .bus = b };   /* zeroes bursts, writes, blocks, block_seq, virt[] */
 	for (int a = 0; a < NAXES; a++) f->chan[a] = (int8_t)a;
 	f->last_mpg = bus_r(b, FR_MPG_COUNT);
 }
@@ -158,12 +158,15 @@ void fpga_status_sweep(fpga_t *f)
 		bus_w(f->bus, FW_AXIS_SEL, (uint16_t)ax);
 }
 
-bool fpga_busy(fpga_t *f) { return (bus_r(f->bus, FR_STATUS) & 0x0F00) != 0; }
-/* busy = active (bit n) or stepping (bit 8+n): a reversal is only safe when both are clear */
+/* stepping: burst bit 8+n, or a block playing (4+n / 12+n); not the burst's active bit n,
+ * which stays set on a held axis */
+bool fpga_busy(fpga_t *f) { return (bus_r(f->bus, FR_STATUS) & 0xFFF0) != 0; }
+/* moving = burst active (bit n) or stepping (8+n), or block layout (4+n, 12+n, measured
+ * 0x2020 for channel 1 2026-11-01): a reversal or a preset is only safe when all are clear */
 uint8_t fpga_moving(fpga_t *f)
 {
 	uint16_t s = bus_r(f->bus, FR_STATUS);
-	uint8_t ch = (uint8_t)((s | s >> 8) & 0x0F), ax = 0;
+	uint8_t ch = (uint8_t)((s | s >> 4 | s >> 8 | s >> 12) & 0x0F), ax = 0;
 	for (int a = 0; a < NAXES; a++) if (f->chan[a] >= 0 && (ch >> f->chan[a] & 1)) ax |= (uint8_t)(1u << a);
 	return ax;
 }

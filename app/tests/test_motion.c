@@ -34,7 +34,7 @@ void test_motion(void)
 	CHECK_NEAR(phys(0), t[0], 0.0005); CHECK_NEAR(phys(1), t[1], 0.0005);
 	CHECK(m->steps[0] == llround(t[0] * 2000));
 	/* feed, or the per-axis sustained-burst cap along this direction (X carries 20/sqrt(500) of the path) */
-	double cap = fmin(1200, FPGA_MAX_SPS * 0.8 / 2000 * 60 / (20 / sqrt(500.0)));
+	double cap = fmin(1200, CAP_SPS / 2000 * 60 / (20 / sqrt(500.0)));
 	CHECK(maxv <= cap * 1.02);
 	CHECK(maxv >= cap * 0.95);
 
@@ -66,7 +66,7 @@ void test_motion(void)
 	fx_run(1000);
 	double x1 = phys(0);
 	fx_run(100);
-	CHECK_NEAR((x1 - phys(0)) / 0.1 * 60, 0.5 * fmin(1200, FPGA_MAX_SPS * 0.8 / 2000 * 60), 15);
+	CHECK_NEAR((x1 - phys(0)) / 0.1 * 60, 0.5 * fmin(1200, CAP_SPS / 2000 * 60), 15);
 	m->feed_ov = 100;
 	fx_until_idle(5000);
 	CHECK_NEAR(phys(0), t[0], 0.0005);
@@ -90,7 +90,7 @@ void test_motion(void)
 	t[1] += 100;
 	motion_move_to(m, t, 0, true);
 	fx_until_idle(10000);
-	CHECK(C.fp.bursts > b0);
+	CHECK(C.fp.bursts + C.fp.blocks > b0);                  /* a motion command of either kind went out */
 	CHECK_NEAR(phys(1), t[1], 0.0005);
 	CHECK(SIM.crashes == 0);
 

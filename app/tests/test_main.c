@@ -25,6 +25,9 @@ void fx_reset(void)
 	remove("t_settings.cfg"); remove("t_work.cfg"); remove("t_work.cfg.pos");
 	program_free(&C.prog);
 	ctl_init(bus, true, "t_settings.cfg", "t_work.cfg");
+	/* block mode with one block queued: the planner advances one 10 ms block per fx tick, as
+	 * the burst-era tests assume; the queue depth itself has its own tests */
+	SET.queue_ms = 10;
 }
 
 /* an app restart: same files, same (simulated) FPGA counters */

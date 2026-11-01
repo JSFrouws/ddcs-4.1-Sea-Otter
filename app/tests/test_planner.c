@@ -89,7 +89,7 @@ void test_planner(void)
 	}
 	fx_run(50);
 	printf("  3000 x 0.01 mm segments: peak %.1f of %.1f mm/s\n", vpeak, vF);
-	double vcap = FPGA_MAX_SPS * 0.8 / SET.ax[0].steps_per_mm;   /* sustained-burst cap: 16 mm/s */
+	double vcap = CAP_SPS / SET.ax[0].steps_per_mm;              /* the FPGA cap: 20 mm/s in block mode, 16 with bursts */
 	CHECK(vpeak > 0.95 * vcap);
 	CHECK_NEAR(C.mo.pos[0], x0 + 30, 1e-6);
 
@@ -140,7 +140,7 @@ void test_planner(void)
 		double over = sim_pos_mm(0) - at;
 		printf("  %s stop at %.1f mm/s: overshoot %.2f mm, backlog %lld steps\n", mode ? "graceful" : "abrupt", v_at, over, (long long)backlog);
 		CHECK(backlog <= (int64_t)(FPGA_MAX_SPS * 0.030) + 1);
-		CHECK(v_at <= FPGA_MAX_SPS * 0.8 / SET.ax[0].steps_per_mm + 1e-6);
+		CHECK(v_at <= CAP_SPS / SET.ax[0].steps_per_mm + 1e-6);
 		CHECK(over < (mode ? 1.5 : 0.8));
 		CHECK_NEAR(sim_pos_mm(0), C.mo.pos[0], 0.002);
 	}
@@ -151,6 +151,6 @@ void test_planner(void)
 	t[1] += 30; C.mo.feed_ov = 300;
 	motion_move_to(&C.mo, t, 1000, false);
 	run_t r3 = run_path(NULL);
-	CHECK(r3.vmax <= FPGA_MAX_SPS * 0.8 / SET.ax[1].steps_per_mm + 1e-6);
+	CHECK(r3.vmax <= CAP_SPS / SET.ax[1].steps_per_mm + 1e-6);
 	C.mo.feed_ov = 100;
 }

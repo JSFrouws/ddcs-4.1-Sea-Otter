@@ -36,7 +36,7 @@ static bool burst_blocked(int axis, int dir)
 /* mpg/bursts/held (2026-10-31): the wheel latency split - raw wheel count changes -> first
  * burst out (bursts counter) -> FPGA counter moves. Recorded while the pendant is held too,
  * so a click at rest is in the trace. */
-static struct { uint32_t t; int64_t cmd[NAXES]; int32_t fpga[NAXES]; uint16_t mpg; uint32_t bursts; uint8_t held, busy; uint16_t tick_us; } trace[TRACE_N];
+static struct { uint32_t t; int64_t cmd[NAXES]; int32_t fpga[NAXES]; uint16_t mpg; uint32_t bursts; uint8_t held, busy, queue; uint16_t tick_us; } trace[TRACE_N];
 static int trace_head, trace_len;
 static uint64_t trace_t0, trace_busy_ms;
 
@@ -50,8 +50,9 @@ static void trace_add(void)
 	if (trace_len < TRACE_N) trace_len++; else trace_head = (trace_head + 1) % TRACE_N;
 	trace[i].t = (uint32_t)(now - trace_t0);
 	for (int a = 0; a < NAXES; a++) { trace[i].cmd[a] = C.mo.steps[a]; trace[i].fpga[a] = C.fpos[a]; }
-	trace[i].mpg = C.fp.last_mpg; trace[i].bursts = C.fp.bursts; trace[i].held = C.pend.held;
+	trace[i].mpg = C.fp.last_mpg; trace[i].bursts = C.fp.bursts + C.mo.blocks; trace[i].held = C.pend.held;   /* motion commands sent, either kind */
 	trace[i].busy = C.mo.hw_busy;                        /* FPGA axes still stepping at this slice (2026-11-01: jog ripple) */
+	trace[i].queue = (uint8_t)(C.mo.q_est > 255 ? 255 : C.mo.q_est);   /* block mode: blocks queued in the FPGA */
 	trace[i].tick_us = (uint16_t)(PERF.tick_us_last > 65535 ? 65535 : PERF.tick_us_last);   /* the previous tick's cost */
 }
 
@@ -60,13 +61,13 @@ size_t ctl_trace_csv(char **out, bool clear)
 	char *buf = NULL; size_t len = 0;
 	FILE *f = open_memstream(&buf, &len);
 	if (!f) { *out = NULL; return 0; }
-	fprintf(f, "t_ms,x_cmd,x_fpga,y_cmd,y_fpga,z_cmd,z_fpga,a_cmd,a_fpga,x_spm,y_spm,z_spm,a_spm,mpg,bursts,held,busy,tick_us\n");
+	fprintf(f, "t_ms,x_cmd,x_fpga,y_cmd,y_fpga,z_cmd,z_fpga,a_cmd,a_fpga,x_spm,y_spm,z_spm,a_spm,mpg,bursts,held,busy,tick_us,queue\n");
 	for (int k = 0; k < trace_len; k++) {
 		int i = (trace_head + k) % TRACE_N;
 		fprintf(f, "%u", trace[i].t);
 		for (int a = 0; a < NAXES; a++) fprintf(f, ",%lld,%d", (long long)trace[i].cmd[a], trace[i].fpga[a]);
 		for (int a = 0; a < NAXES; a++) fprintf(f, ",%g", SET.ax[a].steps_per_mm);
-		fprintf(f, ",%u,%u,%u,%u,%u\n", trace[i].mpg, trace[i].bursts, trace[i].held, trace[i].busy, trace[i].tick_us);
+		fprintf(f, ",%u,%u,%u,%u,%u,%u\n", trace[i].mpg, trace[i].bursts, trace[i].held, trace[i].busy, trace[i].tick_us, trace[i].queue);
 	}
 	fclose(f);
 	if (clear) trace_len = trace_head = 0;
@@ -91,6 +92,7 @@ void ctl_apply_axis_config(void)
 	int8_t was[NAXES];
 	memcpy(was, C.fp.chan, sizeof was);
 	fpga_init(&C.fp, cfg);
+	C.mo.fpga_mode = -1;                                  /* block / burst mode is told again on the next tick */
 	/* an axis moved to another connector: that channel's counter takes over the axis'
 	 * position (counters are per channel), so the position check sees no jump and nothing moves */
 	for (int a = 0; a < NAXES && C.mo.f; a++)             /* C.mo.f: not at start-up, motion owns the position */
@@ -420,7 +422,7 @@ static void motion_events(void)
 	mev_t ev = C.mo.ev;
 	gc_op_t op = C.mo.ev_op;
 	if (ev == MEV_NONE) return;
-	if (ev == MEV_END && C.mo.hw_busy) return;        /* finished only when the FPGA is too */
+	if (ev == MEV_END && (C.mo.hw_busy || C.mo.q_est)) return;   /* finished only when the FPGA is too (block mode: its queue played out) */
 	C.mo.ev = MEV_NONE;
 	arg_t a = { 0 };
 	switch (ev) {
@@ -449,7 +451,10 @@ static void inputs(void)
 {
 	C.inputs = fpga_inputs(&C.fp);
 	C.pend = fpga_pendant(&C.fp);
-	if (C.m == M_ESTOP || C.m == M_OFF) C.mo.hw_busy = C.mo.dry ? 0 : fpga_moving(&C.fp);
+	if (C.m == M_ESTOP || C.m == M_OFF) {                /* motion is not ticked here: keep its view of the FPGA fresh */
+		C.mo.hw_busy = C.mo.dry ? 0 : fpga_moving(&C.fp);
+		if (SET.block_mode && !C.mo.dry) C.mo.q_est = fpga_block_queue(&C.fp);
+	}
 	bool ext = level_active(SET.estop_port, SET.estop_level_high), pend = SET.pendant_estop && C.pend.estop;
 	bool es = ext || pend;
 	if (es && C.m != M_ESTOP) {
@@ -574,10 +579,15 @@ void ctl_tick(double dt)
 				int32_t e = (int32_t)(C.fpos[a] - (int32_t)C.mo.steps[a]);
 				C.pos_err[a] = e;
 				if (!e) continue;
-				C.pos_faults++; C.fault_line = C.mo.line * 100 + (int)C.m;
-				ctl_toast(true, "%c position check: FPGA counter differs by %d steps - re-synced", AXIS_CH[a], e);
+				/* an immediate stop in block mode flushed what was queued: the counter is where
+				 * the motor really stopped, adopted without a fault */
+				if (!C.mo.stop_resync) {
+					C.pos_faults++; C.fault_line = C.mo.line * 100 + (int)C.m;
+					ctl_toast(true, "%c position check: FPGA counter differs by %d steps - re-synced", AXIS_CH[a], e);
+				}
 				motion_set_pos(&C.mo, a, C.fpos[a] / SET.ax[a].steps_per_mm);
 			}
+			C.mo.stop_resync = false;
 		}
 	}
 }

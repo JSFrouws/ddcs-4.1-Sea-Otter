@@ -55,6 +55,8 @@ const setting_desc_t SETTINGS[] = {
 	{ "jog.jerk", "Jog & touch-off", "Jog / wheel jerk (0 = acceleration only)", "mm/s³", ST_DBL, O(jog_jerk), 0, 1000000, 0, 0, 1, 0 },
 	{ "limits.approach_pct", "Homing & limits", "Speed towards a limit inside the approach zone", "%", ST_INT, O(approach_pct), 10, 100, 0, 0, 1, 0 },
 	{ "motion.graceful_stop", "Homing & limits", "Controlled stop on Reset, E-stop, limit (no lost steps)", "", ST_BOOL, O(graceful_stop), 0, 1, 0, 0, 1, 0 },
+	{ "motion.block_mode", "Axes", "Continuous motion (FPGA block queue)", "", ST_BOOL, O(block_mode), 0, 1, 0, 0, 1, 0 },
+	{ "motion.queue_ms", "Axes", "Motion kept queued in the FPGA", "ms", ST_INT, O(queue_ms), 20, 200, 0, 0, 1, 0 },
 	{ "planner.lookahead", "Axes", "Planner lookahead (segments)", "", ST_INT, O(lookahead), 4, 400, 0, 0, 1, 0 },
 	{ "planner.junction_dev", "Axes", "Corner tolerance", "mm", ST_DBL, O(junction_dev), 0, 1, 3, 0, 1, 0 },
 	{ "gcode.default_feed", "Jog & touch-off", "Feed when a program sets none", "mm/min", ST_DBL, O(default_feed), 1, 20000, 0, 0, 1, 0 },
@@ -148,6 +150,7 @@ void settings_defaults(settings_t *s)
 	s->warm_rpm = 8000; s->warm_s = 120;
 	s->tc_mode = 0; s->tc_where = 0; s->tc_return_pct = 50;   /* user 2026-10-22: by hand, back at half rapid */
 	s->graceful_stop = true;   /* user 2026-10-18: brake at max deceleration, never lose steps */
+	s->block_mode = true; s->queue_ms = 50;   /* 2026-11-01: the FPGA's block queue, decoded and driven (docs/block-mode.md) */
 	s->pos_dec = 3; s->tool_dec = 2; s->view_iso = 0; s->edge_dia = 0;
 	s->pendant = true; s->quick_ms = 400; s->wheel_div = 4;
 	s->jog_jerk = 0; s->pendant_follow = 0; s->approach_pct = 40;   /* user 2026-10-31 */
