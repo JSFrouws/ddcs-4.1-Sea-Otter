@@ -209,3 +209,41 @@ first draw after start, and `GET trace` itself rendering 3500 rows — don't fet
 mid-test), command reaction from standstill median 42 ms, p90 87 ms. Any loop section
 over 100 ms is now named on stderr (`STALL_WATCH` in `perf.h`, `perf.stalls` counts them):
 tick, scan, leds, render (and its parts), present, save, http, and the HTTP handler by path.
+
+## Bursts back to back: the jumpy jog (2026-11-01, loop log on the unit)
+
+A held jog key felt jumpy. The FPGA takes a burst only into an idle axis and needs ~2.3 ms
+to start one, so continuous motion is a chain of bursts with a dead gap at every joint;
+the status counters said **2217 slices found the axis busy for 1700 bursts sent**, and a
+burst that ended between two 10 ms slices left the axis idle until the next one. The old
+step cap (1200 steps = 30 ms at the top rate) was 150 ms at a jog's 8000 steps/s, so the
+motor ran 0 → 23 mm/s → 0 every 150 ms. `GET /api/v1/debug?loop=1` prints every slice,
+burst, wake and frame on stderr (`/tmp/seaotter.log`); it is what found the rest:
+
+- **The loop slices at the burst's end** (`motion_t.burst_end_us`, `set_wake` / `g_served`
+  in `main.c`) and then plans a whole `BURST_MS` (60 ms) ahead, so bursts are long and
+  the next one is sent the moment the axis reads idle (retried per ms, 8 ms at most). An
+  end that passed while the slice itself was still computing (1–4 ms) must still be
+  served — dropped, it cost an 8 ms gap per burst.
+- **Planner and motors in lock-step.** A regular slice that comes before planned time
+  plans nothing (`el = 0`, `motion_tick` returns), and a burst's rate is its steps over
+  its planned time minus the 2.3 ms start (`emit`): a fixed +11 % surplus plus 2 ms
+  minimum slices let the planner run 50 ms further ahead per burst (767-step bursts for
+  60 ms planned; the backlog never drained — the stop after a key release would have
+  come seconds late). Planner lead now stays under one burst (1.8 mm at 20 mm/s).
+- **`BURST_MAX_S` 0.030 → 0.080**: a frame takes 50–100 ms while jogging; the burst sent
+  before it (`slice_for_frame`, which first waits for the one in flight) must outlast it.
+  E-stop / Reset cut a burst with the FPGA stop; a planned stop brakes on the ramp anyway.
+- The estimate's background replay gets 1 ms per tick while anything moves (it made every
+  slice 3 ms late), and its dry bursts no longer appear in the loop log.
+
+Measured after (jog test 9, Z then X at 20 / 16.7 mm/s): bursts chain with a median gap of
+**2.0 ms** (the FPGA start), **dead time 4.2 % (Z) / 3.8 % (X)** of the moving time,
+p90 gap 3.3 ms; 14 of ~190 wakes found the axis still busy and retried; one 58 ms outlier.
+The 20 ms heartbeat trace still shows ~15 % "slow rows" — those are sampling artefacts of
+the latched counters against 60–96 ms bursts, not gaps; the loop log timestamps are the
+truth here. What is left per burst is inside the FPGA: whatever it does at a burst's
+start and end (its own ramp, `RATE_B`), which only a logic analyser on the step line can
+show — and whether appending to a running burst in the same direction is reliable at the
+pulse level (docs/fpga-motion.md says it loses steps at some timings). That is the
+remaining step to a truly continuous jog; the planner side is done.

@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include "core/machine.h"
 #include "core/macro.h"
+#include "perf.h"
 #include "sim/fpga_sim.h"
 
 static const char *PROG =
@@ -249,9 +250,19 @@ static void test_wheel_follow_zone(void)
  * interval - which is what made a burst still be running when the next slice came */
 static void tick_jitter(int ms)
 {
-	static int passed = 10;
-	ctl_tick(passed / 1000.0); sim_step(ms); clock_advance(ms);
-	passed = ms;
+	/* main.c since 2026-11-01: the loop also slices at the moment a burst ends and then plans
+	 * a whole burst (25 ms) ahead, so bursts are long and back to back; the scheduled slices
+	 * still come every 10-34 ms. A slice that comes before planned time plans 2 ms. */
+	static uint64_t planned_to, handled;                 /* planner time; the burst end already served */
+	for (int i = 0; i < ms; i++) {
+		sim_step(1); clock_advance(1);
+		uint64_t nu = now_us(), e = 0;
+		for (int a = 0; a < NAXES; a++) if (C.mo.burst_end_us[a] > handled && C.mo.burst_end_us[a] <= nu + 999 && (!e || C.mo.burst_end_us[a] < e)) e = C.mo.burst_end_us[a];
+		if (e && (!fpga_moving(&C.fp) || nu > e + 8000)) { handled = e; ctl_tick(0.025); planned_to = now_ms() + 25; }
+	}
+	uint64_t now = now_ms();
+	uint32_t el = now <= planned_to ? 2 : (uint32_t)(now - planned_to);
+	ctl_tick((el > 40 ? 40 : el) / 1000.0); planned_to = now;
 }
 
 /* 2026-10-31 trace on the machine: slices skipped while a burst still ran, then double -
@@ -275,7 +286,7 @@ static void test_pacing(void)
 		double done = (double)(SIM.pos[AX_Y] - y0) / spm;
 		if (done > 2 && done < 18) {                       /* the cruise, ramps excluded */
 			vmax = fmax(vmax, sv);
-			if (sv < 0.05 * v) { if (!still++) stops++; } else still = 0;
+			if (sv < 0.05 * v) { if (!still++) { stops++; printf("  STOP at t=%d ms (tick %d) done %.2f bursts %u deferred %u\n", t, ms, done, C.fp.bursts, C.mo.deferred); } } else still = 0;
 		}
 	}
 	fx_run(200);

@@ -10,7 +10,7 @@
  * stop overshoot at 20 mm/s). Planning at 80 % keeps the backlog near zero. */
 #define FPGA_SUSTAIN_SPS (FPGA_MAX_SPS * 0.8)
 /* steps in one burst, at most: whatever is in flight can't be recalled by a stop */
-#define BURST_MAX_S 0.030
+#define BURST_MAX_S 0.080   /* 2026-11-01: was 0.030; a frame is 70-100 ms and each burst costs ~2.3 ms dead; E-stop/Reset cut a burst via the FPGA stop */
 /* longest kinematic step inside one tick (see motion_tick) */
 #define MOTION_SUBSTEP 0.010
 
@@ -344,7 +344,12 @@ static int emit(motion_t *m, double dt)
 			if (!m->qn) m->plan_end[a] = m->pos[a];
 			continue;
 		}
-		int64_t dmax = (int64_t)(FPGA_MAX_SPS * BURST_MAX_S);     /* the rest waits for the next slice */
+		double spm = SET.ax[a].steps_per_mm;
+		double planned = fabs(m->pos[a] - m->emit_pos[a]) * spm / (dt > 1e-4 ? dt : 1e-4);
+		/* a burst is at most BURST_MAX_S of the planned motion (the stop latency): in steps of the
+		 * top rate it was 1200 steps = 150 ms at a jog's 8000 steps/s (2026-11-01) */
+		int64_t dmax = (int64_t)((planned > 100 ? planned * 1.2 : FPGA_MAX_SPS) * BURST_MAX_S);
+		if (dmax < 20) dmax = 20;
 		if (d > dmax) d = dmax; else if (d < -dmax) d = -dmax;
 		int dir = d > 0 ? 1 : -1;
 		m->last_dir[a] = dir;
@@ -353,30 +358,33 @@ static int emit(motion_t *m, double dt)
 		}
 		m->burst_dir[a] = dir;
 		/* Pacing (2026-10-31, measured with a motor and the trace): the rate follows the PLANNED
-		 * speed (+15 %), not "these steps within this slice". Slices come every 10-40 ms; sized
-		 * to the slice, a burst still running when the next slice came made it skip and send
-		 * double next time - 2x speed spikes and stops, the jerk felt on the machine. At the
-		 * planned speed a skipped slice only makes the next burst longer, never faster; the
-		 * 15 % drains the backlog. Without a planned speed (the last steps of a move, a stop)
-		 * the old rule: fit burst + ~2 ms overhead into 85 % of the slice. */
-		double spm = SET.ax[a].steps_per_mm, ad = (double)(d > 0 ? d : -d);
-		double planned = fabs(m->pos[a] - m->emit_pos[a]) * spm / (dt > 1e-4 ? dt : 1e-4);
+		 * speed, not "these steps within this slice": sized to the slice, a burst still running
+		 * when the next slice came made it skip and send double next time - 2x speed spikes
+		 * and stops, the jerk felt on the machine. Since 2026-11-01 the main loop slices a whole
+		 * burst ahead at the moment the previous burst ends (burst_end_us), so bursts are long
+		 * and back to back; the rate then only has to cover the FPGA's ~2 ms start per burst
+		 * (+11 % on a 25 ms burst) - a larger surplus made the planner run ahead of the motors.
+		 * A real backlog (a late slice) drains within ~120 ms. Without a planned speed (the last
+		 * steps of a move, a stop) the old rule: fit burst + ~2 ms overhead into 85 % of the slice. */
+		double ad = (double)(d > 0 ? d : -d);
 		double win = dt * 0.85 - 0.002;
 		double r = ad / (win > 0.002 ? win : 0.002);
 		/* not while homing: there the counter is preset mid-search, so every burst must be done
 		 * by the next slice (a longer burst still stepping at the preset ran the sim 20 steps off) */
-		if (planned > 100 && !m->home.on) r = fmax(planned * 1.15 + 50, ad / 0.120);   /* backlog gone within ~120 ms */
+		/* the burst must be over when its planned time is: its steps in that time less the
+		 * FPGA's 2.3 ms start, so planned and real time stay in step (a fixed +11 % let the
+		 * planner creep ahead of the motors) */
+		if (planned > 100 && !m->home.on) r = fmax(ad / fmax(ad / planned - 0.0023, 0.002), ad / 0.120);
 		/* never faster than the axis' own top speed + 15 % (review 2026-10-31): a backlog after a
 		 * stall drains at most that fast, or it is the same spike again - a stepper stalls on it */
 		r = fmin(r, fmax(top * 1.15, planned * 1.15 + 50));   /* top: the guard's max_speed rate above */
 		uint32_t rate = r > FPGA_MAX_SPS ? FPGA_MAX_SPS : (uint32_t)r + 1;
 		m->rate[a] = rate;
-		/* The loop slices again when this burst ends (main.c reads wake_us): a burst that ended
-		 * between two 10 ms slices left the axis idle until the next one - 2217 deferred vs
-		 * 1700 sent on a jog, a 15-25 % stop-go ripple at 16-30 Hz felt as "jumpy" (trace
-		 * 2026-11-01). 2 ms = the FPGA's start overhead, 1 ms early so the idle read catches it. */
-		uint64_t end = now_us() + (uint64_t)(ad / rate * 1e6) + 2000 - 1000;
-		if (!m->wake_us || end < m->wake_us) m->wake_us = end;
+		/* when this burst ends: the loop slices a burst ahead right then (main.c). 2 ms = the
+		 * FPGA's start overhead, 0.3 ms late so the axis reads idle */
+		m->burst_end_us[a] = now_us() + (uint64_t)(ad / rate * 1e6) + 2300;
+		if (PERF.debug && !m->dry) fprintf(stderr, "%llu burst %c %lld steps rate %u planned %.0f dt %.0f ms -> ends +%.1f ms\n",
+			(unsigned long long)now_us() / 1000, "XYZA"[a], (long long)d, rate, planned, dt * 1000, ad / rate * 1000 + 2.3);
 		while (d) {                                   /* bursts are 32-bit */
 			int32_t n = d > 0x7FFFFFFF ? 0x7FFFFFFF : d < -0x7FFFFFFF ? -0x7FFFFFFF : (int32_t)d;
 			if (!m->dry) fpga_burst(m->f, a, n, rate);
@@ -650,6 +658,7 @@ static void run_home(motion_t *m, double dt)
 
 void motion_tick(motion_t *m, double dt)
 {
+	if (dt <= 0) return;                                 /* planned time is ahead of real time: nothing to plan or send */
 	m->hw_busy = m->dry ? 0 : fpga_moving(m->f);
 	rescale(m);
 	if (m->stopping && (m->stop_left -= dt) < 0) { motion_stop(m, true); m->stop_cut = true; }

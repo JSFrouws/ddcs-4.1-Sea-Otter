@@ -2,6 +2,7 @@
  * on the ARM926, and how much motion time the main loop's dt clamp throws away. */
 #ifndef PERF_H
 #define PERF_H
+#include <stdbool.h>
 #include <stdint.h>
 
 typedef struct {
@@ -13,6 +14,8 @@ typedef struct {
 	uint64_t motion_ms, lost_ms;            /* motion time given to ticks / real time lost to the clamp */
 	uint32_t stalls;                        /* loop sections over 100 ms, named on stderr (STALL_WATCH) */
 	uint32_t tick_us_last;                  /* the last ctl_tick, for the trace's tick_us column */
+	uint32_t wakes;                         /* slices brought forward to a burst's end (motion_t.burst_end_us) */
+	bool debug;                             /* GET /api/v1/debug?loop=1: every slice, burst, wake and frame on stderr */
 } perf_t;
 
 extern perf_t PERF;

@@ -27,6 +27,8 @@ perf_t PERF;
 
 uint64_t now_us(void)
 {
+	if (virt)
+		return virt_ms * 1000;                           /* tests: burst ends (motion.c) on the same clock */
 	struct timespec ts;
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 	return (uint64_t)ts.tv_sec * 1000000u + (uint64_t)(ts.tv_nsec / 1000);
