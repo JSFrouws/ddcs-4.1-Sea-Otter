@@ -119,6 +119,8 @@ static int value_of(const char *s, double *v)
 		*v = t >= 1 && t <= NTOOLS ? (tolower((unsigned char)s[5]) == 'd' ? WD.tool[t - 1].dia : WD.tool[t - 1].len) : 0;
 		return 0;
 	}
+	/* {jog.feed} stays the jog speed as an F word (mm/min) now that the setting is mm/s (2026-11-01) */
+	if (!strcasecmp(s, "jog.feed")) { *v = SET.jog_speed * 60; return 0; }
 	const setting_desc_t *d = setting_find(s);
 	if (d) { *v = setting_get(d); return 0; }
 	return -1;

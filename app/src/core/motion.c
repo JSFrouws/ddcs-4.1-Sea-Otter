@@ -2,6 +2,7 @@
 #include <string.h>
 #include "motion.h"
 #include "settings.h"
+#include "../perf.h"
 
 /* What idle-only bursts can sustain per axis: each burst costs ~2 ms of start overhead and the
  * next one may only go in once the axis is idle again, so a plan at the full 40 000 steps/s
@@ -93,7 +94,7 @@ bool motion_plan_setup(struct plan *p, const gc_op_t *op, const double start[NAX
 		p->u[a] /= p->len;
 		double c = fabs(p->u[a]);
 		if (c < 1e-9) continue;
-		double cap = fmin(SET.ax[a].max_vel / 60.0, FPGA_SUSTAIN_SPS / SET.ax[a].steps_per_mm);   /* FPGA limit */
+		double cap = fmin(SET.ax[a].max_speed, FPGA_SUSTAIN_SPS / SET.ax[a].steps_per_mm);   /* FPGA limit */
 		vcap = fmin(vcap, cap / c);
 		ac = fmin(ac, SET.ax[a].accel / c);
 		jk = fmin(jk, SET.ax[a].jerk / c);
@@ -115,7 +116,7 @@ double motion_corner_limit(const struct plan *A, const struct plan *B)
 	for (int a = 0; a < NAXES; a++) {
 		double du = fabs(B->u[a] - A->u[a]);
 		dot += A->u[a] * B->u[a];
-		if (du > 1e-9) v = fmin(v, SET.ax[a].corner_jump / 60.0 / du);
+		if (du > 1e-9) v = fmin(v, SET.ax[a].corner_speed / du);
 	}
 	if (SET.junction_dev > 0 && dot < 0.999999) {
 		double sh = sqrt(fmax(0.0, 0.5 * (1 + dot)));      /* sin of half the angle between the paths' normals */
@@ -160,7 +161,7 @@ bool motion_wants_more(const motion_t *m)
 	if (m->qn < SET.lookahead) return true;
 	double vmax = 0, amin = 1e9, jmin = 1e12;
 	for (int a = 0; a < NAXES; a++) {
-		vmax = fmax(vmax, fmin(SET.ax[a].max_vel / 60.0, FPGA_SUSTAIN_SPS / SET.ax[a].steps_per_mm));
+		vmax = fmax(vmax, fmin(SET.ax[a].max_speed, FPGA_SUSTAIN_SPS / SET.ax[a].steps_per_mm));
 		amin = fmin(amin, SET.ax[a].accel); jmin = fmin(jmin, SET.ax[a].jerk);
 	}
 	/* deep enough for the PLANNER to see a stop from top speed: it plans with the S-curve's
@@ -326,7 +327,7 @@ static int emit(motion_t *m, double dt)
 		if (!d) continue;
 		/* a delta no plan can produce: more than a whole second at the axis' top speed (the
 		 * legitimate backlog is a few mm). Refuse it rather than send it */
-		double top = fmin(SET.ax[a].max_vel / 60.0 * SET.ax[a].steps_per_mm, FPGA_MAX_SPS);
+		double top = fmin(SET.ax[a].max_speed * SET.ax[a].steps_per_mm, FPGA_MAX_SPS);
 		if ((d > 0 ? d : -d) > (int64_t)top + 100) {
 			m->runaway = a + 1;
 			motion_stop(m, true);
@@ -367,9 +368,15 @@ static int emit(motion_t *m, double dt)
 		if (planned > 100 && !m->home.on) r = fmax(planned * 1.15 + 50, ad / 0.120);   /* backlog gone within ~120 ms */
 		/* never faster than the axis' own top speed + 15 % (review 2026-10-31): a backlog after a
 		 * stall drains at most that fast, or it is the same spike again - a stepper stalls on it */
-		r = fmin(r, fmax(top * 1.15, planned * 1.15 + 50));   /* top: the guard's max_vel rate above */
+		r = fmin(r, fmax(top * 1.15, planned * 1.15 + 50));   /* top: the guard's max_speed rate above */
 		uint32_t rate = r > FPGA_MAX_SPS ? FPGA_MAX_SPS : (uint32_t)r + 1;
 		m->rate[a] = rate;
+		/* The loop slices again when this burst ends (main.c reads wake_us): a burst that ended
+		 * between two 10 ms slices left the axis idle until the next one - 2217 deferred vs
+		 * 1700 sent on a jog, a 15-25 % stop-go ripple at 16-30 Hz felt as "jumpy" (trace
+		 * 2026-11-01). 2 ms = the FPGA's start overhead, 1 ms early so the idle read catches it. */
+		uint64_t end = now_us() + (uint64_t)(ad / rate * 1e6) + 2000 - 1000;
+		if (!m->wake_us || end < m->wake_us) m->wake_us = end;
 		while (d) {                                   /* bursts are 32-bit */
 			int32_t n = d > 0x7FFFFFFF ? 0x7FFFFFFF : d < -0x7FFFFFFF ? -0x7FFFFFFF : (int32_t)d;
 			if (!m->dry) fpga_burst(m->f, a, n, rate);
@@ -488,7 +495,7 @@ static double approach_vcap(const motion_t *m, int a, int s, double room_mm, dou
 	 * between the bench box and the soft limit is the zone. The bench limit binding: 10 mm */
 	double lim = s > 0 ? hi : lo, soft = s > 0 ? x->soft_max : x->soft_min;
 	if (fabs(lim - soft) < 1e-9) zone = fmax(zone, s > 0 ? soft - x->bench_max : x->bench_min - soft);
-	if (room_mm < zone) vcap = fmin(vcap, x->max_vel / 60.0 * SET.approach_pct / 100.0);
+	if (room_mm < zone) vcap = fmin(vcap, x->max_speed * SET.approach_pct / 100.0);
 	return vcap;
 }
 
@@ -537,7 +544,7 @@ static void run_simple(motion_t *m, double dt)
 	 * rest exactly on the limit. */
 	bool any = false;
 	for (int a = 0; a < NAXES; a++) {
-		double vcap = fmin(SET.ax[a].max_vel / 60.0, FPGA_SUSTAIN_SPS / SET.ax[a].steps_per_mm);
+		double vcap = fmin(SET.ax[a].max_speed, FPGA_SUSTAIN_SPS / SET.ax[a].steps_per_mm);
 		int s = 0; double dist = 0;
 		bool jog = m->jog_dir && m->jog_axis == a, wheel = fabs(m->nudge[a]) > 1e-9;
 		/* the wheel's own speed, averaged over ~80 ms: a pendant is not a smooth input (hard
@@ -546,7 +553,7 @@ static void run_simple(motion_t *m, double dt)
 		m->nudge_in[a] = 0;
 		if (jog) {
 			s = m->jog_dir; dist = room(m, a, s);
-			vcap = approach_vcap(m, a, s, dist, fmin(vcap, SET.jog_feed / 60.0));
+			vcap = approach_vcap(m, a, s, dist, fmin(vcap, SET.jog_speed));
 			if (dist < 0.0005 && fabs(m->jv[a]) < 1e-9) {        /* arrived at the limit */
 				if (dist < 1e17) m->soft_stop = a + 1;
 				m->jog_dir = 0; continue;

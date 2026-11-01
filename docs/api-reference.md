@@ -343,7 +343,7 @@ posted. 400 `need text` / `too_long`; 403 with `api.panel` off.
 ## Settings keys
 
 `PUT settings` (or POST) with `{"key": value, …}` changes any subset, e.g.
-`{"jog.feed": 1500, "motion.graceful_stop": true}`. Refused (409) while the machine is busy.
+`{"jog.speed": 25, "motion.graceful_stop": true}`. Refused (409) while the machine is busy.
 `axis.*` keys re-initialise the FPGA and are also refused (409) while a jog is still
 moving. A `steps` change never moves anything: the position is re-counted from the motors
 and homing is lost. **Ports** (inputs, outputs, drive connectors) are read and written by
@@ -359,7 +359,7 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `display.tool_dec` | Display | Tool size decimals (Ø, length) |  | choice index 1 to 3 |  |
 | `display.view` | Display | Default toolpath view |  | choice index 0 to 2 |  |
 | `jog.edge_dia` | Jog & touch-off | Edge finder / tool Ø | mm | number, 0 to 50 |  |
-| `jog.feed` | Jog & touch-off | Jog feed | mm/min | number, 1 to 6000 | yes |
+| `jog.speed` | Jog & touch-off | Jog speed | mm/s | number, 0.1 to 100 (was `jog.feed` in mm/min until 2026-11-01; old keys convert on load) | yes |
 | `jog.safe_z` | Jog & touch-off | Safe Z above work zero | mm | number, 0 to 200 | yes |
 | `jog.jerk` | Jog & touch-off | Jog / wheel jerk (0 = acceleration only) | mm/s³ | number, 0 to 1000000 | yes |
 | `limits.approach_pct` | Homing & limits | Speed towards a limit inside the approach zone (bench..soft, ≥ 10 mm) | % | whole number, 10 to 100 | yes |
@@ -382,10 +382,10 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `api.start_delay` | API | Remote start countdown *(panel only)* | s | whole number, 0 to 30 |  |
 | `api.jog` · `api.moves` · `api.spindle` · `api.coolant` · `api.drives` · `api.keys` | API | Allow … (see [Permissions](#permissions)) *(panel only)* |  | on/off, default off |  |
 | `axis.<X|Y|Z|A>.steps` | Axes | steps/mm |  | number, 1 to 100000 | yes |
-| `axis.<X|Y|Z|A>.max_vel` | Axes | max speed | mm/min | number, 1 to 30000 | yes |
+| `axis.<X|Y|Z|A>.max_speed` | Axes | max speed | mm/s | number, 0.1 to 500 (was `max_vel` in mm/min until 2026-11-01; old keys convert on load) | yes |
 | `axis.<X|Y|Z|A>.accel` | Axes | acceleration | mm/s² | number, 1 to 10000 | yes |
 | `axis.<X|Y|Z|A>.jerk` | Axes | jerk (S-curve) | mm/s³ | number, 10 to 1000000 | yes |
-| `axis.<X|Y|Z|A>.corner_jump` | Axes | corner speed jump | mm/min | number, 0 to 6000 | yes |
+| `axis.<X|Y|Z|A>.corner_speed` | Axes | corner speed jump | mm/s | number, 0 to 100 (was `corner_jump`, mm/min) | yes |
 | `axis.<X|Y|Z|A>.output` | Axes | drive output (pulse/dir connector, as printed on the back) |  | port: `"-"` · `"X"` · `"Y"` · `"Z"` · `"A"` (also `"A (AP/AD)"`); several axes may share one | yes |
 | `axis.<X|Y|Z|A>.dir_invert` | Axes | DIR invert (stays with the axis/drive, not the connector) |  | on/off | yes |
 | `axis.<X|Y|Z|A>.soft_min` | Homing & limits | soft limit − | mm | number, -9999 to 9999 | yes |

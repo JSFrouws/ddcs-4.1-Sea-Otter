@@ -99,16 +99,21 @@ static void motion_slice(void)
 {
 	uint64_t t = now_ms();
 	uint32_t real = !g_last_tick || t <= g_last_tick ? TICK_MS : (uint32_t)(t - g_last_tick);
-	uint32_t el = CLAMP(real, TICK_MS, 40u);
+	uint32_t el = CLAMP(real, 2u, 40u);                   /* a burst-end wake comes early: plan that much, not a whole tick */
 	PERF.loops++;
 	if (real > PERF.gap_ms_max) PERF.gap_ms_max = real;
 	if (C.m == M_RUN || C.mo.active) { PERF.motion_ms += el; if (real > el) PERF.lost_ms += real - el; }
 	uint64_t t_us = now_us();
 	g_last_tick = t;
 	g_next = t + TICK_MS;
+	C.mo.wake_us = 0;
 	ctl_tick(el / 1000.0);
 	if (g_sim) sim_step(el);
+	/* slice again the moment the burst in flight ends (motion.c emit): the axis is idle for
+	 * the next burst then, not up to a tick later */
+	if (C.mo.wake_us) { uint64_t w = C.mo.wake_us / 1000; if (w < g_next) g_next = w > t + 1 ? w : t + 1; }
 	uint32_t tk = (uint32_t)(now_us() - t_us);
+	PERF.tick_us_last = tk;
 	PERF.tick_us_avg = (PERF.tick_us_avg * 15 + tk) / 16;
 	if (tk > PERF.tick_us_max) PERF.tick_us_max = tk;
 }
@@ -121,10 +126,12 @@ static void slice_if_due(void) { if (now_ms() >= g_next) motion_slice(); }
 static void motion_slice_ahead(uint32_t ms)
 {
 	uint64_t t = now_ms();
+	C.mo.wake_us = 0;
 	ctl_tick(ms / 1000.0);
 	if (g_sim) sim_step(ms);
 	g_last_tick = t + ms;
 	g_next = t + ms + TICK_MS;
+	if (C.mo.wake_us) { uint64_t w = C.mo.wake_us / 1000; if (w < g_next) g_next = w > t + 1 ? w : t + 1; }   /* the yields inside the frame catch it */
 	PERF.loops++;
 }
 

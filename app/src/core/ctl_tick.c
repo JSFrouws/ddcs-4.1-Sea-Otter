@@ -9,6 +9,7 @@
 #include "machine.h"
 #include "macro.h"
 #include "estimate.h"
+#include "../perf.h"
 
 static bool level_active(int port, bool active_high)
 {
@@ -35,7 +36,7 @@ static bool burst_blocked(int axis, int dir)
 /* mpg/bursts/held (2026-10-31): the wheel latency split - raw wheel count changes -> first
  * burst out (bursts counter) -> FPGA counter moves. Recorded while the pendant is held too,
  * so a click at rest is in the trace. */
-static struct { uint32_t t; int64_t cmd[NAXES]; int32_t fpga[NAXES]; uint16_t mpg; uint32_t bursts; uint8_t held; } trace[TRACE_N];
+static struct { uint32_t t; int64_t cmd[NAXES]; int32_t fpga[NAXES]; uint16_t mpg; uint32_t bursts; uint8_t held, busy; uint16_t tick_us; } trace[TRACE_N];
 static int trace_head, trace_len;
 static uint64_t trace_t0, trace_busy_ms;
 
@@ -50,6 +51,8 @@ static void trace_add(void)
 	trace[i].t = (uint32_t)(now - trace_t0);
 	for (int a = 0; a < NAXES; a++) { trace[i].cmd[a] = C.mo.steps[a]; trace[i].fpga[a] = C.fpos[a]; }
 	trace[i].mpg = C.fp.last_mpg; trace[i].bursts = C.fp.bursts; trace[i].held = C.pend.held;
+	trace[i].busy = C.mo.hw_busy;                        /* FPGA axes still stepping at this slice (2026-11-01: jog ripple) */
+	trace[i].tick_us = (uint16_t)(PERF.tick_us_last > 65535 ? 65535 : PERF.tick_us_last);   /* the previous tick's cost */
 }
 
 size_t ctl_trace_csv(char **out, bool clear)
@@ -57,13 +60,13 @@ size_t ctl_trace_csv(char **out, bool clear)
 	char *buf = NULL; size_t len = 0;
 	FILE *f = open_memstream(&buf, &len);
 	if (!f) { *out = NULL; return 0; }
-	fprintf(f, "t_ms,x_cmd,x_fpga,y_cmd,y_fpga,z_cmd,z_fpga,a_cmd,a_fpga,x_spm,y_spm,z_spm,a_spm,mpg,bursts,held\n");
+	fprintf(f, "t_ms,x_cmd,x_fpga,y_cmd,y_fpga,z_cmd,z_fpga,a_cmd,a_fpga,x_spm,y_spm,z_spm,a_spm,mpg,bursts,held,busy,tick_us\n");
 	for (int k = 0; k < trace_len; k++) {
 		int i = (trace_head + k) % TRACE_N;
 		fprintf(f, "%u", trace[i].t);
 		for (int a = 0; a < NAXES; a++) fprintf(f, ",%lld,%d", (long long)trace[i].cmd[a], trace[i].fpga[a]);
 		for (int a = 0; a < NAXES; a++) fprintf(f, ",%g", SET.ax[a].steps_per_mm);
-		fprintf(f, ",%u,%u,%u\n", trace[i].mpg, trace[i].bursts, trace[i].held);
+		fprintf(f, ",%u,%u,%u,%u,%u\n", trace[i].mpg, trace[i].bursts, trace[i].held, trace[i].busy, trace[i].tick_us);
 	}
 	fclose(f);
 	if (clear) trace_len = trace_head = 0;

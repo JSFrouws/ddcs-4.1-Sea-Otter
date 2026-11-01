@@ -257,9 +257,9 @@ double ctl_tc_target(double t[NAXES], double *via_z)
 	for (int a = 0; a < NAXES; a++) t[a] = C.gc.pos[a] + WD.wcs[w].off[a] - C.tc_off[w][a];
 	if (C.run_mode == ARM_TRYCUT) t[AX_Z] = ctl_trycut_z();
 	*via_z = fmax(t[AX_Z], WD.wcs[w].off[AX_Z] + SET.safe_z);
-	double v = SET.ax[AX_X].max_vel;
-	for (int a = 1; a < 3; a++) v = fmin(v, SET.ax[a].max_vel);
-	return v * SET.tc_return_pct / 100.0;
+	double v = SET.ax[AX_X].max_speed;
+	for (int a = 1; a < 3; a++) v = fmin(v, SET.ax[a].max_speed);
+	return v * 60 * SET.tc_return_pct / 100.0;             /* a feed, mm/min */
 }
 
 /* Start (confirmed) in M_TOOL: the new tool is in - back to the program and on */
@@ -419,7 +419,7 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 				t[a->axis] = CLAMP(t[a->axis], lo, hi);  /* stop AT the limit, decelerating into it */
 				ctl_toast(false, "%c stops at the %s limit (%.3f)", AXIS_CH[a->axis], range_name_for(a->axis, a->dir > 0), t[a->axis]);
 			}
-			motion_move_to(&C.mo, t, SET.jog_feed, false);
+			motion_move_to(&C.mo, t, SET.jog_speed * 60, false);
 		}
 		C.touch_axis = -1;
 		if (a->dist || a->cont) C.mo.last_dir[a->axis] = a->dir;

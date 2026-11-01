@@ -12,6 +12,7 @@ typedef struct {
 	uint32_t gap_ms_max;                    /* longest real time between two ticks */
 	uint64_t motion_ms, lost_ms;            /* motion time given to ticks / real time lost to the clamp */
 	uint32_t stalls;                        /* loop sections over 100 ms, named on stderr (STALL_WATCH) */
+	uint32_t tick_us_last;                  /* the last ctl_tick, for the trace's tick_us column */
 } perf_t;
 
 extern perf_t PERF;

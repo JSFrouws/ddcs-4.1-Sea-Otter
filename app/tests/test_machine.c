@@ -113,7 +113,7 @@ static void test_jog_ramp_outputs(void)
 	}
 	fx_run(100);
 	CHECK(SIM.pos[AX_X] - x0 == (int64_t)llround(50 * spm));
-	CHECK(vmax > 1 && vmax <= SET.ax[AX_X].max_vel / 60.0 + 1e-6);
+	CHECK(vmax > 1 && vmax <= SET.ax[AX_X].max_speed + 1e-6);
 	CHECK(amax <= A * 1.05);                            /* the last 10 ms tick lands at ~A */
 	CHECK(C.pos_faults == 0);
 
@@ -129,9 +129,9 @@ static void test_jog_ramp_outputs(void)
 	x0 = SIM.pos[AX_Y];
 	motion_jog_cont(&C.mo, AX_Y, 1);
 	fx_run(10);
-	CHECK(C.mo.jv[AX_Y] > 0 && C.mo.jv[AX_Y] < SET.jog_feed / 60.0 * 0.2);
+	CHECK(C.mo.jv[AX_Y] > 0 && C.mo.jv[AX_Y] < SET.jog_speed * 0.2);
 	fx_run(1500);
-	CHECK_NEAR(C.mo.jv[AX_Y], fmin(SET.jog_feed / 60.0, 32000 / spm), 1e-6);
+	CHECK_NEAR(C.mo.jv[AX_Y], fmin(SET.jog_speed, 32000 / spm), 1e-6);
 	int64_t at_release = SIM.pos[AX_Y];
 	motion_jog_cont(&C.mo, AX_Y, 0);
 	CHECK(!motion_idle(&C.mo));                         /* still braking */
@@ -199,7 +199,7 @@ static void test_wheel_follow_zone(void)
 {
 	SUITE("wheel: accel-only ramp, velocity follow, approach zone");
 	fx_reset();
-	const double spm = SET.ax[AX_X].steps_per_mm, A = SET.ax[AX_X].accel, V = SET.ax[AX_X].max_vel / 60.0;
+	const double spm = SET.ax[AX_X].steps_per_mm, A = SET.ax[AX_X].accel, V = SET.ax[AX_X].max_speed;
 	CHECK(SET.jog_jerk == 0 && SET.pendant_follow == 0 && SET.approach_pct == 40);
 	/* accel only: full acceleration from the first tick, the click still lands exactly */
 	int64_t x0 = SIM.pos[AX_X];
@@ -226,7 +226,7 @@ static void test_wheel_follow_zone(void)
 	CHECK(moved > 0.5 && moved < V * 0.1 + V * V / (2 * A) + 0.01);
 	CHECK(C.pos_faults == 0);
 	SET.pendant_follow = 0;
-	/* approach zone: within 10 mm of the bench limit 40 % of max_vel towards it, full speed away */
+	/* approach zone: within 10 mm of the bench limit 40 % of max_speed towards it, full speed away */
 	bool bl = SET.bench_limits; double bmax = SET.ax[AX_X].bench_max, bmin = SET.ax[AX_X].bench_min;
 	SET.bench_limits = true; SET.ax[AX_X].bench_max = C.mo.pos[AX_X] + 8; SET.ax[AX_X].bench_min = C.mo.pos[AX_X] - 200;
 	double vmax = 0;
@@ -262,7 +262,7 @@ static void test_pacing(void)
 	fx_reset();
 	SET.ax[AX_Y].steps_per_mm = 400;                     /* the machine: the FPGA has 5x headroom here */
 	fx_run(50);
-	const double spm = SET.ax[AX_Y].steps_per_mm, v = SET.jog_feed / 60.0;
+	const double spm = SET.ax[AX_Y].steps_per_mm, v = SET.jog_speed;
 	arg_t j = { .axis = AX_Y, .dir = 1, .dist = 20 };
 	CHECK(act(C_JOG, &j, SRC_PANEL));
 	double vmax = 0; int64_t y0 = SIM.pos[AX_Y], last = y0;
@@ -295,7 +295,7 @@ static void test_pacing(void)
 	uint32_t peak = 0;
 	for (int t2 = 0; t2 < 8000 && !motion_idle(&C.mo); t2 += 10) { fx_run(10); if (C.mo.rate[AX_Y] > peak) peak = C.mo.rate[AX_Y]; }
 	fx_run(200);
-	double top = SET.ax[AX_Y].max_vel / 60.0 * spm;
+	double top = SET.ax[AX_Y].max_speed * spm;
 	CHECK(peak <= top * 1.15 + 52);                      /* the planned-rate rule: +15 % + 50 */
 	CHECK(SIM.pos[AX_Y] - y0 == (int64_t)llround(20 * spm));
 	CHECK(C.pos_faults == 0);
@@ -400,7 +400,7 @@ void test_machine(void)
 		const char *src = "G0 Z{max:work.z,jog.safe_z} F{jog.feed}";
 		CHECK(macro_expand(src, strlen(src), out, sizeof out, err, sizeof err) > 0);
 		char want[120];
-		snprintf(want, sizeof want, "G0 Z%.4f F%.4f", fmax(ctl_work(AX_Z), SET.safe_z), SET.jog_feed);
+		snprintf(want, sizeof want, "G0 Z%.4f F%.4f", fmax(ctl_work(AX_Z), SET.safe_z), SET.jog_speed * 60);
 		CHECK(!strcmp(out, want));
 		src = "G0 X{no.such.key}";
 		CHECK(macro_expand(src, strlen(src), out, sizeof out, err, sizeof err) < 0 && strstr(err, "no.such.key"));
@@ -484,14 +484,14 @@ void test_machine(void)
 		CHECK(settings_save("t_settings.cfg") == 0);
 		stat("t_settings.cfg", &b);
 		CHECK(a.st_ino == b.st_ino && a.st_mtime == b.st_mtime);    /* unchanged: untouched */
-		double keep = SET.jog_feed; SET.jog_feed = keep + 1;
+		double keep = SET.jog_speed; SET.jog_speed = keep + 1;
 		CHECK(settings_save("t_settings.cfg") == 0);
 		stat("t_settings.cfg", &b);
 		CHECK(a.st_ino != b.st_ino);                                /* changed: a new file renamed over */
 		CHECK(access("t_settings.cfg.new", F_OK) != 0);             /* nothing left behind */
-		SET.jog_feed = 0; settings_load("t_settings.cfg");
-		CHECK_NEAR(SET.jog_feed, keep + 1, 1e-9);
-		SET.jog_feed = keep; settings_save("t_settings.cfg");
+		SET.jog_speed = 0; settings_load("t_settings.cfg");
+		CHECK_NEAR(SET.jog_speed, keep + 1, 1e-9);
+		SET.jog_speed = keep; settings_save("t_settings.cfg");
 		stat("t_work.cfg", &a);
 		CHECK(workdata_save("t_work.cfg") == 0);
 		stat("t_work.cfg", &b);
@@ -663,7 +663,7 @@ void test_machine(void)
 		CHECK_NEAR(C.mo.pos[AX_X], SET.ax[AX_X].bench_max, 0.001);
 		CHECK(slowing);                                                 /* never sped up in the last 0.5 mm */
 		printf("  bench edge: arrived within %.4f mm, last-0.5mm speed %.1f mm/s (jog %.1f)\n",
-			fabs(C.mo.pos[AX_X] - SET.ax[AX_X].bench_max), vin, SET.jog_feed / 60);
+			fabs(C.mo.pos[AX_X] - SET.ax[AX_X].bench_max), vin, SET.jog_speed);
 		CHECK(can(C_JOG, &cj, SRC_PANEL) != NULL);                     /* at the edge: refused */
 		fx_until_idle(5000); fx_run(100);
 		CHECK(C.pos_faults == 0);

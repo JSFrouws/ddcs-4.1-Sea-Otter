@@ -54,7 +54,7 @@ void test_estimate(void)
 		CHECK_NEAR(est_span(&C.prog, 0, C.prog.nlines, 100), 100 / v + v / ae + 0.03, 0.02);
 		CHECK_NEAR(est_span(&C.prog, 0, C.prog.nlines, 50), 2 * est_span(&C.prog, 0, C.prog.nlines, 100), 0.05);   /* below 100 %: x 1/override */
 		double t200 = est_span(&C.prog, 0, C.prog.nlines, 200), t150 = est_span(&C.prog, 0, C.prog.nlines, 150);
-		double vc = fmin(20, fmin(SET.ax[AX_X].max_vel / 60, FPGA_MAX_SPS * 0.8 / SET.ax[AX_X].steps_per_mm));   /* 200 % is above the FPGA's sustained rate */
+		double vc = fmin(20, fmin(SET.ax[AX_X].max_speed, FPGA_MAX_SPS * 0.8 / SET.ax[AX_X].steps_per_mm));   /* 200 % is above the FPGA's sustained rate */
 		CHECK_NEAR(t200, 100 / vc + vc / ae, 0.1);                    /* (a_eff stays the planner's, from the programmed F) */
 		CHECK(t150 > t200 && t150 < est_span(&C.prog, 0, C.prog.nlines, 100));
 		CHECK(C.prog.est_s > est_span(&C.prog, 0, C.prog.nlines, 100));                    /* the margin */

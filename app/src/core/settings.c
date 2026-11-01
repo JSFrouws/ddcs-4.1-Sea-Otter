@@ -30,10 +30,10 @@ static const char *const FOLLOW[] = { "Exact: every click is moved", "Velocity: 
 #define A(i, f) (offsetof(settings_t, ax) + (i) * sizeof(axis_set_t) + offsetof(axis_set_t, f))
 #define AXROWS(i, n) \
 	{ "axis." n ".steps", "Axes", n " steps/mm", "", ST_DBL, A(i, steps_per_mm), 1, 100000, 1, 0, 1, 0 }, \
-	{ "axis." n ".max_vel", "Axes", n " max speed", "mm/min", ST_DBL, A(i, max_vel), 1, 30000, 0, 0, 1, 0 }, \
+	{ "axis." n ".max_speed", "Axes", n " max speed", "mm/s", ST_DBL, A(i, max_speed), 0.1, 500, 1, 0, 1, 0 }, \
 	{ "axis." n ".accel", "Axes", n " acceleration", "mm/s²", ST_DBL, A(i, accel), 1, 10000, 0, 0, 1, 0 }, \
 	{ "axis." n ".jerk", "Axes", n " jerk (S-curve)", "mm/s³", ST_DBL, A(i, jerk), 10, 1000000, 0, 0, 1, 0 }, \
-	{ "axis." n ".corner_jump", "Axes", n " corner speed jump", "mm/min", ST_DBL, A(i, corner_jump), 0, 6000, 0, 0, 1, 0 }, \
+	{ "axis." n ".corner_speed", "Axes", n " corner speed jump", "mm/s", ST_DBL, A(i, corner_speed), 0, 100, 1, 0, 1, 0 }, \
 	{ "axis." n ".output", "Axes", n " drive output (pulse/dir)", "", ST_PORT, A(i, output), 0, 4, 0, AXIS_OUTS, 1, 0 }, \
 	{ "axis." n ".dir_invert", "Axes", n " DIR invert", "", ST_BOOL, A(i, dir_invert), 0, 1, 0, 0, 1, 0 }, \
 	{ "axis." n ".soft_min", "Homing & limits", n " soft limit −", "mm", ST_DBL, A(i, soft_min), -9999, 9999, DEC_POS, 0, 1, 0 }, \
@@ -50,7 +50,7 @@ const setting_desc_t SETTINGS[] = {
 	{ "display.tool_dec", "Display", "Tool size decimals (Ø, length)", "", ST_ENUM, O(tool_dec), 1, 3, 0, DECS, 0, 0 },
 	{ "display.view", "Display", "Default toolpath view", "", ST_ENUM, O(view_iso), 0, 2, 0, VIEWS, 0, 0 },
 	{ "jog.edge_dia", "Jog & touch-off", "Edge finder / tool Ø", "mm", ST_DBL, O(edge_dia), 0, 50, DEC_TOOL, 0, 0, 0 },
-	{ "jog.feed", "Jog & touch-off", "Jog feed", "mm/min", ST_DBL, O(jog_feed), 1, 6000, 0, 0, 1, 0 },
+	{ "jog.speed", "Jog & touch-off", "Jog speed", "mm/s", ST_DBL, O(jog_speed), 0.1, 100, 1, 0, 1, 0 },
 	{ "jog.safe_z", "Jog & touch-off", "Safe Z above work zero", "mm", ST_DBL, O(safe_z), 0, 200, DEC_POS, 0, 1, 0 },
 	{ "jog.jerk", "Jog & touch-off", "Jog / wheel jerk (0 = acceleration only)", "mm/s³", ST_DBL, O(jog_jerk), 0, 1000000, 0, 0, 1, 0 },
 	{ "limits.approach_pct", "Homing & limits", "Speed towards a limit inside the approach zone", "%", ST_INT, O(approach_pct), 10, 100, 0, 0, 1, 0 },
@@ -125,8 +125,8 @@ void settings_defaults(settings_t *s)
 	const int hdir[NAXES] = { 0, 0, 1, 0 }, lim[NAXES] = { 2, 3, 4, 0 }, alarm[NAXES] = { 10, 11, 12, 13 };
 	for (int i = 0; i < NAXES; i++) {
 		axis_set_t *a = &s->ax[i];
-		a->steps_per_mm = 2000; a->max_vel = 1200; a->accel = 300;   /* 1200 = vendor #91-94 = FPGA cap */
-		a->jerk = 10000; a->corner_jump = 300;   /* jerk: 30 ms acceleration ramp; 3000 cost ~20 % on the rosette */
+		a->steps_per_mm = 2000; a->max_speed = 20; a->accel = 300;   /* 20 mm/s = 1200 mm/min = vendor #91-94 = FPGA cap */
+		a->jerk = 10000; a->corner_speed = 5;   /* jerk: 30 ms acceleration ramp; 3000 cost ~20 % on the rosette */
 		a->soft_min = smin[i]; a->soft_max = smax[i];
 		a->bench_min = smin[i]; a->bench_max = smax[i];       /* starts as the soft box: narrow it to the bench */
 		a->home_search = i == AX_A ? 700 : 1000; a->home_locate = 50; a->home_pos = 0;
@@ -141,7 +141,7 @@ void settings_defaults(settings_t *s)
 	s->spindle_max = 24000; s->spindle_default = 12000; s->spindle_delay = 2;
 	s->out_spindle = 1; s->out_flood = 2; s->out_aux = 3;
 	s->out_enable = 0; s->enable_level = 0;                  /* user 2026-10-31: unused until chosen */
-	s->safe_z = 5; s->jog_feed = 1200; s->default_feed = 1000;
+	s->safe_z = 5; s->jog_speed = 20; s->default_feed = 1000;
 	s->lookahead = 64; s->junction_dev = 0.02;
 	s->park[0] = 380; s->park[1] = 180; s->park[2] = -5;      /* back corner, Z up (inside the soft limits) */
 	s->tc[0] = 200; s->tc[1] = 20; s->tc[2] = -5;            /* front middle, Z up */
@@ -257,6 +257,7 @@ int settings_save(const char *path)
 	return r;
 }
 
+static const setting_desc_t *setting_legacy(char *key, double *v);
 int settings_load(const char *path)
 {
 	FILE *f = fopen(path, "r");
@@ -266,11 +267,30 @@ int settings_load(const char *path)
 		char *eq = strchr(line, '=');
 		if (line[0] == '#' || !eq) continue;
 		*eq = 0;
+		double v = atof(eq + 1);
 		const setting_desc_t *d = setting_find(line);
-		if (d) setting_set(d, atof(eq + 1));
+		if (!d) d = setting_legacy(line, &v);
+		if (d) setting_set(d, v);
 	}
 	fclose(f);
 	return 0;
+}
+
+/* keys from before the speeds went to mm/s (2026-11-01): the saved mm/min value is converted
+ * once on load and the file is rewritten with the new key on the next save */
+static const setting_desc_t *setting_legacy(char *key, double *v)
+{
+	static const struct { const char *old, *new; } R[] = {
+		{ ".max_vel", ".max_speed" }, { ".corner_jump", ".corner_speed" }, { "jog.feed", "jog.speed" } };
+	for (size_t i = 0; i < ARRAY_LEN(R); i++) {
+		size_t kl = strlen(key), ol = strlen(R[i].old);
+		if (kl < ol || strcmp(key + kl - ol, R[i].old)) continue;
+		char nk[64];
+		snprintf(nk, sizeof nk, "%.*s%s", (int)(kl - ol), key, R[i].new);
+		*v /= 60.0;
+		return setting_find(nk);
+	}
+	return NULL;
 }
 
 /* ---- work data ---- */

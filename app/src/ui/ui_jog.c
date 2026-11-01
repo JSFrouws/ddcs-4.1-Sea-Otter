@@ -68,8 +68,8 @@ void jog_render(fb_t *fb)
 	else snprintf(v[0], sizeof v[0], "none (= 0)");
 	if (JOG_STEPS[U.step] > 0) snprintf(v[1], sizeof v[1], "%g mm", JOG_STEPS[U.step]); else snprintf(v[1], sizeof v[1], "continuous");
 	snprintf(v[2], sizeof v[2], "G%d", 54 + WD.active);
-	snprintf(v[3], sizeof v[3], "%.0f mm/min", SET.jog_feed);
-	const char *lab[4] = { "Edge / tool Ø", "Step", "Touch-off sets", "Jog feed" };
+	snprintf(v[3], sizeof v[3], "%.1f mm/s", SET.jog_speed);
+	const char *lab[4] = { "Edge / tool Ø", "Step", "Touch-off sets", "Jog speed" };
 	for (int i = 0; i < 4; i++) {
 		int y = top + 26 + i * 30;
 		if (ui_pane() == 1 && U.jog_field == i) { gfx_hgrad(fb, sx + 2, y - 3, sw - 4, 26, RGB(0x1f, 0x5a, 0x86), COL_PANE2); gfx_fill(fb, sx + 2, y - 3, 3, 26, COL_CYAN); }
@@ -117,7 +117,7 @@ void jog_sk(sk_t sk[7])
 }
 
 static void set_edge(double v, int ctx) { SET.edge_dia = v; settings_save(C.cfg_path); }
-static void set_feed(double v, int ctx) { SET.jog_feed = v; settings_save(C.cfg_path); }
+static void set_feed(double v, int ctx) { SET.jog_speed = v; settings_save(C.cfg_path); }
 
 void jog_key(pkey_t k, bool sh)
 {
@@ -168,7 +168,7 @@ void jog_key(pkey_t k, bool sh)
 		if (U.jog_field == 3) {
 			const char *w = can(C_EDIT_SETTING, NULL, SRC_PANEL);
 			if (w) { ctl_toast(true, "%s", w); return; }
-			ui_editor_open("Jog feed", SET.jog_feed, 0, "mm/min", 4, 6000, false, true, set_feed, 0);
+			ui_editor_open("Jog speed", SET.jog_speed, 1, "mm/s", 3, 100, false, true, set_feed, 0);
 		}
 	}
 }

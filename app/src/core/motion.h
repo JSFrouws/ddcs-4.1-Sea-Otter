@@ -49,6 +49,7 @@ typedef struct {
 	bool dry;
 	uint8_t hw_busy;             /* FPGA axes still active/stepping (read once per tick) */                    /* simulate: positions advance, no bursts reach the FPGA */
 	int feed_ov, spin_ov;        /* % ; rapid % = min(feed %, 100) */
+	uint64_t wake_us;            /* when the shortest burst in flight ends: the main loop slices then, not a tick later */
 	double nudge[NAXES];         /* pendant: distance still to move per axis */
 	double nudge_in[NAXES];      /* pendant: distance clicked in since the last slice */
 	double wheel_v[NAXES];       /* pendant: the wheel's own speed, mm/s, averaged over ~80 ms (feedforward) */

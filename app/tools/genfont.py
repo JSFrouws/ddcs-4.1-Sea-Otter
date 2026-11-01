@@ -11,7 +11,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 FD = os.path.join(HERE, "fonts")
 OUT = os.path.join(HERE, "..", "src", "ui", "fonts.c")
 
-EXTRA = "−–—Ø°×·→←↑↓±✓…‹›µ²"
+EXTRA = "−–—Ø°×·→←↑↓±✓…‹›µ²³"
 CHARS = sorted([chr(c) for c in range(32, 127)] + list(EXTRA), key=ord)
 
 FONTS = [  # c name, file, px, variation

@@ -7,9 +7,9 @@
 #include "../common.h"
 
 typedef struct {
-	double steps_per_mm, max_vel, accel;         /* mm/min, mm/s² */
+	double steps_per_mm, max_speed, accel;       /* mm/s, mm/s² (speeds in mm/s since 2026-11-01, user: "mm/min is hard to compare") */
 	double jerk;                                 /* mm/s³: how fast acceleration may change (S-curve) */
-	double corner_jump;                          /* mm/min: speed change allowed instantly at a corner */
+	double corner_speed;                         /* mm/s: speed change allowed instantly at a corner */
 	double soft_min, soft_max;
 	double bench_min, bench_max;                 /* bench limits: a work box, active even un-homed */
 	double home_search, home_locate, home_pos, home_backoff;
@@ -32,7 +32,7 @@ typedef struct {
 	int out_spindle, out_flood, out_aux;         /* OUT1..3 for M3 / M8 / M10, 0 = none ("-") */
 	int out_enable;            /* OUT1..3: drive enable for all axes, on while the drives are on; 0 = none */
 	int enable_level;          /* the enable output's level while the drives are on: 0 low (sinking = OUT on), 1 high */
-	double safe_z, jog_feed, default_feed;
+	double safe_z, jog_speed, default_feed;      /* jog_speed mm/s; default_feed mm/min (a G-code F) */
 	int lookahead;             /* planner: at least this many segments ahead */
 	double junction_dev;       /* mm: corner tolerance (0 = only the per-axis corner jump) */
 	bool graceful_stop;        /* Reset / E-stop / limit brake along the path at max deceleration */
@@ -42,7 +42,7 @@ typedef struct {
 	double jog_jerk;           /* jogs + wheel: 0 = acceleration only (trapezoid, user 2026-10-31), else their own jerk */
 	int pendant_follow;        /* 0 exact: every click is moved; 1 velocity: the axis stops ~100 ms after the wheel, surplus dropped */
 	int pendant_smooth_ms;     /* wheel speed = distance still queued / this time (0 = full speed per click) */
-	int approach_pct;          /* % of max_vel allowed towards a limit inside the approach zone (bench..soft, >= 10 mm) */
+	int approach_pct;          /* % of max_speed allowed towards a limit inside the approach zone (bench..soft, >= 10 mm) */
 	bool wheel_reverse;        /* flip the raw count: on this pendant clockwise counts DOWN */
 	bool api; int api_port; bool remote_start; int start_delay; bool agent_msgs;
 	/* what the API may do, each on its own (panel only; user 2026-10-24: whatever can hurt
