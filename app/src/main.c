@@ -289,7 +289,8 @@ int main(int argc, char **argv)
 				if (rd > PERF.render_us_max) PERF.render_us_max = rd;
 				last_render = t; sig = s;
 			}
-			if (t - last_save > 30000 && (C.m == M_IDLE || C.m == M_LIMIT || C.m == M_OFF)) { ctl_save(); last_save = t; }
+			/* three fsyncs (~0.5 s each on the eMMC): never with a hand on the wheel or an axis moving */
+			if (t - last_save > 30000 && (C.m == M_IDLE || C.m == M_LIMIT || C.m == M_OFF) && !C.pend.held && motion_idle(&C.mo)) { ctl_save(); last_save = t; }
 		}
 		int wait = (int)(g_next > now_ms() ? g_next - now_ms() : 0);
 		http_poll(wait);

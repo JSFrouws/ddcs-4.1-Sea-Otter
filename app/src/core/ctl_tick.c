@@ -96,7 +96,11 @@ void ctl_apply_axis_config(void)
 
 /* The position file "<work>.pos": x y z a rest homed. It is rewritten 2 s after the machine
  * comes to rest (rest = 1) and marked rest = 0 once when it starts moving, so after a power
- * cut it is either the exact position at rest, or known to be stale. */
+ * cut it is either the exact position at rest, or known to be stale.
+ * Never fsync'd from the tick: on this ext3/eMMC an fsync blocks the loop 520-570 ms, and
+ * the moving-marker write runs on EVERY wheel click from standstill - that was the "half a
+ * second late" pendant (trace 2026-11-01: 73 stalls in one session). The kernel flushes
+ * within its commit interval (5 s); only ctl_save (idle, 30 s) and exit sync. */
 static char resume_path[256]; static int resume_at;   /* the program line from the position file */
 
 static int load_pos(double p[NAXES], int *homed)
@@ -118,7 +122,7 @@ static int load_pos(double p[NAXES], int *homed)
 	return rest;
 }
 
-static void pos_write(bool rest)
+static void pos_write(bool rest, bool sync)
 {
 	char path[300], tmp[310];
 	snprintf(path, sizeof path, "%s.pos", C.wd_path);
@@ -133,7 +137,7 @@ static void pos_write(bool rest)
 		int line = C.macro_on ? C.saved_resume : (C.m == M_RUN || C.m == M_HOLD || C.m == M_TOOL) ? C.mo.line : C.resume_line;
 		fprintf(f, "prog %d %s\n", line > 0 ? line : 0, pg->path);
 	}
-	fflush(f); fsync(fileno(f)); fclose(f);
+	fflush(f); if (sync) fsync(fileno(f)); fclose(f);
 	rename(tmp, path);                                   /* never a half-written file */
 }
 
@@ -144,15 +148,15 @@ static void pos_track(void)
 	static uint64_t rest_since;
 	bool rest = motion_idle(&C.mo) && !C.mo.dry && C.m != M_HOMING && C.m != M_ESTOP;
 	static uint64_t run_w;                               /* while a program runs: its line once a minute */
-	if (C.m == M_RUN && now_ms() - run_w > 60000) { run_w = now_ms(); pos_write(false); written = 0; }
+	if (C.m == M_RUN && now_ms() - run_w > 60000) { run_w = now_ms(); pos_write(false, false); written = 0; }
 	if (!rest) {
 		rest_since = 0;
-		if (written != 0) { pos_write(false); written = 0; }
+		if (written != 0) { pos_write(false, false); written = 0; }
 		return;
 	}
 	if (!rest_since) rest_since = now_ms();
 	if ((written != 1 || homed_w != C.homed || resume_w != C.resume_line || text_w != C.prog.text) && now_ms() - rest_since > 2000) {
-		pos_write(true); written = 1; homed_w = C.homed; resume_w = C.resume_line; text_w = C.prog.text;
+		pos_write(true, false); written = 1; homed_w = C.homed; resume_w = C.resume_line; text_w = C.prog.text;
 	}
 }
 
@@ -160,7 +164,7 @@ void ctl_save(void)
 {
 	settings_save(C.cfg_path);
 	workdata_save(C.wd_path);
-	pos_write(motion_idle(&C.mo) && !C.mo.dry);
+	pos_write(motion_idle(&C.mo) && !C.mo.dry, true);
 }
 
 void ctl_init(bus_t *bus, bool sim, const char *cfg_path, const char *wd_path)
