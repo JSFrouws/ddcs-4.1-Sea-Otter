@@ -166,5 +166,57 @@ the hardware), one burst carries at most 30 ms. The honest sustained top speed i
 - **Real motors**: no motor was connected. Bursts are stop-go (the axis idles ~15 % of each 10 ms slice), which a stepper at speed may not like - check with a motor, or find a safe append.
 - **The 40 000 steps/s ceiling** - not in `0x16/17`, `0x2B/2C`; probably another init parameter or the pulse generator itself.
 - **Release of a mid-move stop** - unknown; avoided.
-- The vendor's coordinated block interface (`0x4622` → `0x50…0x60`) would give true interpolation and continuous motion; still not decoded.
+- ~~The vendor's coordinated block interface (`0x4622` → `0x50…0x60`) would give true interpolation and continuous motion; still not decoded.~~ **Decoded and driven 2026-11-01 — see below.**
 - Homing on real switches - not tested (nothing wired on the desk unit).
+
+## Block mode = continuous motion (DECODED 2026-11-01, driven on the real machine)
+
+Captured by running the vendor app under `app/tools/iotrace2.c` while it ran a small
+program (`raw/2026-11-01_vendor-blocks.log`: 2465 blocks), then driven ourselves with
+`app/tools/blockmove.c`, with the owner at the machine: every move below landed
+**step-exact** on the position counters, and the owner's verdict on the motion: "very
+steady, with ramp ups and downs that are real nice". This is the mode the vendor app uses
+for programs *and* for the pendant; it is what burst mode never was.
+
+**The block** (ioctl `0x4622`, 16 words → FPGA `0x50…0x5F`, latched by `0x66` in the driver):
+
+| word | meaning | measured |
+|---|---|---|
+| 0 | flags: **bit 9 = direction of the dominant axis**, **bits 8/7/6 = directions of the remaining axes in index order** (1 = +), **bits 1–2 = dominant axis** (X 0, Y `0x02`, Z `0x04`, A `0x06` drove channel 3), bit 0 = 1 for a feed move (0 in the vendor's G0), bit 5 always set | vendor: X+ `03e1`, X− `01e1`, Y+ `03e3`, Y− `01e3`, X−Y− `00e1`, Z `03e4`; ours: Y−Z− = `03e3 & ~0x280` moved both − |
+| 1 | `0x3020` | constant, copied |
+| 2 | move / sequence id | the vendor increments it per G-code line; any value works |
+| 4 | **rate word of the dominant axis = steps/s ÷ 2** (as the burst rate `0x12`) | 2000 ↔ 4000 steps/s = F600 at 400 steps/mm |
+| 6 | `0x0d05` (3333) single axis, `0x126a` (3333·√2) on the vendor's 45° diagonal | **not a time base**: 3333 and 4714 give the identical 1.385 s for the same move; 6666 made it 17 % slower. Kept at 3333, ramps are ours |
+| 8 | **steps of the dominant axis in this block** | 20 mm move = 410 blocks, Σ = 8000 exactly |
+| 10, 12, 14 | steps of the remaining axes, **in index order** (Y dominant: X, Z, A) | Z rode in word 12 for a Y-dominant block, nothing in 10 or 14 |
+
+A block is "n steps at rate r" and lasts n / r: the vendor uses 5 ms blocks (w8 = rate × 5 ms);
+**10 ms and 20 ms blocks work identically** (8000 steps in 1.371 / 1.333 s vs 1.385 s). The
+FPGA plays the queue back to back with no gap between blocks; the ramp is whatever the
+blocks say. Direction can flip from one block to the next inside one stream (+103 −105 +101
+−91 landed on +8).
+
+**The queue**: read `0x36` = blocks queued (`0xff` = full, 256 deep); the vendor keeps it
+full, polling every 0.5 ms. An empty queue simply stops the axis; the next block resumes it
+(a 300 ms feed gap mid-move, then the rest: still exact). So a jog or the wheel can be fed
+on demand with a shallow queue, and "stop" = stop feeding after ramping down in the blocks.
+
+**What the FPGA needs around it**:
+- **The `0x67` watchdog, as for bursts**: without it the queue fills and nothing moves — the
+  vendor app writes it constantly (the trace shim filtered it as noise, which cost the first
+  attempt). `blockmove` writes it after every block.
+- The per-axis mode writes the vendor does before a run (`W 00=a; W 42=0x30+a; W 00=0f` for
+  each axis, and `0x20+a` after) — copied, not yet tested without.
+- Not needed: the 20 MHz constant re-written to `0x23/0x24` every 100 ms, and the vendor's
+  start/end control blocks (`0400 6f62…`, `0800 4242…`, `0400 0000…`) — a run without any of
+  them was identical.
+
+**Caveats found**: the very first run after killing the vendor app mid-session counted
+double (800 for 400 steps) — never again in ~30 runs, including with the whole queue pushed
+at once; treat it as stale FPGA state from the kill. A mid-stream *stop* (`0x04 = 4`) is
+untested in block mode (in burst mode it leaves the axis held until power-off). Status
+`0x01` reads `0x2020` while a Y block stream runs — not the burst-mode bit layout.
+
+**Vendor timing, for reference**: it pushes a block per 0.7 ms until `0x36` reads `0xff`,
+then ~22 blocks every 110 ms (the drain rate at 4000 steps/s), reads positions (`0x02`+)
+between refills, and ramps at +200 steps/s per 5 ms block (40 000 steps/s² = 100 mm/s²).
