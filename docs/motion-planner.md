@@ -198,7 +198,11 @@ Two wheel bugs found in the same traces:
   distance / 0.2 s (floor: a 0.01 mm click's pace). One click is a gentle move, a steady
   turn one continuous move lagging the wheel by 0.2 s (traces: 2.5–3.3 s unbroken
   stretches), and the stop settles exponentially. Owner's rule: 0.5 mm in 0.2 s is
-  already too fast.
+  already too fast. Then (owner: "smoother, not slower; a bigger error, more speed;
+  average the input without delaying the first response") the wheel's own speed,
+  averaged over ~80 ms (`motion_t.wheel_v`), is added as **feedforward**: speed =
+  wheel speed + queued distance / 0.2 s. The correction term answers the first click at
+  once; the average keeps a hard turn from building lag; both decay to the settle.
 
 After all four: no loop hole over 110 ms during a session (the only ones left are the
 first draw after start, and `GET trace` itself rendering 3500 rows — don't fetch it

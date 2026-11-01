@@ -244,7 +244,7 @@ void motion_stop(motion_t *m, bool immediate)
 {
 	bool brake = !immediate && !m->dry && SET.graceful_stop;   /* a jog / wheel move brakes on its ramp */
 	m->jog_dir = 0; m->home.on = false;
-	memset(m->nudge, 0, sizeof m->nudge);
+	memset(m->nudge, 0, sizeof m->nudge); memset(m->nudge_in, 0, sizeof m->nudge_in); memset(m->wheel_v, 0, sizeof m->wheel_v);
 	if (!immediate && !m->dry && SET.graceful_stop && m->active && m->op.kind == OP_LINE && m->v > 1e-6) {
 		/* Controlled stop (user requirement 2026-10-18): brake along the programmed path at the
 		 * axes' max deceleration so no step is lost (a lost step means re-homing and re-zeroing
@@ -275,7 +275,7 @@ void motion_stop(motion_t *m, bool immediate)
 	memcpy(m->plan_end, m->pos, sizeof m->plan_end);
 }
 
-void motion_nudge(motion_t *m, int a, double mm) { m->nudge[a] += mm; if (mm) m->last_dir[a] = mm > 0 ? 1 : -1; }
+void motion_nudge(motion_t *m, int a, double mm) { m->nudge[a] += mm; m->nudge_in[a] += mm; if (mm) m->last_dir[a] = mm > 0 ? 1 : -1; }
 
 static bool next_op(motion_t *m)
 {
@@ -540,6 +540,10 @@ static void run_simple(motion_t *m, double dt)
 		double vcap = fmin(SET.ax[a].max_vel / 60.0, FPGA_SUSTAIN_SPS / SET.ax[a].steps_per_mm);
 		int s = 0; double dist = 0;
 		bool jog = m->jog_dir && m->jog_axis == a, wheel = fabs(m->nudge[a]) > 1e-9;
+		/* the wheel's own speed, averaged over ~80 ms: a pendant is not a smooth input (hard
+		 * detents, a hand that catches), and it decays to 0 within a few slices of the last click */
+		m->wheel_v[a] += (m->nudge_in[a] / dt - m->wheel_v[a]) * fmin(1.0, dt / 0.08);
+		m->nudge_in[a] = 0;
 		if (jog) {
 			s = m->jog_dir; dist = room(m, a, s);
 			vcap = approach_vcap(m, a, s, dist, fmin(vcap, SET.jog_feed / 60.0));
@@ -561,15 +565,18 @@ static void run_simple(motion_t *m, double dt)
 				if (fabs(m->nudge[a]) > cap) m->nudge[a] = s * cap;
 			}
 			dist = fmin(fabs(m->nudge[a]), r);
-			/* Speed follows the distance still to go: what is queued is covered in about
-			 * pendant.smooth_ms, so a single click is a gentle move, a steady turn becomes one
-			 * continuous move lagging the wheel by that time, and the stop is an exponential
-			 * settle instead of a stop-and-go per click (user 2026-11-01: "the machine makes
-			 * interrupted steps, it never sums them up"; 0.5 mm in 0.2 s is already too fast).
+			/* Tracking the wheel: speed = the wheel's own (averaged) speed, feedforward, plus
+			 * the distance still queued / pendant.smooth_ms, the correction. The feedforward
+			 * keeps up with a hard turn without the lag growing; the correction makes a
+			 * single click a gentle move, closes whatever the wheel ran ahead, and settles
+			 * the stop exponentially instead of a stop-and-go per click (user 2026-11-01:
+			 * "the machine makes interrupted steps, it never sums them up"; "smoother, not
+			 * slower: a bigger error, more speed; average the input without delaying the
+			 * first response" - the correction acts on the first click, the average follows).
 			 * A floor keeps a tiny remainder from crawling: at least a 0.01 mm click's pace. */
 			if (SET.pendant_smooth_ms > 0) {
-				double tau = SET.pendant_smooth_ms / 1000.0;
-				vcap = fmin(vcap, fmax(dist / tau, fmax(0.01 / tau, 50.0 / SET.ax[a].steps_per_mm)));
+				double tau = SET.pendant_smooth_ms / 1000.0, ff = fmax(m->wheel_v[a] * s, 0);
+				vcap = fmin(vcap, fmax(ff + dist / tau, fmax(0.01 / tau, 50.0 / SET.ax[a].steps_per_mm)));
 			}
 		} else if (fabs(m->jv[a]) < 1e-12) continue;
 		double step = follow(m, a, s, dist, vcap, dt);

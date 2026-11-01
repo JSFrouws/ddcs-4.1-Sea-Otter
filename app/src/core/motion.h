@@ -50,6 +50,8 @@ typedef struct {
 	uint8_t hw_busy;             /* FPGA axes still active/stepping (read once per tick) */                    /* simulate: positions advance, no bursts reach the FPGA */
 	int feed_ov, spin_ov;        /* % ; rapid % = min(feed %, 100) */
 	double nudge[NAXES];         /* pendant: distance still to move per axis */
+	double nudge_in[NAXES];      /* pendant: distance clicked in since the last slice */
+	double wheel_v[NAXES];       /* pendant: the wheel's own speed, mm/s, averaged over ~80 ms (feedforward) */
 	int jog_axis, jog_dir;       /* continuous jog, jog_dir 0 = off */
 	double jv[NAXES], ja[NAXES]; /* jog / wheel S-curve state per axis: speed mm/s, accel mm/s² */
 	int last_dir[NAXES];

@@ -74,13 +74,19 @@ else
 fi
 cat /tmp/seaotter-driver.txt >> $LOG
 
-# --- Sea Otter (restarted if it ever exits; a crash loop falls back to the vendor app) ---
+# --- Sea Otter (restarted if it ever exits; a CRASH LOOP - five exits within a minute of
+#     starting - falls back to the vendor app). A deploy is "replace the binary, kill
+#     seaotter": this loop then starts the new one. The counter resets after a run of a
+#     minute, because on 2026-11-01 five deploys in an afternoon counted as a crash loop and
+#     the vendor app took the machine over mid-test. ---
 n=0
 while [ $n -lt 5 ]; do
-	echo "starting seaotter ($n) at $(cut -d ' ' -f 1 /proc/uptime) s" >> $LOG
+	t0=$(cut -d ' ' -f 1 /proc/uptime | cut -d . -f 1)
+	echo "starting seaotter ($n) at $t0 s" >> $LOG
 	./seaotter > /tmp/seaotter.log 2>&1
-	n=$((n + 1))
+	t1=$(cut -d ' ' -f 1 /proc/uptime | cut -d . -f 1)
+	if [ $((t1 - t0)) -ge 60 ]; then n=0; else n=$((n + 1)); fi
 	sleep 2
 done
-echo "seaotter exited 5 times" >> $LOG
+echo "seaotter exited 5 times within a minute each" >> $LOG
 [ -x /ddcsv4/ddcsv4.vendor ] && exec ./ddcsv4.vendor
