@@ -697,6 +697,8 @@ static int emit_block(motion_t *m)
 		if (dd) { m->last_dir[a] = dd > 0 ? 1 : -1; any = true; }
 	}
 	memcpy(m->emit_pos, m->pos, sizeof m->emit_pos);
+	if (PERF.debug) fprintf(stderr, "%llu emit: d %d %d %d %d active %d qn %d v %.3f jv %.3f %.3f %.3f ev %d\n", (unsigned long long)now_us() / 1000,
+		d[0], d[1], d[2], d[3], m->active, m->qn, m->v, m->jv[0], m->jv[1], m->jv[2], (int)m->ev);
 	if (!any) return 0;
 	if (!m->dry) fpga_block(m->f, d, BLOCK_DT);
 	for (int a = 0; a < NAXES; a++) m->steps[a] += d[a];
@@ -720,7 +722,11 @@ static void tick_blocks(motion_t *m, double dt)
 	/* The FPGA stopped playing (2026-11-01: a bad word in a block did it): blocks queued, the
 	 * counters frozen, nothing reported moving. Pushing on would fill the queue and the block
 	 * ioctl then hangs the process - so this is a fault, not something to wait out. */
-	if (m->q_est > 0 && !m->hw_busy) { if (++m->stuck_ticks >= 30) { m->fpga_stuck = true; motion_stop(m, true); return; } }
+	if (m->fpga_halted) {                                 /* until the queue reads empty again (a power cycle), no motion at all */
+		if (m->q_est == 0 && !m->hw_busy) m->fpga_halted = false;
+		else { if (m->active || m->qn || m->jog_dir) motion_stop(m, true); return; }
+	}
+	if (m->q_est > 0 && !m->hw_busy) { if (++m->stuck_ticks >= 30) { m->fpga_stuck = m->fpga_halted = true; m->stuck_ticks = 0; motion_stop(m, true); return; } }
 	else m->stuck_ticks = 0;
 	/* the depth is checked BEFORE each block: sending one first "and then seeing" left the
 	 * queue one block deeper after every frame top-up, for good (sim trace 2026-11-01) */

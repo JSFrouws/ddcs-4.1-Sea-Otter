@@ -107,7 +107,7 @@ static void status(http_resp_t *r)
 		"\"overrides\":{\"feed\":%d,\"rapid\":%d,\"spindle\":%d,\"feedApplied\":%.1f},\"spindle\":{\"on\":%s,\"rpm\":%.0f},\"coolant\":%d,"
 		"\"limit\":{\"axis\":\"%c\",\"dir\":%d},\"limits\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"armed\":\"%s\",\"remoteStart\":%s,\"countdown\":%d,\"screen\":%d,\"leds\":%u,"
 		"\"fpga\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"steps\":{\"x\":%lld,\"y\":%lld,\"z\":%lld,\"a\":%lld},"
-		"\"posChecks\":%u,\"posFaults\":%u,\"posErr\":[%d,%d,%d,%d],\"faultLine\":%d,\"busErrors\":%u,\"busRetries\":%u,\"busErrno\":%d,\"reversalsWaited\":%u,\"bursts\":%u,\"blocks\":%u,\"queue\":%d,"
+		"\"posChecks\":%u,\"posFaults\":%u,\"posErr\":[%d,%d,%d,%d],\"faultLine\":%d,\"busErrors\":%u,\"busRetries\":%u,\"busErrno\":%d,\"reversalsWaited\":%u,\"bursts\":%u,\"blocks\":%u,\"queue\":%d,\"fpgaHalted\":%s,"
 		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u,\"stalls\":%u,\"wakes\":%u},\"tool\":{\"loaded\":%d,\"changeTo\":%d,\"confirm\":%s},\"jobPart\":\"%s\",\"estimate\":{\"seconds\":%.0f,\"remaining\":%s,\"feed\":%d,\"exact\":%s},\"inputs\":%u,\"pendant\":{\"raw\":%u,\"held\":%s,\"axis\":%d,\"mult\":%d,\"estop\":%s,\"wheel\":%d},"
 		"\"drives\":{\"on\":%s,\"enableOut\":\"%s\",\"enableOn\":\"%s\"},\"outputs\":%u,\"axisOutputs\":{\"x\":\"%s\",\"y\":\"%s\",\"z\":\"%s\",\"a\":\"%s\"},\"blockedBursts\":%u,"
 		"\"message\":\"%s\",\"hmiMessage\":%s,\"driverWarning\":\"%s\",\"macro\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
@@ -117,7 +117,7 @@ static void status(http_resp_t *r)
 		C.limit_axis >= 0 ? AXIS_CH[C.limit_axis] : '-', C.limit_dir, C.lim_dir[0], C.lim_dir[1], C.lim_dir[2], C.lim_dir[3], (const char *[]){ "run", "tryCut", "simulate" }[C.armed],
 		SET.remote_start ? "true" : "false", C.countdown, U.screen, (unsigned)ui_leds(),
 		C.fpos[0], C.fpos[1], C.fpos[2], C.fpos[3], (long long)C.mo.steps[0], (long long)C.mo.steps[1], (long long)C.mo.steps[2], (long long)C.mo.steps[3],
-		C.pos_checks, C.pos_faults, C.pos_err[0], C.pos_err[1], C.pos_err[2], C.pos_err[3], C.fault_line, bus_errors, bus_retries, bus_last_errno, C.mo.deferred, C.fp.bursts, C.mo.blocks, C.mo.q_est, PERF.loops, PERF.tick_us_avg, PERF.tick_us_max, PERF.render_us_avg, PERF.render_us_max, PERF.draw_us_avg, PERF.present_us_avg, PERF.gap_ms_max,
+		C.pos_checks, C.pos_faults, C.pos_err[0], C.pos_err[1], C.pos_err[2], C.pos_err[3], C.fault_line, bus_errors, bus_retries, bus_last_errno, C.mo.deferred, C.fp.bursts, C.mo.blocks, C.mo.q_est, C.mo.fpga_halted ? "true" : "false", PERF.loops, PERF.tick_us_avg, PERF.tick_us_max, PERF.render_us_avg, PERF.render_us_max, PERF.draw_us_avg, PERF.present_us_avg, PERF.gap_ms_max,
 		(unsigned long long)PERF.motion_ms, (unsigned long long)PERF.lost_ms, C.mo.replan_iters, PERF.stalls, PERF.wakes,
 		WD.loaded_tool, C.m == M_TOOL || C.tc_state != TC_NONE ? C.tc_tool : 0, C.tc_confirm ? "true" : "false",
 		(const char *[]){ "", "G54", "G55", "G56", "G57", "G58", "G59" }[C.job_idx >= 0 && C.job_idx < NWCS && (C.m == M_RUN || C.m == M_HOLD || C.m == M_TOOL) ? C.job_idx + 1 : 0],

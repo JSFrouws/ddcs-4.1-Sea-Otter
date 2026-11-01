@@ -56,7 +56,8 @@ typedef struct {
 	uint32_t blocks;             /* blocks sent (perf) */
 	bool stop_resync;            /* an immediate stop flushed the queue: adopt the counters silently at rest */
 	int8_t fpga_mode;            /* what the FPGA was last told: 1 block mode, 0 burst mode, -1 unknown (after fpga_init) */
-	int stuck_ticks; bool fpga_stuck;   /* blocks queued but nothing plays: after 300 ms a fault (the controller reports it) */
+	int stuck_ticks; bool fpga_stuck;   /* blocks queued but nothing plays: after 300 ms a fault (the controller reports it once) */
+	bool fpga_halted;            /* sticky: the FPGA's queue reads non-empty with nothing playing (only a power cycle clears the FPGA; this clears when the queue reads empty again) */
 	double nudge[NAXES];         /* pendant: distance still to move per axis */
 	double nudge_in[NAXES];      /* pendant: distance clicked in since the last slice */
 	double wheel_v[NAXES];       /* pendant: the wheel's own speed, mm/s, averaged over ~80 ms (feedforward) */
