@@ -19,7 +19,7 @@ static bool level_active(int port, bool active_high)
 }
 
 /* the home switch (homing's callback) and the limit switch: one input unless home.separate_inputs */
-static bool switch_active(int axis) { return level_active(axis_home_port(axis), axis_level_high(axis)); }
+static bool switch_active(int axis) { return level_active(axis_home_port(axis), axis_home_level_high(axis)); }
 static bool limit_active(int axis) { return level_active(SET.ax[axis].limit_port, axis_level_high(axis)); }
 
 /* the level gate under every block (motion.c emit_block): E-stop and drives off stop everything, a

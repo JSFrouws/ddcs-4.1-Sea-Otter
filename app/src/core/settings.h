@@ -16,7 +16,8 @@ typedef struct {
 	int home_dir;                                /* 0 = negative, 1 = positive */
 	bool dir_invert, pulse_high, enabled;
 	int limit_port, home_port, alarm_port;       /* INnn, 0 = none ("-"); home_port only without home_combined */
-	bool limit_level_high;                       /* this axis' switch level, only with limit_level_per_axis */
+	bool limit_level_high;                       /* this axis' limit switch level, only with limit_level_per_axis */
+	bool home_level_high;                        /* ... and its home switch's, only when the switches are not combined */
 	int output;                                  /* pulse/dir connector: 0 = none ("-"), 1..4 = X Y Z A (XP/XD ...) */
 } axis_set_t;
 
@@ -85,7 +86,8 @@ extern const char *const HOME_ORDERS[];
 
 /* the input an axis homes on and the level its switches are read at, after the two flags */
 int axis_home_port(int a);
-bool axis_level_high(int a);
+bool axis_level_high(int a);                  /* the limit switch (and the shared switch) */
+bool axis_home_level_high(int a);             /* the home switch */
 
 void settings_defaults(settings_t *s);
 int settings_load(const char *path);          /* 0 ok, -1 missing (defaults kept) */

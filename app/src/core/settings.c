@@ -39,7 +39,11 @@ static const char *const FOLLOW[] = { "Exact: every click is moved", "Velocity: 
 	/* per axis: the switches first (input, level, which way, where, back-off), the boxes after */ \
 	{ "axis." n ".limit_port", "Homing & limits", n " limit switch input", "", ST_PORT, A(i, limit_port), 0, 18, 0, IN_PORTS, 1, 0 }, \
 	{ "axis." n ".home_port", "Homing & limits", n " home switch input", "", ST_PORT, A(i, home_port), 0, 18, 0, IN_PORTS, 1, 0 }, \
+	/* the level rows: ONE when the switch is shared, a limit and a home one when it is not (the
+	 * first two write the same field - the shared switch is the limit switch) */ \
 	{ "axis." n ".level_high", "Homing & limits", n " switch active when open (NC)", "", ST_BOOL, A(i, limit_level_high), 0, 1, 0, 0, 1, 0 }, \
+	{ "axis." n ".limit_level_high", "Homing & limits", n " limit switch active when open (NC)", "", ST_BOOL, A(i, limit_level_high), 0, 1, 0, 0, 1, 0 }, \
+	{ "axis." n ".home_level_high", "Homing & limits", n " home switch active when open (NC)", "", ST_BOOL, A(i, home_level_high), 0, 1, 0, 0, 1, 0 }, \
 	{ "axis." n ".home_dir", "Homing & limits", n " homes towards", "", ST_ENUM, A(i, home_dir), 0, 1, 0, DIRS, 1, 0 }, \
 	{ "axis." n ".home_pos", "Homing & limits", n " position at the home switch", "mm", ST_DBL, A(i, home_pos), -9999, 9999, DEC_POS, 0, 1, 0 }, \
 	{ "axis." n ".home_backoff", "Homing & limits", n " back-off from the switch", "mm", ST_DBL, A(i, home_backoff), 0, 500, DEC_POS, 0, 1, 0 }, \
@@ -140,7 +144,7 @@ void settings_defaults(settings_t *s)
 		a->home_search = i == AX_A ? 700 : 1000; a->home_locate = 50; a->home_pos = 0;
 		a->home_backoff = back[i]; a->home_dir = hdir[i];
 		a->dir_invert = i == AX_X; a->pulse_high = true; a->enabled = true;
-		a->limit_port = lim[i]; a->home_port = lim[i]; a->alarm_port = alarm[i]; a->limit_level_high = true;
+		a->limit_port = lim[i]; a->home_port = lim[i]; a->alarm_port = alarm[i]; a->limit_level_high = a->home_level_high = true;
 		a->output = i + 1;                                     /* each axis on its own connector */
 	}
 	s->home_order = 0; s->soft_limits = false;             /* off by default (user 2026-11-02); a saved config keeps its own */
@@ -192,11 +196,12 @@ void setting_set(const setting_desc_t *d, double v)
 	/* switching the per-axis level ON starts every axis at the shared level: nothing changes
 	 * until an axis is set differently */
 	if (!strcmp(d->key, "limits.level_per_axis") && SET.limit_level_per_axis)
-		for (int a = 0; a < NAXES; a++) SET.ax[a].limit_level_high = SET.limit_level_high;
+		for (int a = 0; a < NAXES; a++) SET.ax[a].limit_level_high = SET.ax[a].home_level_high = SET.limit_level_high;
 }
 
 int axis_home_port(int a) { return SET.home_combined ? SET.ax[a].limit_port : SET.ax[a].home_port; }
 bool axis_level_high(int a) { return SET.limit_level_per_axis ? SET.ax[a].limit_level_high : SET.limit_level_high; }
+bool axis_home_level_high(int a) { return SET.home_combined || !SET.limit_level_per_axis ? axis_level_high(a) : SET.ax[a].home_level_high; }
 
 const setting_desc_t *setting_find(const char *key)
 {

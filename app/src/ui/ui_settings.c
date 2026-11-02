@@ -29,7 +29,11 @@ static const char *inapplicable(const setting_desc_t *d)
 	if (!strncmp(k, "pendant.", 8) && strcmp(k, "pendant.on") && !SET.pendant) return "no pendant fitted";
 	if (!strcmp(k, "estop.level_high") && !SET.estop_port) return "no E-stop input";
 	if (!strcmp(k, "limits.level_high") && SET.limit_level_per_axis) return "the level is set per axis";
-	if (!strncmp(k, "axis.", 5) && strstr(k, ".level_high") && !SET.limit_level_per_axis) return "one level for all axes";
+	if (!strncmp(k, "axis.", 5) && strstr(k, "level_high")) {   /* per axis: one row for a shared switch, two when split */
+		if (!SET.limit_level_per_axis) return "one level for all axes";
+		bool shared = strstr(k, ".level_high") != NULL;      /* ".level_high" is only the shared row's suffix */
+		if (shared != SET.home_combined) return SET.home_combined ? "the switch is shared" : "limit and home have their own";
+	}
 	if (!strncmp(k, "axis.", 5) && strstr(k, ".home_port") && SET.home_combined) return "home shares the limit input";
 	if (!strcmp(k, "drives.enable_on") && !SET.out_enable) return "no enable output";
 	if (!strncmp(k, "axis.", 5) && strstr(k, ".soft_m") && !SET.soft_limits) return "soft limits are off";

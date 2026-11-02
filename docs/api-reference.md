@@ -408,7 +408,9 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `axis.<X|Y|Z|A>.bench_max` | Homing & limits | bench limit + | mm | number, -99999 to 99999 | yes |
 | `axis.<X|Y|Z|A>.limit_port` | Homing & limits | limit switch input (also home, with `home.combined`) |  | port: `"-"` · `"IN01"` … `"IN18"` | yes |
 | `axis.<X|Y|Z|A>.home_port` | Homing & limits | home switch input (without `home.combined`) |  | port: `"-"` · `"IN01"` … `"IN18"` | yes |
-| `axis.<X|Y|Z|A>.level_high` | Homing & limits | switch active when open (with `limits.level_per_axis`) |  | on/off | yes |
+| `axis.<X|Y|Z|A>.level_high` | Homing & limits | the shared switch active when open (with `limits.level_per_axis` and `home.combined`; same value as `limit_level_high`) |  | on/off | yes |
+| `axis.<X|Y|Z|A>.limit_level_high` | Homing & limits | limit switch active when open (per axis, switches not combined) |  | on/off | yes |
+| `axis.<X|Y|Z|A>.home_level_high` | Homing & limits | home switch active when open (per axis, switches not combined) |  | on/off | yes |
 | `limits.level_per_axis` | Homing & limits | Show limit and home switch level per axis |  | on/off | yes |
 | `home.combined` | Homing & limits | Combine home and limit switch (default on) |  | on/off | yes |
 | `axis.<X|Y|Z|A>.home_dir` | Homing & limits | home direction |  | choice index 0 to 1 | yes |

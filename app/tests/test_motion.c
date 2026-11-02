@@ -160,7 +160,13 @@ void test_motion(void)
 	SET.ax[AX_Y].limit_level_high = !SET.limit_level_high;
 	fx_run(50);
 	CHECK(C.lim_active[AX_Y] && C.m == M_LIMIT);
-	SET.ax[AX_Y].limit_level_high = SET.limit_level_high; SET.limit_level_per_axis = false;
+	SET.ax[AX_Y].limit_level_high = SET.limit_level_high;
 	fx_run(50);
 	CHECK(!C.lim_active[AX_Y]);
+	/* split switches: the home switch has a level of its own; shared, it follows the limit's */
+	SET.home_combined = false; SET.ax[AX_Y].home_level_high = !SET.limit_level_high;
+	CHECK(axis_home_level_high(AX_Y) == !SET.limit_level_high && axis_level_high(AX_Y) == SET.limit_level_high);
+	SET.home_combined = true;
+	CHECK(axis_home_level_high(AX_Y) == SET.limit_level_high);
+	SET.ax[AX_Y].home_level_high = SET.limit_level_high; SET.limit_level_per_axis = false;
 }
