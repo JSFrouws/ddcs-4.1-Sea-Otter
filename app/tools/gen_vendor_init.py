@@ -13,8 +13,15 @@ reset lands in an engine still coming up, and the result is silent: every block 
 still plays, but ~150 ms after a stream's last block the FPGA drops into its halted state
 (queue reads 0x100, nothing plays until a power cycle). Bisected on the unit with
 tools/blockmove.c INIT_FILE (write #56 of the table) and fixed by honouring the gaps; the
-untimed vendor_init_writes.txt is the same sequence without them. Gaps under 5 ms are
-noise of the vendor's own loop and are dropped.
+untimed vendor_init_writes.txt is the same sequence without them.
+ALL the gaps, not just the long ones (2026-11-02, evening). The vendor's accesses are
+200-300 us apart; ours were ~70 us (one ioctl). With only the gaps over 5 ms kept, the
+same binary passed 5 cold boots in the afternoon and then failed 11 in a row, while the
+same binary with a register trace switched on (a few tens of us more per access) passed
+every time: the serial configuration is marginal at our pace. Every gap the vendor left
+is now emitted (1191 of 1192 writes carry one; the init takes ~1.1 s instead of 0.3 s),
+and with that 3 of 3 cold boots and 3 of 3 app restarts (a second init on a configured
+FPGA, which halted 6 of 6 times before) stream cleanly.
 The READS are part of it too (2026-11-02, measured on a freshly powered FPGA). The vendor
 reads 0x40 after every strobe of its bit-banged serial configuration (0x47 data, 0x48=5,
 read 0x40, 0x48=0; 250 times) plus a handful of status reads. The timed writes alone leave
@@ -30,7 +37,7 @@ import re
 HERE = os.path.dirname(os.path.abspath(__file__))
 src = os.path.join(HERE, "..", "..", "docs", "raw", "2026-10-18_motion-probe", "vendor_start_reads.log")
 out = os.path.join(HERE, "..", "src", "hal", "fpga_vendor_init.c")
-MIN_GAP_S = 0.005
+MIN_GAP_S = 0.0   # every gap the vendor left (see above: 0.005 was not enough)
 rows = []
 prev = None
 pending_reads = []

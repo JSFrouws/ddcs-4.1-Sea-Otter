@@ -78,6 +78,10 @@ int main(int argc, char **argv)
 	 * Sea Otter substitutes it - at most INIT_N of them; INIT_ONLY=1 then reads reg 0 / 0x36 and
 	 * exits without a stream. Bisecting which init write poisons the FPGA (2026-11-02: after the
 	 * vendor app's init streams end cleanly, after Sea Otter's fpga_init the FPGA halts). */
+	/* PREMODE=0x20|0x30: per-axis mode written BEFORE the init replay. A second Sea Otter init on
+	 * an FPGA it already initialised halts every stream (2026-11-02, 5 of 5 app restarts, both
+	 * builds); the app leaves the mode at 0x30+ch, the vendor app ends its streams with 0x20+ch. */
+	if (getenv("PREMODE") && !dry) { unsigned pm = (unsigned)strtoul(getenv("PREMODE"), NULL, 0); mode_all((uint16_t)pm); printf("mode 0x%02x before the init\n", pm); }
 	if (getenv("INIT_FILE") && !dry) {
 		FILE *fi = fopen(getenv("INIT_FILE"), "r"); if (!fi) { perror(getenv("INIT_FILE")); return 1; }
 		int n = 0, lim = getenv("INIT_N") ? atoi(getenv("INIT_N")) : 1 << 30; unsigned a, v;
@@ -156,6 +160,16 @@ int main(int argc, char **argv)
 		if (!dry && !t_first && pos(axis) != p0) t_first = now();
 		if (!dry && blocks <= 12) printf("%8.4f block %d: %ld steps w4 %u -> fifo %02x pos %d\n", now() - t0, blocks, n, (unsigned)(v / 2), R(0x36), pos(axis) - p0);
 		if (now() - hb > 0.1) { hb = now(); clock_const(); if (!dry) printf("%8.3f fifo %02x pos %d\n", now() - t0, R(0x36), pos(axis) - p0); }
+	}
+	/* TAIL=n: one more block of n steps at the rate-word floor 0x64 (200 steps/s), as the app
+	 * sends when a move's last remainder is a step or two (2026-11-02: the app's jog ended in a
+	 * 1-step block and the FPGA halted right after; blockmove never sends fewer than v*dt steps) */
+	if (getenv("TAIL") && !dry) {
+		long n = atol(getenv("TAIL"));
+		uint16_t blk[16] = { w0, 0x3020, seq, 0, 0x64, 0, (uint16_t)w6, 0, (uint16_t)n, 0, 0, 0, 0, 0, 0, 0 };
+		while (R(0x36) >= depth) { usleep(500); W(0x67, 0); }
+		BLOCK(blk); W(0x67, 0); sent += n; blocks++;
+		printf("%8.4f tail block: %ld steps w4 0x64 -> fifo %02x\n", now() - t0, n, R(0x36));
 	}
 done:
 	printf("sent %ld steps in %d blocks (%d FIFO waits); fifo now %02x status %04x; draining\n", sent, blocks, waits, dry ? 0 : R(0x36), dry ? 0 : R(0x01));

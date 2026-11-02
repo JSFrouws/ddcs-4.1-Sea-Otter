@@ -4,10 +4,12 @@ _2026-11-01. The decoded interface and the measurements are in
 [fpga-motion.md](fpga-motion.md) "Block mode = continuous motion". This file is the
 architecture the app builds on it. Status: implemented 2026-11-01 (cc64bbb, 2ef7448); the
 first machine runs found the word-2 and full-queue traps and then the post-stream halt,
-which turned out to be two missing halves of the FPGA initialisation (pauses, 31a87e8;
-reads, e6507bc - fpga-motion.md "INITIALISATION problem"). **Proven on a cold-booted unit
-2026-11-02** (local-345: jogs and `trace_square.nc` over the API, queue 0 and no halt after
-each; motors disconnected, so smoothness by ear is still to be judged). Replaces the burst
+which turned out to be three missing parts of the FPGA initialisation (the vendor's long
+pauses, 31a87e8; its reads, e6507bc; and its pace - every gap it leaves, the evening of
+2026-11-02 - fpga-motion.md "INITIALISATION problem"). **Proven on the unit 2026-11-02**
+(the burst-free build: 3 of 3 cold boots, 3 of 3 app restarts and `trace_square.nc` over
+the API, queue 0 and no halt after each; motors disconnected, so smoothness by ear is
+still to be judged). Replaces the burst
 emitter for jog, wheel, programs and homing; **burst mode was removed 2026-11-02** (owner's
 decision): blocks are the only motion path, and `motion.block_mode` is gone (an old saved
 key is ignored on load)._

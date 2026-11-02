@@ -261,6 +261,26 @@ initialised since power-up is immune to all of this, which is why the first tool
 never saw the halt and why every experiment on this subject needs a power cycle, not a
 Linux reboot.
 
+**The third half: the PACE of the whole init (2026-11-02, evening, ~30 more power
+cycles).** The reads fix held for five cold boots in the afternoon, and then the very same
+binary halted eleven cold boots in a row (10 s and 90 s power-offs, Y position forced high
+and low, nothing changed on the unit; the vendor app's own init still produced a healthy
+FPGA every time). What separated the two: a register trace in `bus_ioctl.c` (flag file
+`/ddcsv4/BUSLOG` → `/tmp/buslog.txt`), built to diff a failing boot against a passing one.
+With the trace ON the same binary passed every time; the trace's own cost per access
+(a few tens of µs) was the difference. Our init ran the vendor's 1453 accesses ~70 µs
+apart (one ioctl each); the vendor's own trace shows 200–300 µs between accesses. The
+table now carries **every** gap the vendor left (`gen_vendor_init.py` `MIN_GAP_S = 0`,
+1191 of 1192 writes with a pause, init ~1.1 s): 3 of 3 cold boots and 3 of 3 app restarts
+clean. The restart case matters on its own: **a second `fpga_init` on an FPGA Sea Otter
+had already initialised halted 6 of 6 times** before the pacing fix (the old build and the
+burst-free one alike) — and `ctl_apply_axis_config` re-runs `fpga_init` on every axis
+settings save, so without this fix changing an axis setting would have stopped motion
+until a power cycle. Why the afternoon passes: unknown; the timing was marginal and
+something (the unit warming up is the best guess) moved it across the edge. Two
+diagnostics stay in the tree: the `BUSLOG` trace, and `blockmove`'s `TAIL=n` (a trailing
+n-step block — measured harmless, a 1-step block was a suspect) and `PREMODE` knobs.
+
 **Caveats found**: the very first run after killing the vendor app mid-session counted
 double (800 for 400 steps) — never again in ~30 runs, including with the whole queue pushed
 at once; treat it as stale FPGA state from the kill. A mid-stream *stop* (`0x04 = 4`) is
