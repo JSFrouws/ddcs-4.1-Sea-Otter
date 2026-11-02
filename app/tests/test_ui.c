@@ -91,8 +91,10 @@ void test_ui(void)
 	ui_key(K_XP);                                    /* touch-off X+ -> -6, Shift stays lit */
 	CHECK_NEAR(ctl_work(AX_X), -6, 1e-9);
 	CHECK(U.shift);
-	ui_key(K_XP);                                    /* same key again -> 0 */
+	ui_key(K_XP);                                    /* same key again -> 0, Shift still lit (user 2026-11-02) */
 	CHECK_NEAR(ctl_work(AX_X), 0, 1e-9);
+	CHECK(U.shift);
+	ui_key(K_SHIFT);                                 /* off by hand */
 	CHECK(!U.shift);
 
 	/* the jog setup pane + digit editor: 0.00, two left, Y+ -> 100.00; Y- would give 900 */
