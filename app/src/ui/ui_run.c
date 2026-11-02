@@ -254,9 +254,8 @@ void run_goto_list(fb_t *fb)
 void run_sk(sk_t sk[7])
 {
 	if (U.shift) {                                       /* ALT: the second functions (amber) */
-		static char a1[24], a2[16];
+		static char a1[24];
 		snprintf(a1, sizeof a1, "from line %d", U.prog_line + 1);
-		snprintf(a2, sizeof a2, "→ G%d", 54 + (WD.active + 1) % NWCS);
 		sk[0] = (sk_t){ "Start", a1 };
 		sk[1] = (sk_t){ "WCS", "pick G54-G59" };
 		sk[2] = (sk_t){ "Rewind", rewind_asking() ? "again = line 1" : "to line 1 (asks)" };
@@ -275,7 +274,8 @@ void run_sk(sk_t sk[7])
 	sk[0] = (sk_t){ "Start", s1 };
 	sk[1] = (sk_t){ "Pause", "feed hold" };
 	sk[2] = (sk_t){ "Reset", rewind_asking() ? "again = line 1" : C.resume_line >= 0 || C.work_done >= 0 ? "to line 1 (asks)" : C.agent.on ? "close agent card" : "stop" };
-	sk[3] = (sk_t){ "View", U.view.saver ? "→ 2D" : U.view.iso ? "→ G-code" : "→ ISO" };
+	/* the state it is in, not the next one (user 2026-11-02); F4 cycles 2D -> ISO -> G-code */
+	sk[3] = (sk_t){ "View", U.view.saver ? "G-code" : U.view.iso ? "ISO" : "2D plan" };
 	sk[4] = (sk_t){ "TryCut", s5 };
 	sk[5] = (sk_t){ "Spindle", C.spindle ? "on" : "off" };
 }

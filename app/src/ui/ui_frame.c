@@ -196,7 +196,9 @@ static void side_strip(fb_t *fb)
 	bool lock = ctl_busy() && U.screen != SCR_JOG;
 	side_label(fb, 166, "TAB", tab, tsub, U.ed.on ? 2 : 0);
 	side_label(fb, 309, "SHIFT", s1, s2, U.shift ? 1 : 0);
-	side_label(fb, 453, "MODE", U.screen == SCR_JOG ? "→ RUN" : lock ? "JOG locked" : "→ JOG", U.screen == SCR_JOG ? "auto" : "manual", lock || U.ed.on ? 2 : 0);
+	bool running = C.m == M_RUN || C.m == M_HOLD || C.m == M_TOOL;
+	if (running && U.screen != SCR_RUN) side_label(fb, 453, "MODE", "→ RUN", "program running", 0);   /* MODE returns to the program from any screen */
+	else side_label(fb, 453, "MODE", U.screen == SCR_JOG ? "→ RUN" : lock ? "JOG locked" : "→ JOG", U.screen == SCR_JOG ? "auto" : "manual", lock || U.ed.on ? 2 : 0);
 }
 
 static void toast(fb_t *fb)

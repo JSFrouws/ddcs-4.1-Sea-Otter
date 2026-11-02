@@ -65,7 +65,7 @@ typedef struct {
 	int last_dir[NAXES];
 	int line;                    /* source line of the op being executed */
 	/* homing */
-	struct { bool on; int k, phase, axis; double travel; } home;
+	struct { bool on; int k, phase, axis; double travel, ref; } home;   /* ref: where the switch released */
 	bool (*switch_active)(int axis);
 	bool (*range)(int axis, double *lo, double *hi);   /* soft/bench limits for jogs + nudges */
 	/* the controller's level gate: true = no steps on this axis this way (E-stop, drives off,

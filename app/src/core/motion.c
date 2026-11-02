@@ -542,36 +542,63 @@ static void run_home(motion_t *m, double dt)
 		if (ax < 0 || m->home.k >= NAXES) { m->home.on = false; m->ev = MEV_HOMED; return; }
 		m->home.axis = ax; m->home.phase = 0; m->home.travel = 0;
 	}
+	/* Every phase moves on the axis' own ramp (follow(): accel + jog.jerk, like a jog)
+	 * instead of jumping to its speed (user 2026-11-02: homing was snappy, no acceleration,
+	 * and the retract stopped dead). The search brakes ON the switch, the slow back-off
+	 * brakes once it releases, and the retract lands on its distance. The reference is the
+	 * RELEASE point at the slow speed; whatever the axis still travels while braking is
+	 * known, so the counter is preset relative to it and the retract ends exactly at
+	 * home_pos - dir * home_backoff. */
 	int a = m->home.axis;
 	const axis_set_t *s = &SET.ax[a];
 	int dir = s->home_dir ? 1 : -1;
 	bool sw = m->switch_active && m->switch_active(a);
-	double d;
-	switch (m->home.phase) {
-	case 0:                                            /* search toward the switch */
-		if (sw) { m->home.phase = 1; m->home.travel = 0; break; }
-		d = s->home_search / 60.0 * dt;
-		m->pos[a] += dir * d; m->home.travel += d; m->last_dir[a] = dir;
-		if (m->home.travel > fabs(s->soft_max - s->soft_min) + 100) { m->home.on = false; m->ev = MEV_HOME_FAIL; }
-		break;
-	case 1:                                            /* back off slowly until released */
-		if (!sw) { m->home.phase = 2; break; }
-		d = s->home_locate / 60.0 * dt;
-		m->pos[a] -= dir * d; m->last_dir[a] = -dir; m->home.travel += d;
-		if (m->home.travel > 25) {                     /* switch never releases */ m->home.on = false; m->ev = MEV_HOME_FAIL; }
-		break;
-	case 2:                                            /* this is the reference */
-		/* the counter is preset only once the FPGA has played its whole queue */
-		if (m->q_est > 0 || m->hw_busy) break;
-		motion_set_pos(m, a, s->home_pos);
+	double v_search = s->home_search / 60.0, v_locate = s->home_locate / 60.0, step;
+	/* a phase that ends hands this tick to the next one: a tick that moved nothing is a
+	 * 10 ms stall in the stream (seen as a step in the speed) */
+	if (m->home.phase == 0) {                          /* search toward the switch */
+		if (sw) m->home.phase = 1;
+		else {
+			step = follow(m, a, dir, 1e18, v_search, dt);
+			m->pos[a] += step; m->home.travel += fabs(step); m->last_dir[a] = dir;
+			if (m->home.travel > fabs(s->soft_max - s->soft_min) + 100) { m->home.on = false; m->ev = MEV_HOME_FAIL; }
+			return;
+		}
+	}
+	if (m->home.phase == 1) {                          /* on the switch: brake to a stop */
+		m->pos[a] += follow(m, a, 0, 0, 0, dt);
+		if (fabs(m->jv[a]) > 1e-12) return;
+		m->home.phase = 2; m->home.travel = 0;
+	}
+	if (m->home.phase == 2) {                          /* back off slowly until released: the reference */
+		if (sw) {
+			step = follow(m, a, -dir, 1e18, v_locate, dt);
+			m->pos[a] += step; m->home.travel += fabs(step); m->last_dir[a] = -dir;
+			if (m->home.travel > 25) {                 /* switch never releases */ m->home.on = false; m->ev = MEV_HOME_FAIL; }
+			return;
+		}
+		/* the COUNTER at the release, not the commanded position: the command runs a queue
+		 * (50 ms) ahead of the motor, which at the slow speed is tens of microns. What is
+		 * left is the tick: the switch is sampled every 10 ms and the counters latch at the
+		 * heartbeat, so the reference is within home_locate x ~20 ms of the switch edge */
+		int32_t cnt[NAXES];
+		if (!m->dry) { fpga_positions(m->f, cnt); m->home.ref = (double)cnt[a] / SET.ax[a].steps_per_mm; }
+		else m->home.ref = m->pos[a];
+		m->home.phase = 3;
+	}
+	if (m->home.phase == 3) {                          /* brake, then preset the counter */
+		if (fabs(m->jv[a]) > 1e-12) { m->pos[a] += follow(m, a, 0, 0, 0, dt); return; }
+		/* ... only once the FPGA has played its whole queue */
+		if (m->q_est > 0 || m->hw_busy) return;
+		motion_set_pos(m, a, s->home_pos + ((double)m->steps[a] / SET.ax[a].steps_per_mm - m->home.ref));   /* the release point = home_pos */
 		fpga_preset(m->f, a, (int32_t)m->steps[a]);      /* FPGA counter = machine coordinate */
-		m->home.travel = 0; m->home.phase = 3;
-		break;
-	case 3:                                            /* retract the back-off distance */
-		d = fmin(s->home_search / 60.0 * dt, s->home_backoff - m->home.travel);
-		m->pos[a] -= dir * d; m->home.travel += d;
-		if (m->home.travel >= s->home_backoff - 1e-9) m->home.phase = 99;
-		break;
+		m->home.phase = 4;
+	}
+	if (m->home.phase == 4) {                          /* retract: land on home_pos - dir * back-off */
+		double left = (s->home_pos - dir * s->home_backoff - m->pos[a]) * -dir;
+		if (left <= 1e-9 && fabs(m->jv[a]) < 1e-12) { m->home.phase = 99; return; }
+		step = follow(m, a, -dir, fmax(left, 0), v_search, dt);
+		m->pos[a] += step; m->last_dir[a] = -dir;
 	}
 }
 

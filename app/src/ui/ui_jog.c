@@ -94,23 +94,24 @@ void jog_sk(sk_t sk[7])
 		static char a4[24], a5[16];
 		int ps = (U.step + NJOG_STEPS - 1) % NJOG_STEPS;
 		if (JOG_STEPS[ps] > 0) snprintf(a4, sizeof a4, "← %g mm", JOG_STEPS[ps]); else snprintf(a4, sizeof a4, "← continuous");
-		snprintf(a5, sizeof a5, "← G%d", 54 + (WD.active + NWCS - 1) % NWCS);
+		/* the keys show the STATE, not the next value (user 2026-11-02): "> G59 <" is the active
+		 * WCS (the key cycles it), Drives "On" in green / "Off" in red */
+		snprintf(a5, sizeof a5, "> G%d <", 54 + WD.active);
 		sk[0] = (sk_t){ "Home", "all axes" };
 		sk[1] = (sk_t){ "Safe Z", "Z up only" };
-		sk[2] = (sk_t){ "Drives", C.m == M_OFF ? "→ ON" : "→ OFF" };
+		sk[2] = (sk_t){ "Drives", C.m == M_OFF ? "Off" : "On", C.m == M_OFF ? COL_RED : COL_GREEN };
 		sk[3] = (sk_t){ "Step", a4 };
 		sk[4] = (sk_t){ "WCS", a5 };
 		sk[5] = (sk_t){ "Coolant", C.coolant & 1 ? "on" : "off" };
 		return;
 	}
-	static char s3[16], s4[16], s5[16];
+	static char s4[16], s5[16];
 	if (JOG_STEPS[U.step] > 0) snprintf(s4, sizeof s4, "%g mm", JOG_STEPS[U.step]); else snprintf(s4, sizeof s4, "continuous");
-	snprintf(s3, sizeof s3, "%s", C.m == M_OFF ? "→ ON" : "→ OFF");
-	snprintf(s5, sizeof s5, "→ G%d", 54 + (WD.active + 1) % NWCS);
+	snprintf(s5, sizeof s5, "> G%d <", 54 + WD.active);
 	static char s2[16]; snprintf(s2, sizeof s2, "G%d XY", 54 + WD.active);
 	sk[0] = (sk_t){ "Home", "all axes" };
 	sk[1] = (sk_t){ "Goto 0", s2 };
-	sk[2] = (sk_t){ "Drives", s3 };
+	sk[2] = (sk_t){ "Drives", C.m == M_OFF ? "Off" : "On", C.m == M_OFF ? COL_RED : COL_GREEN };
 	sk[3] = (sk_t){ "Step", s4 };
 	sk[4] = (sk_t){ "WCS", s5 };
 	sk[5] = (sk_t){ "Spindle", C.spindle ? "on" : "off" };

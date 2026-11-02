@@ -100,4 +100,32 @@ void test_motion(void)
 	fx_until_idle(30000);
 	CHECK_NEAR(phys(0), t[0], 0.0005); CHECK_NEAR(phys(1), t[1], 0.0005);
 	CHECK(SIM.ignored_cmds == 0);
+
+	/* homing (2026-11-02): every phase ramps at the axis' acceleration - the search onto the
+	 * switch, the slow back-off, the retract - and the retract lands exactly on
+	 * home_pos - dir * back-off with the switch released. X homes negative onto a switch
+	 * at 0, from 30 mm away. */
+	fx_reset();
+	m = &C.mo;
+	if (C.m == M_OFF) act(C_DRIVES_ON, NULL, SRC_PANEL);
+	CHECK(C.m == M_IDLE && phys(0) > 20);
+	double A = SET.ax[AX_X].accel, vmax_seen = 0, dvmax = 0, vprev = 0, xprev = phys(0);
+	CHECK(act(C_HOME, NULL, SRC_PANEL) && C.m == M_HOMING);   /* through the controller: a switch is no limit while homing */
+	int ticks = 0;
+	for (; ticks < 20000 && m->home.on; ticks++) {
+		fx_run(TICK_MS);
+		double v = (phys(0) - xprev) / (TICK_MS / 1000.0);
+		if (fabs(v) > vmax_seen) vmax_seen = fabs(v);
+		if (fabs(v - vprev) > dvmax) dvmax = fabs(v - vprev);
+		vprev = v; xprev = phys(0);
+	}
+	fx_run(50);
+	printf("  homing X: %d ticks, top %.1f mm/s (search %.1f), max dv/tick %.2f (A dt = %.2f), ends at %.4f\n",
+		ticks, vmax_seen, SET.ax[AX_X].home_search / 60, dvmax, A * TICK_MS / 1000.0, phys(0));
+	CHECK(C.homed && C.m == M_IDLE);
+	CHECK(vmax_seen <= SET.ax[AX_X].home_search / 60 * 1.02);
+	CHECK(dvmax <= A * TICK_MS / 1000.0 * 1.05 + 0.01);                /* no jump: ramped at <= A */
+	CHECK(!sim_switch_active(AX_X));
+	CHECK_NEAR(m->pos[0], SET.ax[AX_X].home_pos + SET.ax[AX_X].home_backoff, 0.0005);   /* dir -: retract is + */
+	CHECK_NEAR(phys(0), m->pos[0], 0.015);              /* the switch edge is found within one tick at the locate speed */
 }

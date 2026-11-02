@@ -15,7 +15,7 @@ void files_render(fb_t *fb)
 	int tx = x + 10;
 	tx += gfx_text(fb, &font_12, tx, top + 6, COL_DIM, "X±  ") ;
 	for (int i = 0; i < 3; i++) tx += gfx_text(fb, &font_12, tx, top + 6, i == U.src ? COL_TXT : COL_DIM2, UI_SRC_NAMES[i]) + 12;
-	if (!U.nfiles) gfx_text(fb, &font_14, x + 12, top + 34, COL_DIM, "no .nc / .ngc / .tap files here");
+	if (!U.nfiles) gfx_text(fb, &font_14, x + 12, top + 34, COL_DIM, U.files_all ? "no files here" : "no .nc / .ngc / .tap files here (F5 shows all)");
 	int first = CLAMP(U.files_idx - 8, 0, U.nfiles > 18 ? U.nfiles - 18 : 0);
 	for (int i = first; i < U.nfiles && i < first + 18; i++) {
 		int y = top + 28 + (i - first) * 24;
@@ -68,6 +68,7 @@ void files_sk(sk_t sk[7])
 	sk[1] = (sk_t){ "Simulate", "load + sim" };
 	sk[2] = (sk_t){ "Source", UI_SRC_NAMES[U.src] };
 	sk[3] = (sk_t){ "Rescan", "" };
+	sk[4] = (sk_t){ "All files", U.files_all ? "on" : "G-code only", U.files_all ? COL_GREEN : 0 };
 }
 
 static void load(bool sim)
@@ -88,6 +89,7 @@ void files_key(pkey_t k, bool sh)
 	if (k == K_F2) { load(true); return; }
 	if (k == K_F3 || (ui_pane() == 0 && (k == K_XP || k == K_XM))) { U.src = (U.src + (k == K_XM ? 2 : 1)) % 3; U.files_idx = 0; ui_scan_files(); return; }
 	if (k == K_F4) { ui_scan_files(); return; }
+	if (k == K_F5) { U.files_all = !U.files_all; U.files_idx = 0; ui_scan_files(); return; }
 	if (ui_pane() == 1) { ui_view_key(k); return; }
 	if (k == K_YP) U.files_idx = CLAMP(U.files_idx - 1, 0, U.nfiles - 1);
 	if (k == K_YM) U.files_idx = CLAMP(U.files_idx + 1, 0, U.nfiles - 1);

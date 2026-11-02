@@ -59,7 +59,7 @@ static int has_ext(const char *n)
 static void add_file(const char *name, void *ctx)
 {
 	(void)ctx;
-	if (U.nfiles < MAXFILES && name[0] != '.' && has_ext(name)) snprintf(U.files[U.nfiles++], sizeof U.files[0], "%.159s", name);
+	if (U.nfiles < MAXFILES && name[0] != '.' && (U.files_all || has_ext(name))) snprintf(U.files[U.nfiles++], sizeof U.files[0], "%.159s", name);
 }
 
 void ui_scan_files(void)
@@ -82,7 +82,14 @@ void ui_goto(scr_t s)
 	if (U.screen == SCR_MACROS) { extern void macros_scan(void); macros_scan(); }
 }
 
-static void toggle_mode(void) { ui_goto(U.screen == SCR_JOG ? SCR_RUN : SCR_JOG); }
+/* MODE swaps Run and Jog; while a program runs it always returns to it, from any screen
+ * (user 2026-11-02) */
+static void toggle_mode(void)
+{
+	bool running = C.m == M_RUN || C.m == M_HOLD || C.m == M_TOOL;
+	if (running && U.screen != SCR_RUN) { ui_goto(SCR_RUN); return; }
+	ui_goto(U.screen == SCR_JOG ? SCR_RUN : SCR_JOG);
+}
 
 void ui_key(pkey_t k)
 {

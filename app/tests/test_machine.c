@@ -383,6 +383,9 @@ void test_machine(void)
 	fx_until_idle(400000);
 	CHECK(C.m == M_IDLE && C.homed);
 	CHECK_NEAR(C.mo.pos[AX_X], 50, 1e-6);          /* switch = 0, backed off 50 */
+	/* the machine frame sits on the switch edge within one tick's travel at the locate
+	 * speed plus the counter latch (2026-11-02: the reference is the counter at the release) */
+	for (int a = 0; a < 3; a++) CHECK_NEAR(sim_pos_mm(a), C.mo.pos[a], 0.015);
 	CHECK_NEAR(C.mo.pos[AX_Y], 50, 1e-6);
 	CHECK_NEAR(C.mo.pos[AX_Z], -15, 1e-6);
 	CHECK_NEAR(sim_pos_mm(AX_X), 50, 0.06);        /* machine frame now equals the physical one */
@@ -797,7 +800,7 @@ void test_machine(void)
 	fx_until_idle(120000);
 	CHECK(C.m == M_IDLE);
 	CHECK_NEAR(C.mo.pos[AX_X] - WD.wcs[1].off[AX_X], 10, 1e-6);       /* finished on the second part */
-	CHECK_NEAR(sim_pos_mm(AX_X), C.mo.pos[AX_X], 0.002);             /* sim = machine, within the switch's few-step hysteresis */
+	CHECK_NEAR(sim_pos_mm(AX_X), C.mo.pos[AX_X], 0.015);             /* sim = machine, within homing's switch-sampling granularity */
 	WD.wcs[1].job = false;
 
 	/* --- tool change by hand: Z up, M_TOOL (jog + touch-off allowed), Start asks, Start goes --- */
