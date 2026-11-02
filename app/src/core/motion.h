@@ -65,7 +65,7 @@ typedef struct {
 	int last_dir[NAXES];
 	int line;                    /* source line of the op being executed */
 	/* homing */
-	struct { bool on; int k, phase, axis; double travel, ref; } home;   /* ref: where the switch released */
+	struct { bool on; int k, phase, axis, only; double travel, ref; } home;   /* only: one axis (-1 = all); ref: where the switch released */
 	bool (*switch_active)(int axis);
 	bool (*range)(int axis, double *lo, double *hi);   /* soft/bench limits for jogs + nudges */
 	/* the controller's level gate: true = no steps on this axis this way (E-stop, drives off,
@@ -96,7 +96,7 @@ void motion_jog_cont(motion_t *m, int axis, int dir); /* dir 0 = stop (controlle
 void motion_nudge(motion_t *m, int axis, double mm);
 void motion_hold(motion_t *m, bool on);
 void motion_stop(motion_t *m, bool immediate);        /* controlled: decel, then flush */
-void motion_home(motion_t *m);
+void motion_home(motion_t *m, int axis);       /* axis -1 = all, in the configured order */
 void motion_set_pos(motion_t *m, int axis, double mm);
 /* where the machine will be once everything queued has run (relative jogs chain from here) */
 void motion_queued_end(const motion_t *m, double out[NAXES]);

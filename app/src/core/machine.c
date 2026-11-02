@@ -161,6 +161,11 @@ const char *can(cmd_t c, const arg_t *a, src_t src)
 			if (w) return w;
 		}
 		break;
+	case C_HOME:
+		if (a && a->kind == 1 && a->axis >= 0 && a->axis < NAXES && !axis_home_port(a->axis)) {
+			snprintf(why, sizeof why, "%c has no home switch input", AXIS_CH[a->axis]); return why;
+		}
+		break;
 	case C_JOG: {
 		int ld = a->axis >= 0 && a->axis < NAXES ? C.lim_dir[a->axis] : 0;
 		if ((ld == 1 || ld == -1) && a->dir == ld) {
@@ -476,7 +481,13 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		ctl_toast(false, "Macro %s armed - Start runs it, Reset cancels", m.name);
 		break;
 	}
-	case C_HOME: C.homed = false; motion_home(&C.mo); ctl_toast(false, "Homing %s", HOME_ORDERS[SET.home_order]); break;
+	case C_HOME: {                                        /* kind 1 = one axis (the Home menu, 2026-11-02), else all */
+		int ax = a && a->kind == 1 ? a->axis : -1;         /* an axis without a switch is refused in can() */
+		if (ax < 0) C.homed = false;                      /* one axis re-homed keeps the state the machine had */
+		motion_home(&C.mo, ax);
+		if (ax >= 0) ctl_toast(false, "Homing %c", AXIS_CH[ax]); else ctl_toast(false, "Homing %s", HOME_ORDERS[SET.home_order]);
+		break;
+	}
 	case C_START:
 		if (from == M_TOOL) tc_resume();
 		else if (from == M_HOLD) { motion_hold(&C.mo, false); C.pause_msg[0] = 0; ctl_toast(false, C.hold_move ? "%s resumed" : "Resumed", C.move_name); }
@@ -579,9 +590,12 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		break;
 	case C_LIMIT_CLEAR: ctl_toast(false, "Off the switches - limits cleared"); C.limit_dir = 0; C.limit_axis = -1; break;
 	case C_DONE:
-		if (from == M_HOMING) {
+		if (from == M_HOMING && C.mo.home.only >= 0) {    /* one axis: a failure un-homes, a success changes nothing */
+			if (a->dir != 1) C.homed = false;
+			ctl_toast(a->dir != 1, a->dir == 1 ? "%c homed" : "Homing %c failed: switch not found within travel", AXIS_CH[C.mo.home.only]);
+		} else if (from == M_HOMING) {
 			C.homed = a->dir == 1;
-			ctl_toast(!C.homed, C.homed ? "Homed - soft limits active" : "Homing failed: switch not found within travel");
+			ctl_toast(!C.homed, C.homed ? (SET.soft_limits ? "Homed - soft limits active" : "Homed") : "Homing failed: switch not found within travel");
 		} else if (from == M_RUN) {
 			C.work_done = C.prog.nlines - 1; all_off(); finish_sim(); tc_clear();
 			if (C.macro_on) { ctl_toast(false, "Macro %s done", C.macro_name); macro_end(); }

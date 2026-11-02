@@ -110,8 +110,8 @@ void ui_key(pkey_t k)
 	if (C.mo.jog_dir) motion_jog_cont(&C.mo, 0, 0);   /* safety: any other key ends a continuous jog */
 	if (!(sh && U.screen == SCR_JOG)) C.touch_axis = -1;
 	if (k != K_F3) C.rewind_ask = 0;                   /* "back to line 1?" waits for Reset only */
-	bool ps = U.pagesel, ws = U.wcssel;
-	U.pagesel = false; U.wcssel = false;               /* the menus close on any key */
+	bool ps = U.pagesel, ws = U.wcssel, hs = U.homesel;
+	U.pagesel = false; U.wcssel = false; U.homesel = false;   /* the menus close on any key */
 	if (C.m == M_TOOL && C.tc_confirm) {               /* "back to the program?" is showing */
 		if (k == K_ENTER || k == K_F1) { act(C_START, NULL, SRC_PANEL); return; }
 		C.tc_confirm = false;
@@ -131,6 +131,11 @@ void ui_key(pkey_t k)
 		else { WD.active = k - K_F1; workdata_save(C.wd_path); ctl_toast(false, "Active work offset: G%d%s", 54 + WD.active, ctl_wcs_fixed(WD.active) ? " (in the G-code)" : ctl_wcs_in_job(WD.active) ? " (in the job)" : ""); }
 	}
 	else if (ws && (k == K_F7 || k == K_CANCEL)) return;
+	else if (hs && k >= K_F1 && k <= K_F5) {           /* the Home menu: F1 all, F2-F5 one axis */
+		arg_t h = { .kind = k == K_F1 ? 0 : 1, .axis = k - K_F2 };
+		act(C_HOME, k == K_F1 ? NULL : &h, SRC_PANEL);
+	}
+	else if (hs) return;                               /* F6 "-", F7 / Cancel: back */
 	else if (ps && (k == K_F7 || k == K_CANCEL)) return;
 	else if (k == K_F7 && sh) ui_goto(U.last_screen);
 	else if (k == K_F7) { U.pagesel = true; U.pagesel_t = now_ms(); }
@@ -196,6 +201,17 @@ void ui_render(fb_t *fb)
 		sk[6] = (sk_t){ "Close", "" };
 	}
 	sk[6] = (sk_t){ "Page R", U.shift ? "last screen" : "screens" };
+	if (U.homesel && (now_ms() - U.homesel_t > 8000 || ctl_busy())) U.homesel = false;
+	if (U.homesel) {                        /* the Home menu (user 2026-11-02): All, X, Y, Z, A, -, return */
+		sk[0] = (sk_t){ "All", HOME_ORDERS[SET.home_order] };
+		for (int a = 0; a < NAXES; a++) {
+			static const char *const nm[NAXES] = { "X", "Y", "Z", "A" };
+			bool ok = SET.ax[a].enabled && axis_home_port(a);
+			sk[1 + a] = (sk_t){ nm[a], ok ? "this axis" : "no switch", ok ? 0 : COL_DIM2 };
+		}
+		sk[5] = (sk_t){ "-", "" };
+		sk[6] = (sk_t){ "Return", "no homing" };
+	}
 	if (hmsg_pending()) sk[6] = (sk_t){ U.shift ? "Message" : "Page R", U.shift ? "acknowledge" : "Shift = msg OK", COL_AMBER };
 	if (U.pagesel) {                        /* the screen menu: F1-F6 = the screens */
 		for (int i = 0; i < 6; i++) sk[i] = (sk_t){ SCR_SHORT[PAGE_KEYS[i]], PAGE_KEYS[i] == U.screen ? "screen · here" : "screen" };

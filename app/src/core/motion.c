@@ -528,17 +528,18 @@ static int home_axis_at(int k)
 	return k < NAXES ? orders[o][k] : -1;
 }
 
-void motion_home(motion_t *m)
+void motion_home(motion_t *m, int axis)
 {
 	motion_stop(m, true);
-	m->home.on = true; m->home.k = -1; m->home.phase = 99;
+	m->home.on = true; m->home.k = -1; m->home.phase = 99; m->home.only = axis;
 }
 
 static void run_home(motion_t *m, double dt)
 {
 	if (m->home.phase == 99) {                         /* next axis */
 		int ax;
-		do { m->home.k++; ax = home_axis_at(m->home.k); } while (ax >= 0 && (!SET.ax[ax].enabled || !axis_home_port(ax)));
+		do { m->home.k++; ax = home_axis_at(m->home.k); }
+		while (ax >= 0 && (!SET.ax[ax].enabled || !axis_home_port(ax) || (m->home.only >= 0 && ax != m->home.only)));
 		if (ax < 0 || m->home.k >= NAXES) { m->home.on = false; m->ev = MEV_HOMED; return; }
 		m->home.axis = ax; m->home.phase = 0; m->home.travel = 0;
 	}

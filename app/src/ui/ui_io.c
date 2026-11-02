@@ -22,8 +22,8 @@ static const char *in_function(int n, bool high, bool *assigned, bool *active)
 	static char b[48];
 	*assigned = true;
 	for (int a = 0; a < NAXES; a++) {
-		if (SET.ax[a].limit_port == n) { snprintf(b, sizeof b, SET.home_separate ? "%c limit" : "%c limit / home", AXIS_CH[a]); *active = high == axis_level_high(a); return b; }
-		if (SET.home_separate && SET.ax[a].home_port == n) { snprintf(b, sizeof b, "%c home", AXIS_CH[a]); *active = high == axis_level_high(a); return b; }
+		if (SET.ax[a].limit_port == n) { snprintf(b, sizeof b, SET.home_combined ? "%c limit / home" : "%c limit", AXIS_CH[a]); *active = high == axis_level_high(a); return b; }
+		if (!SET.home_combined && SET.ax[a].home_port == n) { snprintf(b, sizeof b, "%c home", AXIS_CH[a]); *active = high == axis_level_high(a); return b; }
 	}
 	if (SET.estop_port == n) { *active = high == SET.estop_level_high; return "E-stop"; }
 	for (int a = 0; a < NAXES; a++)

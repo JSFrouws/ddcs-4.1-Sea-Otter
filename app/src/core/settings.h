@@ -15,7 +15,7 @@ typedef struct {
 	double home_search, home_locate, home_pos, home_backoff;
 	int home_dir;                                /* 0 = negative, 1 = positive */
 	bool dir_invert, pulse_high, enabled;
-	int limit_port, home_port, alarm_port;       /* INnn, 0 = none ("-"); home_port only with home_separate */
+	int limit_port, home_port, alarm_port;       /* INnn, 0 = none ("-"); home_port only without home_combined */
 	bool limit_level_high;                       /* this axis' switch level, only with limit_level_per_axis */
 	int output;                                  /* pulse/dir connector: 0 = none ("-"), 1..4 = X Y Z A (XP/XD ...) */
 } axis_set_t;
@@ -28,7 +28,7 @@ typedef struct {
 	bool bench_limits;         /* the bench box (axis.*.bench_min/max) is enforced, homed or not */
 	bool limit_level_high;     /* vendor "active electric level High" = active when open */
 	bool limit_level_per_axis; /* 2026-11-02: each axis has its own level (axis.*.level_high) instead of the one above */
-	bool home_separate;        /* 2026-11-02: homing reads axis.*.home_port, the limit axis.*.limit_port (else one shared switch) */
+	bool home_combined;        /* 2026-11-02: one switch per axis for home and limit (axis.*.limit_port); off = homing reads axis.*.home_port */
 	int estop_port; bool estop_level_high;
 	bool pendant_estop;
 	double spindle_max, spindle_default, spindle_delay;

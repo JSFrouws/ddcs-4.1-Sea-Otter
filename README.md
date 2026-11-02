@@ -21,13 +21,11 @@ It is one small C program (a static ARMv5 binary, ~1.4 MB) that provides:
 The same binary also runs on a PC against a built-in FPGA **simulator**, with the panel in a
 browser — so you can try the whole system, and develop for it, without the hardware.
 
-> [!WARNING]
-> **Not yet tested on a machine with drives connected.** Sea Otter has been run on a real
-> DDCS V4.1 controller — step-exact on its FPGA with real CAM programs up to 64 000 lines,
-> 0 lost steps, limit inputs and controlled stops exercised through the real input path —
-> but **never with stepper/servo drives, motors or real limit/home switches attached.**
-> Do the first tests with the motors unpowered or free to move, keep a hand on the E-stop,
-> and see the disclaimer at the end. Details: [docs/fpga-motion.md](docs/fpga-motion.md).
+> [!NOTE]
+> Sea Otter runs on a real DDCS V4.1 controller with its drives: step-exact on its FPGA
+> with real CAM programs up to 64 000 lines, 0 lost steps, limit inputs, homing and
+> controlled stops through the real input path. Do your own first tests with a hand on the
+> E-stop, and see the disclaimer at the end. Details: [docs/fpga-motion.md](docs/fpga-motion.md).
 
 ## Install it (USB stick — nothing else needed)
 

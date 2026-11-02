@@ -94,7 +94,10 @@ Every other key works as usual, F2 Pause and F3 Reset included.
 
 ### 3.1 Power up
 1. Switch on. If the E-stop is pressed, release it. The banner tells you what's needed.
-2. **Mode** → Jog. **F1 Home** if you want soft limits (not required). Reset stops homing.
+2. **Mode** → Jog. **F1 Home** opens the Home menu on the soft keys: **All** (in the
+   configured order), **X**, **Y**, **Z**, **A** for one axis, **Return** (since 2026-11-02).
+   Homing one axis leaves the homed state as it was; a failure un-homes. Homing is only
+   needed for soft limits. Reset stops homing.
 3. *Optional:* **Keep the homed state after a restart** (*Settings › Homing & limits*, off by
    default). The position is saved 2 s after every stop. After a restart or power cut,
    Sea Otter is still homed if the machine was at rest when the power went. It is not homed
@@ -309,10 +312,12 @@ LIMIT only goes away when the **last** switch is released.
 A program that was running has stopped with its progress remembered: resume as in 3.6.
 Which input each axis's switch is on: *Settings › Homing & limits › X/Y/Z limit switch
 input* (this machine: IN02 / IN03 / IN04; 0 = no switch on that axis). Two switches on
-that page (since 2026-11-02, both off by default) give more freedom: **Switch level per
-axis** replaces the one *active when open* setting by one per axis, and **Separate home
-inputs** gives every axis its own *home switch input* next to the limit input, so the home
-switch can sit anywhere along the travel (*position at switch* says where). The inputs
+that page (since 2026-11-02) give more freedom: **Show limit and home switch level per
+axis** (off by default) replaces the one *active when open* setting by one per axis, and
+**Combine home and limit switch** (on by default) switched off gives every axis its own
+*home switch input* next to the limit input, so the home switch can sit anywhere along the
+travel (*position at the home switch* says where). Rows a flag does not need are not
+shown. The inputs
 themselves are all the same electrically: opto-coupled, "closed" = pulled to COM−; the
 level setting only decides whether open or closed means *active* (NC or NO switch).
 
