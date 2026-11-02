@@ -503,8 +503,7 @@ double est_now(bool *left)
 	*left = run;
 	if (!p->loaded || ov <= 0) return -1;
 	if (!p->est_cum) return -2;
-	int parts = 0;
-	for (int i = 0; i < NWCS; i++) parts += WD.wcs[i].job;
+	int parts = ctl_job_parts();
 	int line = run && C.mo.line > 0 ? C.mo.line : 0;
 	double first = run ? current_line(p, line, ov) - est_span(p, line, line + 1, ov) : start_correction(p, ov);
 	/* running through the beginning that started elsewhere: its own times (frozen at Start) */
@@ -516,7 +515,7 @@ double est_now(bool *left)
 	if (parts < 2 || (run && C.job_idx < 0)) return margin(p, fmax(est_span(p, line, p->nlines, ov) + first, 0));
 	if (SET.job_order == 1) {                                /* one part at a time: the whole program per part */
 		int after = 0;
-		for (int i = run ? C.job_idx + 1 : 0; i < NWCS; i++) after += WD.wcs[i].job;
+		for (int i = run ? C.job_idx + 1 : 0; i < NWCS; i++) after += ctl_wcs_in_job(i);
 		double all = est_span(p, 0, p->nlines, ov);
 		return margin(p, fmax((run ? est_span(p, line, p->nlines, ov) : 0) + all * after + first, 0));
 	}
@@ -524,7 +523,7 @@ double est_now(bool *left)
 	double t = 0;
 	if (run) {
 		int after = 0;                                       /* parts still to come for this tool */
-		for (int i = C.job_idx + 1; i < NWCS; i++) after += WD.wcs[i].job;
+		for (int i = C.job_idx + 1; i < NWCS; i++) after += ctl_wcs_in_job(i);
 		t += est_span(p, CLAMP(line, seg_first(p, seg), seg_end(p, seg)), seg_end(p, seg), ov);
 		t += est_span(p, seg_first(p, seg), seg_end(p, seg), ov) * after;
 		seg++;

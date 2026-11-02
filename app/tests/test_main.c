@@ -13,6 +13,7 @@ void test_machine(void);
 void test_ui(void);
 void test_planner(void);
 void test_estimate(void);
+void test_wcs(void);
 
 static bus_t *bus;
 
@@ -66,6 +67,7 @@ int main(void)
 	test_estimate();
 	test_machine();
 	test_ui();
+	test_wcs();
 	printf("\n%d passed, %d failed\n", t_pass, t_fail);
 	return t_fail ? 1 : 0;
 }

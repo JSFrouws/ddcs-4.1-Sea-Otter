@@ -166,7 +166,9 @@ Everything in one snapshot. Poll it (e.g. every 0.5–1 s).
 
 ### GET `offsets`
 The work offsets: `{"active":"G54","wcs":{"G54":{"x":375.846,"y":220.2215,"z":-162.7505,"a":0,"job":true},"G55":{…},…}}`.
-The values are the machine position of each zero; `job` marks the parts of a multi-part job.
+The values are the machine position of each zero; `job` marks the parts of a multi-part job
+as it stands - a mark set on the page, or a WCS the loaded program writes itself (`inGcode`
+true: fixed while it is loaded; a `job:false` written to it is kept but has no effect).
 
 ### GET `tools`
 The tool table and the tool in the spindle: `{"loaded":3,"tools":[{"t":1,"dia":3.175,"len":52.41,"note":"1/8\" downcut"},…]}` (T1–T12).

@@ -117,7 +117,7 @@ static const char *program_outside(void)
 {
 	static char why[160];
 	int ws[NWCS], n = 0;
-	for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) ws[n++] = i;
+	for (int i = 0; i < NWCS; i++) if (ctl_wcs_in_job(i)) ws[n++] = i;
 	if (n < 2) { ws[0] = WD.active; n = 1; }
 	for (int k = 0; k < n; k++) {
 		const double *off = WD.wcs[ws[k]].off;
@@ -232,18 +232,28 @@ static void tc_clear(void)
 	free(C.tc_text); C.tc_text = NULL;
 }
 
+bool ctl_wcs_fixed(int i) { return C.prog.loaded && i >= 0 && i < NWCS && (C.prog.code_wcs >> i & 1); }
+bool ctl_wcs_in_job(int i) { return i >= 0 && i < NWCS && (WD.wcs[i].job || ctl_wcs_fixed(i)); }
+
+bool ctl_wcs_selectable(int i)
+{
+	int n = 0;
+	for (int k = 0; k < NWCS; k++) n += ctl_wcs_in_job(k);
+	return !n || ctl_wcs_in_job(i);
+}
+
 int ctl_job_parts(void)
 {
 	int n = 0;
-	for (int i = 0; i < NWCS; i++) n += WD.wcs[i].job;
-	return C.prog.multi_wcs ? 0 : n;
+	for (int i = 0; i < NWCS; i++) n += ctl_wcs_in_job(i);
+	return C.prog.multi_wcs ? 0 : n;               /* two or more in the code: it runs once, as written */
 }
 
 int ctl_resume_part(void)
 {
 	if (ctl_job_parts() < 2) return -1;
-	if (WD.wcs[WD.active].job) return WD.active;
-	return C.job_idx >= 0 && C.job_idx < NWCS && WD.wcs[C.job_idx].job ? C.job_idx : -1;
+	if (ctl_wcs_in_job(WD.active)) return WD.active;
+	return ctl_wcs_in_job(C.job_idx) ? C.job_idx : -1;
 }
 
 int ctl_prog_wcs(void) { return C.gc.force_wcs >= 0 ? C.gc.force_wcs : C.gc.wcs; }
@@ -271,12 +281,12 @@ static void tc_resume(void)
 	 * multi-part job get the same shift (unless they were touched off themselves) */
 	int src = -1;
 	for (int k = 0; k < NWCS && src < 0; k++)
-		if ((k == w || (C.job_idx >= 0 && WD.wcs[k].job)) && fabs(WD.wcs[k].off[AX_Z] - C.tc_off[k][AX_Z]) > 1e-9) src = k;
+		if ((k == w || (C.job_idx >= 0 && ctl_wcs_in_job(k))) && fabs(WD.wcs[k].off[AX_Z] - C.tc_off[k][AX_Z]) > 1e-9) src = k;
 	int shifted = 0;
 	if (src >= 0 && C.job_idx >= 0) {
 		double dz = WD.wcs[src].off[AX_Z] - C.tc_off[src][AX_Z];
 		for (int k = 0; k < NWCS; k++)
-			if (WD.wcs[k].job && fabs(WD.wcs[k].off[AX_Z] - C.tc_off[k][AX_Z]) < 1e-9) { WD.wcs[k].off[AX_Z] += dz; shifted++; }
+			if (ctl_wcs_in_job(k) && fabs(WD.wcs[k].off[AX_Z] - C.tc_off[k][AX_Z]) < 1e-9) { WD.wcs[k].off[AX_Z] += dz; shifted++; }
 		if (shifted) ctl_toast(false, "New tool length: Z %+.3f mm applied to the %d other part%s of the job too", dz, shifted, shifted > 1 ? "s" : "");
 	}
 	workdata_save(C.wd_path);
@@ -306,14 +316,14 @@ static void start_program(src_t src)
 	C.gc.apply_g10 = C.armed != ARM_SIM;
 	C.run_mode = C.armed;
 	int jobs = ctl_job_parts(), keep = ctl_resume_part();
-	if (C.prog.multi_wcs && !ctl_job_parts() && WD.wcs[0].job + WD.wcs[1].job + WD.wcs[2].job + WD.wcs[3].job + WD.wcs[4].job + WD.wcs[5].job > 1)
-		ctl_toast(false, "This program switches G54-G59 itself: the JOB marks are ignored");
+	if (C.prog.multi_wcs && WD.wcs[0].job + WD.wcs[1].job + WD.wcs[2].job + WD.wcs[3].job + WD.wcs[4].job + WD.wcs[5].job > 0)
+		ctl_toast(false, "This program switches G54-G59 itself: it runs once, the JOB marks are ignored");
 	C.job_idx = -1; C.job_seg = 0;
 	tc_clear();
 	if (jobs > 1) {                                   /* multi-part job: first JOB fixture */
-		for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) { C.job_idx = i; break; }
+		for (int i = 0; i < NWCS; i++) if (ctl_wcs_in_job(i)) { C.job_idx = i; break; }
 		/* resuming: on the part that was being cut, in the tool segment of the resume line */
-		if (C.resume_line > 0 && keep >= 0 && keep < NWCS && WD.wcs[keep].job) C.job_idx = keep;
+		if (C.resume_line > 0 && ctl_wcs_in_job(keep)) C.job_idx = keep;
 		if (C.resume_line > 0 && SET.job_order == 0) while (C.job_seg < C.prog.ntc && C.prog.tc_line[C.job_seg] <= C.resume_line) C.job_seg++;
 		C.gc.force_wcs = C.job_idx;
 	}

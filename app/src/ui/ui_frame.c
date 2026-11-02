@@ -54,8 +54,7 @@ static void topbar(fb_t *fb)
 	uint16_t sc;
 	const char *sw = state_word(&sc);
 	int sww = gfx_text_w(&font_14, sw) + 22;
-	int jobs = 0;
-	for (int i = 0; i < NWCS; i++) jobs += WD.wcs[i].job;
+	int jobs = ctl_job_parts();
 	char r[96];
 	snprintf(r, sizeof r, "G%d%s   Homed %s   LAN %s", 54 + WD.active, jobs > 1 ? "  ·  job" : "",
 		C.homed ? "XYZA" : "—", C.agent.on ? "agent" : "panel");

@@ -12,7 +12,7 @@ void work_render(fb_t *fb)
 	gfx_panel(fb, x, top, w, th, ui_pane() == 0);
 	gfx_text(fb, &font_12, x + 10, top + 6, COL_DIM, "WORK OFFSETS = MACHINE POSITION OF EACH PART'S ZERO  ·  Y± ROW  ·  X± COLUMN  ·  ENTER EDITS");
 	const char *hd[] = { "WCS", "X", "Y", "Z", "A" };
-	int cx[] = { x + 14, x + 230, x + 380, x + 530, x + 660 };
+	int cx[] = { x + 14, x + 250, x + 400, x + 550, x + 680 };
 	for (int i = 0; i < 5; i++) {
 		if (i) gfx_text_r(fb, &font_12, cx[i], top + 24, COL_DIM2, hd[i]); else gfx_text(fb, &font_12, cx[i], top + 24, COL_DIM2, hd[i]);
 	}
@@ -23,14 +23,15 @@ void work_render(fb_t *fb)
 		char b[32];
 		snprintf(b, sizeof b, "G%d", 54 + r);
 		gfx_text(fb, &font_16, cx[0], y, COL_TXT, b);
+		if (ctl_wcs_fixed(r)) gfx_text(fb, &font_12, cx[0] + 42, y + 3, COL_CYAN, "In G-code");   /* the program writes it: fixed in the job (user 2026-11-02) */
 		for (int a = 0; a < NAXES; a++) {
 			fmt_pos(b, sizeof b, WD.wcs[r].off[a]);
 			bool cell = f && U.wcs_col == a;
 			if (cell) gfx_rect(fb, cx[a + 1] - 130, y - 3, 134, 26, COL_AMBER);
 			gfx_text_r(fb, &font_16, cx[a + 1], y, cell ? COL_AMBER : COL_TXT, b);
 		}
-		if (r == WD.active) gfx_text(fb, &font_12, x + 700, y + 3, COL_GREEN, "ACTIVE");
-		if (WD.wcs[r].job) gfx_text(fb, &font_12, x + 770, y + 3, COL_AMBER, "JOB");
+		if (r == WD.active) gfx_text(fb, &font_12, x + 720, y + 3, COL_GREEN, "ACTIVE");
+		if (ctl_wcs_in_job(r)) gfx_text(fb, &font_12, x + 790, y + 3, COL_AMBER, "JOB");
 		if (r < NWCS - 1) gfx_fill(fb, x + 8, y + 25, w - 16, 1, COL_EDGE);
 	}
 	int py = top + th + 8, ph = bot - py;
@@ -42,9 +43,11 @@ void work_render(fb_t *fb)
 		gfx_text(fb, &font_14, x + 12, y, COL_TXT, PROBES[i]);
 	}
 	gfx_panel(fb, x + 368, py, w - 368, ph, false);
-	const char *t[] = { "Several workpieces: give each its own WCS (G54, G55 …),", "touch each off in Jog, and mark them JOB (F4).",
-		"Start then cuts every JOB part with one tool, then", "changes the tool once and does all parts again.",
-		"Safe Z between parts.  Shift + F4 clears the job.",
+	const char *t[] = { "Several workpieces: give each its own WCS, touch each off in",
+		"Jog, mark them JOB (F4). Start cuts every part with one tool,",
+		"changes it once, does all parts again. Safe Z between parts.",
+		"In G-code = the program writes that G54-G59 itself: it is in",
+		"the job and stays there. Shift + F4 clears the other marks.",
 		"Probe input: not configured on this machine." };
 	for (int i = 0; i < 6; i++) gfx_text(fb, &font_14, x + 380, py + 10 + i * 21, i == 5 ? COL_AMBER : COL_DIM, t[i]);
 }
@@ -78,7 +81,10 @@ void work_key(pkey_t k, bool sh)
 	if (sh && k == K_F4) {
 		if (ctl_busy() || C.m == M_TOOL) { ctl_toast(true, "Change the job when idle"); return; }
 		for (int i = 0; i < NWCS; i++) WD.wcs[i].job = false;
-		workdata_save(C.wd_path); ctl_toast(false, "Job cleared - Start runs on the active WCS only"); return;
+		workdata_save(C.wd_path);
+		if (ctl_job_parts() || C.prog.multi_wcs) ctl_toast(false, "Job marks cleared - the WCS the program writes itself stays in the job");
+		else ctl_toast(false, "Job cleared - Start runs on the active WCS only");
+		return;
 	}
 	if (k != K_F1 && k != K_SEL && k != K_F2 && k != K_F3 && k != K_ENTER && k != K_MOD && k != K_F4 && k != K_F5) return;
 	const char *w = can(C_EDIT_TABLE, NULL, SRC_PANEL);
@@ -86,6 +92,7 @@ void work_key(pkey_t k, bool sh)
 	wcs_t *r = &WD.wcs[U.wcs_row];
 	if (k == K_F1 || k == K_SEL) { WD.active = U.wcs_row; ctl_toast(false, "G%d active", 54 + U.wcs_row); }
 	else if (k == K_F2) { r->off[U.wcs_col] = C.mo.pos[U.wcs_col]; ctl_toast(false, "G%d %c = current position (work %c is now 0)", 54 + U.wcs_row, AXIS_CH[U.wcs_col], AXIS_CH[U.wcs_col]); }
+	else if (k == K_F4 && ctl_wcs_fixed(U.wcs_row)) ctl_toast(true, "G%d is written by the program's G-code - it stays in the job", 54 + U.wcs_row);
 	else if (k == K_F4 && !r->job && C.prog.multi_wcs) ctl_toast(true, "The loaded program switches G54-G59 itself - a multi-part job would mix them");
 	else if (k == K_F4) { r->job = !r->job; ctl_toast(false, "G%d %s the multi-part job", 54 + U.wcs_row, r->job ? "added to" : "removed from"); }
 	else if (k == K_F5) { memset(r->off, 0, sizeof r->off); ctl_toast(false, "G%d cleared", 54 + U.wcs_row); }

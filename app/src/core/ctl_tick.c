@@ -254,7 +254,7 @@ static void approach(const double to[NAXES], int wcs_from, int wcs_to)
 /* multi-part job: the program's tool segments (program_t.tc_line) */
 static int seg_first_line(int s) { return s > 0 ? C.prog.tc_line[s - 1] : 0; }
 static int seg_end_line(int s) { return s < C.prog.ntc ? C.prog.tc_line[s] : INT_MAX; }
-static int job_after(int i) { for (int k = i + 1; k < NWCS; k++) if (WD.wcs[k].job) return k; return -1; }
+static int job_after(int i) { for (int k = i + 1; k < NWCS; k++) if (ctl_wcs_in_job(k)) return k; return -1; }
 
 /* part n, tool segment s: safe Z, rebuild the program state at the segment's first line,
  * go there. The first part of a new segment starts AT its M6 line, so the tool change runs

@@ -52,7 +52,7 @@ static int job_parts(int idx[NWCS])
 {
 	int n = 0;
 	if (C.prog.multi_wcs) return 0;                    /* its own G54-G59: drawn as it cuts, one copy */
-	for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) idx[n++] = i;
+	for (int i = 0; i < NWCS; i++) if (ctl_wcs_in_job(i)) idx[n++] = i;
 	return n;
 }
 
@@ -75,16 +75,16 @@ static int job_focus(const int idx[NWCS], int n)
 	return n ? idx[0] : -1;
 }
 
-/* where to draw the preview (work coordinates of the WCS active now). One copy: shifted by
- * however the active offset changed since the load (switches inside the program stay as
- * they are). Part q of a job: every G54-G59 maps to q, so the program's own start WCS moves to q. */
-static void part_off(int q, double d[3])
+/* Where a vertex is drawn: work coordinates of the WCS active now. Every vertex is stored in
+ * the work coordinates of the WCS its move went through (program.h), so it lands where the
+ * machine will actually go with the offsets as they are NOW - a touch-off or a switch of the
+ * active WCS after the load moves the picture, never the stored path (user 2026-11-02: the
+ * old re-shift from the load-time offset drew a square far from its zero). Part q of a job:
+ * every G54-G59 maps to q (force_wcs), so the vertex goes through q's offset instead. */
+void ui_view_place(const pv_t *v, int part, double o[3])
 {
-	const program_t *pg = &C.prog;
-	const double *now = WD.wcs[WD.active].off;
-	int w0 = pg->pv_wcs0 >= 0 && pg->pv_wcs0 < NWCS ? pg->pv_wcs0 : WD.active;
-	for (int a = 0; a < 3; a++)
-		d[a] = pg->loaded ? pg->pv_off[a] - now[a] + (q >= 0 ? WD.wcs[q].off[a] - WD.wcs[w0].off[a] : 0) : 0;
+	const double *w = WD.wcs[part >= 0 && part < NWCS ? part : v->wcs < NWCS ? v->wcs : WD.active].off, *now = WD.wcs[WD.active].off;
+	o[0] = v->x + w[0] - now[0]; o[1] = v->y + w[1] - now[1]; o[2] = v->z + w[2] - now[2];
 }
 
 /* The toolpath is drawn once into a cache (the panel background + stock + triad + path) and
@@ -123,8 +123,9 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 	bool running = C.m == M_RUN || C.m == M_HOLD;
 	bool done_mode = running || C.work_done >= 0;
 	int cur = done_mode ? ctl_cur_line() : -1;
-	double jobs = C.prog.multi_wcs * 7e5 + WD.active * 1e6 + SET.job_order * 3e5 + WD.wcs[WD.active].off[0] * 13 + WD.wcs[WD.active].off[1] * 17 + WD.wcs[WD.active].off[2] * 19;                      /* the other JOB parts' zeros are drawn too */
-	for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) jobs += (i + 1) * 7 + WD.wcs[i].off[0] * 3 + WD.wcs[i].off[1] * 5 + WD.wcs[i].off[2] * 11;
+	/* every offset: each vertex is placed by its own WCS's, the JOB parts' zeros are drawn too */
+	double jobs = C.prog.code_wcs * 7e5 + WD.active * 1e6 + SET.job_order * 3e5;
+	for (int i = 0; i < NWCS; i++) jobs += (ctl_wcs_in_job(i) ? (i + 1) * 7 : 0) + (i + 1) * (WD.wcs[i].off[0] * 3 + WD.wcs[i].off[1] * 5 + WD.wcs[i].off[2] * 11);
 	double key[19] = { x0, y0, x1, y1, mini, U.view.iso, U.view.yaw, U.view.pitch, U.view.zoom, U.view.panx, U.view.pany,
 		(double)(uintptr_t)pg->text, pg->npv, pg->loaded, U.screen, U.pane[U.screen], jobs, running, running ? C.run_from : -1 };   /* panel focus can tint the background */
 	if (x1 <= x0 || y1 <= y0) return;
@@ -154,12 +155,13 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 			proj_t p;
 			view_proj(&p, x, y, w, h);
 			int ax, ay, bx, by;
-			double d[3]; part_off(multi ? focus : -1, d);
+			double oa[3], ob[3];
 			for (int i = vc.vi; i < pg->npv && pg->pv[i].line <= cur; i++, vc.vi++) {
 				if (!i) continue;
 				pv_t *a = &pg->pv[i - 1], *v = &pg->pv[i];
 				if (v->rapid) continue;
-				P(&p, a->x + d[0], a->y + d[1], a->z + d[2], &ax, &ay); P(&p, v->x + d[0], v->y + d[1], v->z + d[2], &bx, &by);
+				ui_view_place(a, multi ? focus : -1, oa); ui_view_place(v, multi ? focus : -1, ob);
+				P(&p, oa[0], oa[1], oa[2], &ax, &ay); P(&p, ob[0], ob[1], ob[2], &bx, &by);
 				gfx_line(fb, ax, ay, bx, by, COL_TEAL, !mini ? 2 : 1);
 				if ((i & 511) == 511 && ui_yield) ui_yield();
 			}
@@ -172,11 +174,12 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 			proj_t p;
 			view_proj(&p, x, y, w, h);
 			int ax, ay, bx, by;
-			double d[3]; part_off(-1, d);
+			double oa[3], ob[3];
 			for (int i = vc.pvi; i < pg->npv && pg->pv[i].line < pick; i++, vc.pvi++) {
 				if (!i) continue;
 				pv_t *a = &pg->pv[i - 1], *v = &pg->pv[i];
-				P(&p, a->x + d[0], a->y + d[1], a->z + d[2], &ax, &ay); P(&p, v->x + d[0], v->y + d[1], v->z + d[2], &bx, &by);
+				ui_view_place(a, -1, oa); ui_view_place(v, -1, ob);
+				P(&p, oa[0], oa[1], oa[2], &ax, &ay); P(&p, ob[0], ob[1], ob[2], &bx, &by);
 				if (v->rapid) gfx_dash(fb, ax, ay, bx, by, COL_PICK); else gfx_line(fb, ax, ay, bx, by, COL_PICK, !mini ? 2 : 1);
 				if ((i & 511) == 511 && ui_yield) ui_yield();
 			}
@@ -199,8 +202,8 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 			while (lo < hi) { int m = (lo + hi + 1) / 2; if (pg->pv[m].line <= pick) lo = m; else hi = m - 1; }
 			pv_t *t = &pg->pv[lo];
 			int tx, ty;
-			double d[3]; part_off(multi ? focus : -1, d);
-			P(&p, t->x + d[0], t->y + d[1], t->z + d[2], &tx, &ty);
+			double o[3]; ui_view_place(t, multi ? focus : -1, o);
+			P(&p, o[0], o[1], o[2], &tx, &ty);
 			gfx_circle(fb, tx, ty, 7, COL_AMBER); gfx_circle(fb, tx, ty, 6, COL_AMBER);
 			gfx_disc(fb, tx, ty, 3, COL_AMBER);
 			char lb[32];
@@ -217,8 +220,6 @@ void ui_view_render(fb_t *fb, int x, int y, int w, int h, bool mini)
 }
 
 /* the program's box (cutting moves), or a stand-in when nothing is loaded */
-static void part_off(int q, double d[3]);
-
 static void prog_box_raw(double lo[3], double hi[3])
 {
 	program_t *pg = &C.prog;
@@ -226,13 +227,21 @@ static void prog_box_raw(double lo[3], double hi[3])
 	if (!pg->loaded || (hi[0] - lo[0] < 1e-3 && hi[1] - lo[1] < 1e-3)) { lo[0] = lo[1] = 0; hi[0] = 100; hi[1] = 70; lo[2] = -5; hi[2] = 0; }
 }
 
-/* ... where it is drawn now (the single copy, see part_off) */
+/* ... where it is drawn now: the box is in the work coordinates of the program's own WCS
+ * (pv_wcs0); a program that switches G54-G59 itself has moves in several frames, so the box
+ * is widened to cover the raw box placed at each WCS it writes */
 static void prog_box(double lo[3], double hi[3])
 {
-	double d[3];
-	prog_box_raw(lo, hi);
-	part_off(-1, d);
-	for (int a = 0; a < 3; a++) { lo[a] += d[a]; hi[a] += d[a]; }
+	double rlo[3], rhi[3];
+	prog_box_raw(rlo, rhi);
+	const program_t *pg = &C.prog;
+	int w0 = pg->loaded && pg->pv_wcs0 >= 0 && pg->pv_wcs0 < NWCS ? pg->pv_wcs0 : WD.active;
+	const double *now = WD.wcs[WD.active].off;
+	for (int a = 0; a < 3; a++) { lo[a] = rlo[a] + WD.wcs[w0].off[a] - now[a]; hi[a] = rhi[a] + WD.wcs[w0].off[a] - now[a]; }
+	if (pg->loaded && pg->multi_wcs) for (int k = 0; k < NWCS; k++) {
+		if (!(pg->code_wcs >> k & 1)) continue;
+		for (int a = 0; a < 3; a++) { lo[a] = fmin(lo[a], rlo[a] + WD.wcs[k].off[a] - now[a]); hi[a] = fmax(hi[a], rhi[a] + WD.wcs[k].off[a] - now[a]); }
+	}
 }
 
 /* the grid's height (work Z): the machine's Z floor (the Z soft limit -), when it is a
@@ -250,7 +259,7 @@ static int job_zeros(int idx[NWCS], double d[NWCS][3])
 	int n = 0;
 	const double *o = WD.wcs[WD.active].off;
 	for (int i = 0; i < NWCS; i++) {
-		if (i == WD.active || !WD.wcs[i].job) continue;
+		if (i == WD.active || !ctl_wcs_in_job(i)) continue;
 		for (int a = 0; a < 3; a++) d[n][a] = WD.wcs[i].off[a] - o[a];
 		idx[n++] = i;
 	}
@@ -275,10 +284,9 @@ void view_proj(proj_t *p, int x, int y, int w, int h)
 	prog_box_raw(plo, phi);
 	int nj = job_zeros(idx, d);
 	for (int k = 0; k < nj; k++) {                       /* each part's zero and its copy of the program */
-		double q[3]; part_off(idx[k], q);
 		for (int a = 0; a < 3; a++) {
 			lo[a] = fmin(lo[a], d[k][a]); hi[a] = fmax(hi[a], d[k][a]);
-			if (C.prog.loaded) { lo[a] = fmin(lo[a], q[a] + plo[a]); hi[a] = fmax(hi[a], q[a] + phi[a]); }
+			if (C.prog.loaded) { lo[a] = fmin(lo[a], d[k][a] + plo[a]); hi[a] = fmax(hi[a], d[k][a] + phi[a]); }
 		}
 	}
 	if (p->iso) lo[2] = fmin(lo[2], floor_z(lo));       /* the grid lies on the Z floor */
@@ -386,7 +394,7 @@ static void draw_view(fb_t *fb, int x, int y, int w, int h, bool mini)
 	bool multi = njp >= 2 && !mini;
 	int focus = multi ? job_focus(jidx, njp) : -1;
 	for (int k = 0; k < (multi ? njp : 1); k++) {        /* each JOB part: its own copy (N x the drawing) */
-	double d[3]; part_off(multi ? jidx[k] : -1, d);
+	int part = multi ? jidx[k] : -1;
 	/* in a job: done / picked below this part's own bound (see part_bound) */
 	int bdone = multi ? (running || C.m == M_TOOL ? part_bound(jidx[k], focus, cur) : C.work_done >= 0 ? part_bound(jidx[k], focus, C.work_done) : -1) : 0;
 	/* a later part active, no line picked: it is about to start, so the earlier parts have done
@@ -399,7 +407,8 @@ static void draw_view(fb_t *fb, int x, int y, int w, int h, bool mini)
 		if ((i & 511) == 511 && ui_yield) ui_yield();
 		pv_t *v = &pg->pv[i];
 		int sx, sy;
-		P(&p, v->x + d[0], v->y + d[1], v->z + d[2], &sx, &sy);
+		double o[3]; ui_view_place(v, part, o);
+		P(&p, o[0], o[1], o[2], &sx, &sy);
 		if (i && (abs(sx - lx) + abs(sy - ly) >= 1 || i == pg->npv - 1)) {
 			bool done = multi ? v->line < bdone : (running || C.work_done >= 0) && v->line <= cur && v->line >= from;
 			bool pk = v->line < bpick, skip = !multi && v->line < from;

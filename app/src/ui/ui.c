@@ -120,7 +120,8 @@ void ui_key(pkey_t k)
 	else if (ps && k >= K_F1 && k <= K_F6) ui_goto(PAGE_KEYS[k - K_F1]);
 	else if (ws && k >= K_F1 && k <= K_F6) {           /* the WCS menu: F1-F6 = G54-G59 */
 		if (ctl_busy() || C.m == M_TOOL) ctl_toast(true, "Change the WCS when idle");
-		else { WD.active = k - K_F1; workdata_save(C.wd_path); ctl_toast(false, "Active work offset: G%d%s", 54 + WD.active, WD.wcs[WD.active].job ? " (in the job)" : ""); }
+		else if (!ctl_wcs_selectable(k - K_F1)) ctl_toast(true, "G%d is not in the job and not in the program's G-code", 54 + k - K_F1);   /* user 2026-11-02 */
+		else { WD.active = k - K_F1; workdata_save(C.wd_path); ctl_toast(false, "Active work offset: G%d%s", 54 + WD.active, ctl_wcs_fixed(WD.active) ? " (in the G-code)" : ctl_wcs_in_job(WD.active) ? " (in the job)" : ""); }
 	}
 	else if (ws && (k == K_F7 || k == K_CANCEL)) return;
 	else if (ps && (k == K_F7 || k == K_CANCEL)) return;
@@ -177,14 +178,13 @@ void ui_render(fb_t *fb)
 	if (ui_yield) ui_yield();
 	if (U.pagesel && now_ms() - U.pagesel_t > 8000) U.pagesel = false;
 	if (U.wcssel && (now_ms() - U.wcssel_t > 8000 || U.screen != SCR_RUN)) U.wcssel = false;
-	if (U.wcssel) {                         /* the WCS menu: G54-G59, used in the job or not */
-		static char sub[NWCS][24];
+	if (U.wcssel) {                         /* the WCS menu: G54-G59 - only those in the job or the G-code open (user 2026-11-02) */
 		for (int i = 0; i < NWCS; i++) {
 			static const char *const nm[NWCS] = { "G54", "G55", "G56", "G57", "G58", "G59" };
-			bool job = WD.wcs[i].job && !C.prog.multi_wcs;   /* user 2026-10-25: only "in job", in orange */
 			static const char *const act[NWCS] = { "> G54 <", "> G55 <", "> G56 <", "> G57 <", "> G58 <", "> G59 <" };
-			snprintf(sub[i], sizeof sub[i], "%s", job ? "in job" : "");
-			sk[i] = (sk_t){ i == WD.active ? act[i] : nm[i], sub[i], job ? COL_AMBER : 0 };   /* user 2026-10-26: > active < */
+			bool job = ctl_wcs_in_job(i), sel = ctl_wcs_selectable(i);
+			const char *sub = ctl_wcs_fixed(i) ? "in G-code" : job ? "in job" : sel ? "" : "not in job";
+			sk[i] = (sk_t){ i == WD.active ? act[i] : sel ? nm[i] : "", sub, job ? COL_AMBER : 0 };   /* user 2026-10-26: > active < */
 		}
 		sk[6] = (sk_t){ "Close", "" };
 	}

@@ -184,7 +184,10 @@ shows `Homed —`. From Run: **⇧ENTER (HOME)** does the same.
 ### 4. Several workpieces
 Give each part its own WCS: in Jog **F5** → G55, touch off as above; repeat. On
 **Work** mark the fixtures **F4 In job**. The top bar shows `job 2 parts`; Start
-runs the program on each JOB fixture in turn (safe Z between parts). The offsets
+runs the program on each JOB fixture in turn (safe Z between parts). A WCS the
+program writes itself (the CAM header's G54) is in the job by itself - *In G-code*
+on Work, the mark can't be cleared - and maps to each part; a program writing two
+or more runs once, as written (2026-11-02). The offsets
 table on Work is also where any value can be typed in (Enter → digit editor) or
 taken from the current position (**F2 From pos**).
 

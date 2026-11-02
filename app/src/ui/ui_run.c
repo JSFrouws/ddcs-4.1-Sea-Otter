@@ -114,13 +114,13 @@ void run_render(fb_t *fb)
 	}
 	gfx_text(fb, &font_14, x + 12, y + 40, COL_DIM, "Tool"); gfx_text_r(fb, &font_14, x + w - 12, y + 40, COL_TXT, b);
 	{                                                      /* the active work offset, bottom of the panel */
-		int wy = top + h - 58, nj = 0;
-		for (int i = 0; i < NWCS; i++) nj += WD.wcs[i].job;
+		int wy = top + h - 58, nj = ctl_job_parts();
 		gfx_fill(fb, x + 8, wy - 6, w - 16, 1, COL_EDGE);
 		gfx_text(fb, &font_12, x + 12, wy, COL_DIM, "WORK OFFSET  ·  A+ / SHIFT+F2 PICKS");
 		snprintf(b, sizeof b, "G%d", 54 + WD.active);
 		gfx_text(fb, &font_28, x + 12, wy + 16, COL_CYAN, b);
-		if (nj >= 2) snprintf(b, sizeof b, WD.wcs[WD.active].job ? "in the job (%d parts)" : "not in the job (%d parts)", nj);
+		if (nj >= 2) snprintf(b, sizeof b, ctl_wcs_in_job(WD.active) ? "in the job (%d parts)" : "not in the job (%d parts)", nj);
+		else if (C.prog.multi_wcs) snprintf(b, sizeof b, "the program picks G54-G59 itself");
 		else snprintf(b, sizeof b, "no multi-part job");
 		gfx_text_r(fb, &font_14, x + w - 12, wy + 26, COL_DIM, b);
 	}
@@ -191,9 +191,7 @@ void run_render(fb_t *fb)
 		gfx_text_fit(fb, &font_mono, vx + 62, ly, vw - 72, tc, t);
 	}
 	gfx_fill(fb, vx + 1, py + ph - 30, vw - 2, 1, COL_EDGE);
-	int njob = 0;
-	for (int i = 0; i < NWCS; i++) njob += WD.wcs[i].job;
-	int rp = ctl_resume_part(); (void)njob;
+	int rp = ctl_resume_part();
 	if (C.resume_line >= 0 && rp >= 0) snprintf(b, sizeof b, "Resume @ line %d on G%d  ·  Modify / A+ = other part  ·  Start restores the state, approach at safe Z", C.resume_line + 1, 54 + rp);
 	else if (C.resume_line >= 0) snprintf(b, sizeof b, "Resume @ line %d  ·  Start restores the modal state and approaches at safe Z", C.resume_line + 1);
 	else if (C.work_done >= 0 && C.m != M_RUN) snprintf(b, sizeof b, "Work done up to line %d  ·  Tab → Program, Select on a line resumes there", C.work_done + 1);
@@ -356,7 +354,7 @@ void run_key(pkey_t k, bool sh)
 	if (k == K_MOD) {                                      /* multi-part job: which part to resume on */
 		int j[NWCS], nj = 0, at = -1;
 		int cur = ctl_resume_part();
-		for (int i = 0; i < NWCS; i++) if (WD.wcs[i].job) { if (i == cur) at = nj; j[nj++] = i; }
+		for (int i = 0; i < NWCS; i++) if (ctl_wcs_in_job(i)) { if (i == cur) at = nj; j[nj++] = i; }
 		if (ctl_job_parts() < 2) { ctl_toast(false, C.prog.multi_wcs ? "This program switches G54-G59 itself: no multi-part job" : "One part only - mark more WCS as JOB on the Work page"); return; }
 		if (ctl_busy() || C.m == M_TOOL) { ctl_toast(true, "Stop the program before choosing a part"); return; }
 		C.job_idx = j[(at + 1) % nj]; WD.active = C.job_idx; workdata_save(C.wd_path);   /* the part = the active WCS */
