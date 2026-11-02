@@ -161,6 +161,9 @@ Every other key works as usual, F2 Pause and F3 Reset included.
   simpler model is shown (a little long); for very long programs the exact one follows within
   minutes. *…* means it is still being worked out. The operator's tool changes are not in it;
   *+ N tool changes* is shown below it instead.
+- **In the view pane** (Tab): 2D pans with **X± / Y±** (40 px a press), ISO turns with X±
+  and tilts with Y±; **Cancel / Enter** zoom, **Shift + F4** fits / resets (2026-11-02: the
+  2D pan did nothing before).
 - **F4 View** cycles **2D → ISO → G-code view**. The G-code view draws no wireframe at all:
   the program listing fills the whole right side (about 18 lines), and the screen redraws
   less often, leaving more time for motion. It's the best choice for heavy programs. After an

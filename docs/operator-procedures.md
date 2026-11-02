@@ -277,7 +277,8 @@ while it runs (a follow-up, not done yet).
 
 **3D**: no stock-removal simulation (too expensive). The toolpath view offers a 2D
 plan and an **isometric wireframe** of the toolpath and the stock box, turned with
-X±, tilted with Y±, zoomed with Z± (Cancel/Enter) when the view pane has focus,
+X±, tilted with Y±, zoomed with Z± (Cancel/Enter) when the view pane has focus
+(the 2D plan pans with X± / Y± instead, 40 px a press, Shift + F4 resets),
 redrawn only on a key press or when the run advances.
 
 Turn and tilt are **clamped to the three principal views and never go past them**:

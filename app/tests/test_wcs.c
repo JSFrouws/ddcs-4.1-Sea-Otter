@@ -100,7 +100,17 @@ void test_wcs(void)
 	WD.active = 5;
 	ui_view_place(v, -1, o);
 	CHECK_NEAR(o[0], 5, 1e-3); CHECK_NEAR(o[1], 5, 1e-3);
-	U.view.iso = false; U.screen = SCR_RUN;
+	/* the 2D pan: X± / Y± in the view pane move the picture on screen (it used to cancel
+	 * out in the centring); Shift + F4 resets it */
+	U.view.iso = false; U.screen = SCR_RUN; U.pane[SCR_RUN] = 0; U.view.panx = U.view.pany = 0;
+	int ox0, oy0, ox1, oy1;
+	ui_view_origin(8, 60, 600, 400, &ox0, &oy0);
+	ui_key(K_XP); ui_key(K_YP);
+	ui_view_origin(8, 60, 600, 400, &ox1, &oy1);
+	CHECK(ox1 == ox0 + 40 && oy1 == oy0 - 40);
+	ui_key(K_SHIFT); ui_key(K_F4);                     /* Shift + F4 = fit / reset (Select is the WCS menu on Run) */
+	ui_view_origin(8, 60, 600, 400, &ox1, &oy1);
+	CHECK(ox1 == ox0 && oy1 == oy0 && U.view.panx == 0);
 	program_free(&C.prog);
 	fx_reset();
 }

@@ -19,10 +19,11 @@ bool ui_view_key(pkey_t k)
 		else goto common;
 		return true;
 	}
-	if (k == K_XM) U.view.panx -= 10;
-	else if (k == K_XP) U.view.panx += 10;
-	else if (k == K_YP) U.view.pany += 10;
-	else if (k == K_YM) U.view.pany -= 10;
+	/* 2D: pan in pixels, 40 per press (the picture follows the key: X+ moves it right, Y+ up) */
+	if (k == K_XM) U.view.panx -= 40;
+	else if (k == K_XP) U.view.panx += 40;
+	else if (k == K_YP) U.view.pany += 40;
+	else if (k == K_YM) U.view.pany -= 40;
 	else goto common;
 	return true;
 common:
@@ -292,7 +293,7 @@ void view_proj(proj_t *p, int x, int y, int w, int h)
 	if (p->iso) lo[2] = fmin(lo[2], floor_z(lo));       /* the grid lies on the Z floor */
 	/* Z is stretched (up to ×3) so a flat part reads, but never beyond the X-Y size */
 	p->zf = CLAMP(fmax(hi[0] - lo[0], hi[1] - lo[1]) * 0.6 / fmax(hi[2] - lo[2], 1e-3), 1, 3);
-	p->cx0 = (lo[0] + hi[0]) / 2 + (p->iso ? 0 : U.view.panx); p->cy0 = (lo[1] + hi[1]) / 2 + (p->iso ? 0 : U.view.pany); p->cz0 = (lo[2] + hi[2]) / 2;
+	p->cx0 = (lo[0] + hi[0]) / 2; p->cy0 = (lo[1] + hi[1]) / 2; p->cz0 = (lo[2] + hi[2]) / 2;
 	/* the box's corners at scale 1: their screen extent decides the scale and the centre */
 	double ex0 = 1e30, ex1 = -1e30, ey0 = 1e30, ey1 = -1e30;
 	for (int c = 0; c < 8; c++) {
@@ -305,6 +306,17 @@ void view_proj(proj_t *p, int x, int y, int w, int h)
 	p->sc = fmin(uw / fmax(ex1 - ex0, 1), uh / fmax(ey1 - ey0, 1)) * U.view.zoom;
 	p->ox = x + w / 2 - (int)lround((ex0 + ex1) / 2 * p->sc);
 	p->oy = y + top + (h - top - bot) / 2 + (int)lround((ey0 + ey1) / 2 * p->sc);
+	/* the 2D pan (X± / Y±) is applied in PIXELS here, after the centring: added to the centre
+	 * in mm it was cancelled out again by the corner extent that the centring is computed
+	 * from, and nothing moved (user 2026-11-02) */
+	if (!p->iso) { p->ox += (int)U.view.panx; p->oy -= (int)U.view.pany; }
+}
+
+void ui_view_origin(int x, int y, int w, int h, int *ox, int *oy)
+{
+	proj_t p;
+	view_proj(&p, x, y, w, h);
+	P(&p, 0, 0, 0, ox, oy);
 }
 
 /* grid step: 1 cm for a picture under 10 cm, 5 cm up to 50 cm, 10 cm up to 1 m, then 50 cm / 1 m */

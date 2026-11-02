@@ -104,6 +104,8 @@ int ui_pick_line(void);
 /* where a preview vertex is drawn (work coordinates of the active WCS): part >= 0 = that
  * copy of a multi-part job, else the vertex's own WCS with the offsets as they are now */
 void ui_view_place(const pv_t *v, int part, double o[3]);
+/* the screen pixel of work (0, 0, 0) in a view rect (tests: the pan moves it) */
+void ui_view_origin(int x, int y, int w, int h, int *ox, int *oy);
 #define COL_PICK RGB(0xd0, 0x7c, 0x34)           /* lines before the picked one (not running) */
 #define COL_SKIP RGB(0x7a, 0x52, 0x2e)           /* lines a running program skipped (resumed further on) */                             /* the pendant's axis in use (held, no dialog), else -1 */
 void ui_pendant_nav(int n);
