@@ -151,7 +151,7 @@ void jog_key(pkey_t k, bool sh)
 		arg_t a = { .axis = JOGA[i], .dir = JOGD[i] };
 		if (sh) {
 			act(C_TOUCHOFF, &a, SRC_PANEL);
-			U.shift = C.touch_axis >= 0 && SET.edge_dia > 0;   /* stays lit: same key again = 0 */
+			U.shift = true;                                  /* stays lit, also after the second press that zeroes (user 2026-11-02) */
 			return;
 		}
 		a.dist = JOG_STEPS[U.step];
