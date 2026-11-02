@@ -91,7 +91,7 @@ void jog_render(fb_t *fb)
 void jog_sk(sk_t sk[7])
 {
 	if (U.shift) {                                       /* ALT: the second functions */
-		static char a4[24], a5[16];
+		static char a4[24], a5[24];
 		int ps = (U.step + NJOG_STEPS - 1) % NJOG_STEPS;
 		if (JOG_STEPS[ps] > 0) snprintf(a4, sizeof a4, "← %g mm", JOG_STEPS[ps]); else snprintf(a4, sizeof a4, "← continuous");
 		/* the keys show the STATE, not the next value (user 2026-11-02): "> G59 <" is the active
@@ -105,7 +105,7 @@ void jog_sk(sk_t sk[7])
 		sk[5] = (sk_t){ "Coolant", C.coolant & 1 ? "on" : "off" };
 		return;
 	}
-	static char s4[16], s5[16];
+	static char s4[16], s5[24];
 	if (JOG_STEPS[U.step] > 0) snprintf(s4, sizeof s4, "%g mm", JOG_STEPS[U.step]); else snprintf(s4, sizeof s4, "continuous");
 	snprintf(s5, sizeof s5, "> G%d <", 54 + WD.active);
 	static char s2[16]; snprintf(s2, sizeof s2, "G%d XY", 54 + WD.active);

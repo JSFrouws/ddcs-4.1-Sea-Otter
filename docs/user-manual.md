@@ -52,7 +52,7 @@ Remote access with a password: [ssh-setup.md](ssh-setup.md).
 
 | Key | Does |
 |---|---|
-| **Mode** | Run ↔ Jog. Jog is locked while a program runs or holds (not during a tool change). |
+| **Mode** | Run ↔ Jog. While a program runs, holds or waits at a tool change, Mode always returns to the Run screen, from any screen. Jog is locked while a program runs or holds (not during a tool change). |
 | **F7 Page R** | Opens the **screen menu**: the soft keys become the screens, press one to go there (see below). Page R again or Cancel closes it |
 | **Shift + F7** | Back to the last screen. While a **message box** is up: acknowledges it instead (below) |
 | **Tab** | Next pane on the screen (e.g. Toolpath ↔ Program) |
@@ -103,7 +103,8 @@ Every other key works as usual, F2 Pause and F3 Reset included.
    1/100–1/50 turn, **0.05–0.1 mm on a 5 mm screw**. Home again for precision work.
 
 ### 3.2 Load a program
-1. **Page R** → Files. **F3** switches Local / USB. **Y±** picks a file.
+1. **Page R** → Files. **F3** switches Local / USB. **Y±** picks a file. Only `.nc`,
+   `.ngc`, `.tap`, `.gcode` and `.txt` are listed; **F5 All files** shows everything.
 2. **F1 Load** (or Select). The whole file is checked first; an unsupported code is
    reported with its line number and the file is not loaded.
    Supported: G0–G3 (also in the G17/G18/G19 planes), G4, G10 L2/L20, G20/G21, G28, G53,
@@ -164,7 +165,9 @@ Every other key works as usual, F2 Pause and F3 Reset included.
 - **In the view pane** (Tab): 2D pans with **X± / Y±** (40 px a press), ISO turns with X±
   and tilts with Y±; **Cancel / Enter** zoom, **Shift + F4** fits / resets (2026-11-02: the
   2D pan did nothing before).
-- **F4 View** cycles **2D → ISO → G-code view**. The G-code view draws no wireframe at all:
+- **F4 View** cycles **2D → ISO → G-code view**; the key shows the view you are in (the
+  soft keys name the state, not the next value: Jog's *Drives* reads **On** in green or
+  **Off** in red, *WCS* reads **> G59 <**, the active one). The G-code view draws no wireframe at all:
   the program listing fills the whole right side (about 18 lines), and the screen redraws
   less often, leaving more time for motion. It's the best choice for heavy programs. After an
   E-stop or limit the view switches to ISO by itself.
@@ -439,6 +442,13 @@ the motion controller's own queue, so the axes move in one steady stream with sm
 instead of short bursts (the old burst mode was removed 2026-11-02). One setting under
 *Settings › Axes*: **Motion kept queued in the FPGA** (50 ms): more rides out a slow screen
 redraw, less makes a jog key or wheel click answer sooner. A jog key or wheel click reacts after about that time.
+
+**Homing ramps too** (since 2026-11-02): the search runs up to its speed and brakes on the
+switch, the slow back-off brakes once the switch releases, and the retract into the free
+margin lands gently on its distance, all at the axis' acceleration (and the jog jerk, if
+set). The reference is the point where the switch released at the slow speed, taken from the
+motion controller's own counter, so the zero sits on the switch edge within one 10 ms tick
+at the *locate* speed (50 mm/min = under 0.01 mm). A slower locate speed makes it finer.
 
 **Pendant dead, E-stop "pressed"?** If every pendant line reads high (I/O screen: raw
 `0x3FF`), the pendant is unplugged, its cable is loose or it has no power. The E-stop line then

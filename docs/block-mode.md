@@ -74,7 +74,7 @@ motion_tick(m, wall_dt):                     every wall tick (10 ms) and every u
 | runaway guard (a delta no plan can produce) | refuse + stop | same |
 | graceful stop | planner brakes | same: the brake is in the blocks |
 | immediate stop | drop unsent steps; the burst in flight finishes | drop unsent steps; `fpga_block_flush()` (mode off/on) — to be measured; worst case the queue (≤ 50 ms) plays out |
-| homing | bursts, counter preset between phases | blocks; the preset waits for the queue to drain (`home.phase` 2 waits for `fpga_block_queue() == 0 && !moving`) |
+| homing | bursts, counter preset between phases | blocks, every phase on the jog ramp (`follow()`, 2026-11-02): search brakes on the switch, back-off brakes on release, retract lands on its distance; the reference is the FPGA counter at the release; the preset waits for the queue to drain (`home.phase` 3 waits for `fpga_block_queue() == 0 && !moving`); a finished phase hands its tick to the next (no empty tick) |
 | `motion_idle()` | planner idle | planner idle **and** queue empty **and** nothing moving |
 | position check at rest | after 3 heartbeats at rest | same |
 | sim (`sim/fpga_sim.c`) | burst model | + a 256-deep block queue played at the block's rate, status bits 4+ch/12+ch, `0x36` depth; needs the watchdog |
