@@ -22,8 +22,8 @@ static void load(const char *src)
 	CHECK(act(C_LOAD, &a, SRC_PANEL));
 }
 
-/* 2026-10-31 on the machine: steps/mm 500 -> 2000 over the API, drives on, IDLE, and emit()
- * streamed pos * new - steps as bursts: X +336.6 mm at full speed, Y, Z too. */
+/* 2026-10-31 on the machine: steps/mm 500 -> 2000 over the API, drives on, IDLE, and the
+ * emitter streamed pos * new - steps: X +336.6 mm at full speed, Y, Z too. */
 static void test_scale_safety(void)
 {
 	SUITE("steps/mm change, runaway guard, level gate");
@@ -53,7 +53,7 @@ static void test_scale_safety(void)
 	int64_t mid = SIM.pos[AX_X];
 	SET.ax[AX_X].steps_per_mm = spm0 * 4;
 	fx_run(1000);
-	CHECK(llabs(SIM.pos[AX_X] - mid) < 2000);        /* at most the burst already in flight */
+	CHECK(llabs(SIM.pos[AX_X] - mid) < 2000);        /* at most what was already queued in the FPGA */
 	CHECK(motion_idle(&C.mo));
 	SET.ax[AX_X].steps_per_mm = spm0;
 	fx_run(200);
@@ -101,7 +101,7 @@ static void test_jog_ramp_outputs(void)
 	fx_reset();
 	const double spm = SET.ax[AX_X].steps_per_mm, A = SET.ax[AX_X].accel;
 
-	/* 50 wheel clicks of 1 mm in one burst: exactly 50 mm, speed and accel within the axis */
+	/* 50 wheel clicks of 1 mm at once: exactly 50 mm, speed and accel within the axis */
 	int64_t x0 = SIM.pos[AX_X];
 	for (int i = 0; i < 50; i++) motion_nudge(&C.mo, AX_X, 1.0);
 	double vmax = 0, amax = 0, last_v = 0;
@@ -246,30 +246,22 @@ static void test_wheel_follow_zone(void)
 }
 
 /* the real loop's slices come every 10-34 ms (the panel redraw); measured 2026-10-31. As in
- * main.c, a slice covers the time that has PASSED; the FPGA then runs for the next, unknown
- * interval - which is what made a burst still be running when the next slice came */
+ * main.c, a slice covers the time that has PASSED; the FPGA plays its queue meanwhile, so
+ * the queue must never run dry between two slices */
 static void tick_jitter(int ms)
 {
-	/* main.c since 2026-11-01: the loop also slices at the moment a burst ends and then plans
-	 * a whole burst (25 ms) ahead, so bursts are long and back to back; the scheduled slices
-	 * still come every 10-34 ms. A slice that comes before planned time plans 2 ms. */
-	static uint64_t planned_to, handled;                 /* planner time; the burst end already served */
-	for (int i = 0; i < ms; i++) {
-		sim_step(1); clock_advance(1);
-		uint64_t nu = now_us(), e = 0;
-		for (int a = 0; a < NAXES; a++) if (C.mo.burst_end_us[a] > handled && C.mo.burst_end_us[a] <= nu + 999 && (!e || C.mo.burst_end_us[a] < e)) e = C.mo.burst_end_us[a];
-		if (e && (!fpga_moving(&C.fp) || nu > e + 8000)) { handled = e; ctl_tick(0.025); planned_to = now_ms() + 25; }
-	}
+	static uint64_t planned_to;                          /* wall time the last slice covered */
+	for (int i = 0; i < ms; i++) { sim_step(1); clock_advance(1); }
 	uint64_t now = now_ms();
 	uint32_t el = now <= planned_to ? 2 : (uint32_t)(now - planned_to);
 	ctl_tick((el > 40 ? 40 : el) / 1000.0); planned_to = now;
 }
 
-/* 2026-10-31 trace on the machine: slices skipped while a burst still ran, then double -
- * 2x speed spikes and stops. Bursts now run at the planned speed: never much faster. */
+/* 2026-10-31 trace on the machine (burst era): slices skipped, then double - 2x speed spikes
+ * and stops. The block queue absorbs an irregular loop: never much faster, never a stop. */
 static void test_pacing(void)
 {
-	SUITE("burst pacing under an irregular loop, braking time bound");
+	SUITE("block pacing under an irregular loop, braking time bound");
 	fx_reset();
 	SET.ax[AX_Y].steps_per_mm = 400;                     /* the machine: the FPGA has 5x headroom here */
 	SET.queue_ms = 50;                                   /* block mode at its real queue depth: the irregular loop must not run it dry */
@@ -287,28 +279,34 @@ static void test_pacing(void)
 		double done = (double)(SIM.pos[AX_Y] - y0) / spm;
 		if (done > 2 && done < 18) {                       /* the cruise, ramps excluded */
 			vmax = fmax(vmax, sv);
-			if (sv < 0.05 * v) { if (!still++) { stops++; printf("  STOP at t=%d ms (tick %d) done %.2f bursts %u deferred %u\n", t, ms, done, C.fp.bursts, C.mo.deferred); } } else still = 0;
+			if (sv < 0.05 * v) { if (!still++) { stops++; printf("  STOP at t=%d ms (tick %d) done %.2f blocks %u queue %d\n", t, ms, done, C.mo.blocks, C.mo.q_est); } } else still = 0;
 		}
 	}
 	fx_run(200);
 	CHECK(SIM.pos[AX_Y] - y0 == (int64_t)llround(20 * spm));
-	printf("  pacing: vmax %.2f mm/s (plan %.2f), stops %d, deferred %u\n", vmax, v, stops, C.mo.deferred);
+	printf("  pacing: vmax %.2f mm/s (plan %.2f), stops %d\n", vmax, v, stops);
 	CHECK(vmax <= v * 1.3);                              /* was ~2.35x: a skipped slice sent double */
 	CHECK(stops == 0);
 	CHECK(C.pos_faults == 0);
 
-	/* a 300 ms stall mid-jog (the FPGA busy, the plan going on): the backlog drains at no more
-	 * than the axis' top speed + 15 %, and the move still lands exactly */
+	/* a 300 ms stall mid-jog (the FPGA not playing, the loop going on): the queue stays at its
+	 * depth, nothing is banked, the axis never runs faster than its top speed + 15 % after it,
+	 * and the move still lands exactly */
 	y0 = SIM.pos[AX_Y];
 	j.dist = 20;
 	CHECK(act(C_JOG, &j, SRC_PANEL));
 	fx_run(400);
 	for (int k = 0; k < 30; k++) { ctl_tick(0.010); clock_advance(10); }   /* no sim_step: the axis stays busy */
-	uint32_t peak = 0;
-	for (int t2 = 0; t2 < 8000 && !motion_idle(&C.mo); t2 += 10) { fx_run(10); if (C.mo.rate[AX_Y] > peak) peak = C.mo.rate[AX_Y]; }
+	CHECK(C.mo.q_est <= SET.queue_ms / 10 && !C.mo.fpga_stuck);
+	int64_t peak = 0;
+	for (int t2 = 0; t2 < 8000 && !motion_idle(&C.mo); t2 += 10) {
+		int64_t p = SIM.pos[AX_Y];
+		fx_run(10);
+		if (llabs(SIM.pos[AX_Y] - p) > peak) peak = llabs(SIM.pos[AX_Y] - p);
+	}
 	fx_run(200);
 	double top = SET.ax[AX_Y].max_speed * spm;
-	CHECK(peak <= top * 1.15 + 52);                      /* the planned-rate rule: +15 % + 50 */
+	CHECK(peak <= top * 0.010 * 1.15 + 2);               /* steps per 10 ms */
 	CHECK(SIM.pos[AX_Y] - y0 == (int64_t)llround(20 * spm));
 	CHECK(C.pos_faults == 0);
 
@@ -508,6 +506,13 @@ void test_machine(void)
 		CHECK(workdata_save("t_work.cfg") == 0);
 		stat("t_work.cfg", &b);
 		CHECK(a.st_ino == b.st_ino);
+		/* a cfg saved before burst mode was removed (2026-11-02) still loads: the old
+		 * motion.block_mode key is ignored, the keys around it are read */
+		FILE *of = fopen("t_old.cfg", "w");
+		int qk = SET.queue_ms;
+		if (of) { fputs("motion.block_mode=0\nmotion.queue_ms=70\n", of); fclose(of); }
+		CHECK(settings_load("t_old.cfg") == 0 && SET.queue_ms == 70);
+		SET.queue_ms = qk; remove("t_old.cfg");
 	}
 
 	/* --- keep the homed state over a restart: off by default, and only from a position at rest --- */
@@ -704,7 +709,7 @@ void test_machine(void)
 
 	/* --- controlled stop (motion.graceful_stop, default on): an E-stop mid-move brakes along
 	 * the path at the axis' deceleration - no lost steps, overshoot ~ v^2/2a; the drives stay
-	 * on. With the setting off the stop is immediate (only the burst in flight). --- */
+	 * on. With the setting off the stop is immediate (only what is queued in the FPGA). --- */
 	for (int graceful = 1; graceful >= 0; graceful--) {
 		SET.graceful_stop = graceful;
 		arg_t gj = J(AX_X, 1, 30);
@@ -741,10 +746,10 @@ void test_machine(void)
 
 	/* --- Simulate: no pulses at all, position restored --- */
 	C.armed = ARM_SIM;
-	uint32_t b0 = SIM.bursts; double xs = C.mo.pos[AX_X];
+	uint32_t b0 = SIM.blocks; double xs = C.mo.pos[AX_X];
 	act(C_START, NULL, SRC_PANEL);
 	fx_until_idle(60000);
-	CHECK(SIM.bursts == b0 && C.mo.pos[AX_X] == xs && C.m == M_IDLE);
+	CHECK(SIM.blocks == b0 && C.mo.pos[AX_X] == xs && C.m == M_IDLE);
 
 	/* --- Simulate, then Reset in the middle of a move: still nothing may move, before or
 	 * after the stop (found on the unit 2026-10-21: the braking simulated move kept going
@@ -753,7 +758,7 @@ void test_machine(void)
 		load("G21 G90 G54\nG0 X0 Y0 Z5\nG1 X200 F3000\nM30\n");
 		int64_t p0[NAXES];
 		for (int k = 0; k < NAXES; k++) p0[k] = SIM.pos[k];
-		uint32_t b1 = SIM.bursts;
+		uint32_t b1 = SIM.blocks;
 		double keep[NAXES];
 		memcpy(keep, C.mo.pos, sizeof keep);
 		C.armed = ARM_SIM;
@@ -762,7 +767,7 @@ void test_machine(void)
 		CHECK(C.m == M_RUN && fabs(C.mo.pos[AX_X] - keep[AX_X]) > 1);
 		CHECK(act(C_STOP, NULL, SRC_PANEL));
 		fx_run(2000);                                        /* long after the stop */
-		CHECK(SIM.bursts == b1);
+		CHECK(SIM.blocks == b1);
 		for (int k = 0; k < NAXES; k++) CHECK(SIM.pos[k] == p0[k]);
 		for (int k = 0; k < NAXES; k++) CHECK_NEAR(C.mo.pos[k], keep[k], 1e-9);
 		CHECK(C.m == M_IDLE && !C.mo.dry && motion_idle(&C.mo));

@@ -1,4 +1,4 @@
-/* Motion: turns operations into step bursts, one 10 ms slice at a time.
+/* Motion: turns operations into FPGA motion blocks, one 10 ms block at a time.
  *
  * Software interpolation with a lookahead planner: the queue holds at least SET.lookahead
  * segments AND at least the braking distance from top speed (so runs of tiny engraving or
@@ -6,9 +6,9 @@
  * (the speed change an axis may take instantly) plus a junction-deviation tolerance; a
  * backward pass makes every segment slow down in time for what follows, a forward pass
  * limits it to what acceleration can reach. Execution is an S-curve: acceleration itself
- * ramps with the per-axis jerk. Each slice, each axis gets one FPGA burst. This uses only the
- * burst command proven on hardware (the vendor's MPG-jog sequence); the FPGA's own
- * coordinated-move block (regs 0x50..0x60) isn't decoded yet. */
+ * ramps with the per-axis jerk. Every 10 ms of planned motion becomes one block carrying all
+ * four axes, pushed into the FPGA's own block queue, which plays the blocks back to back
+ * (docs/block-mode.md). The old step-burst emitter was removed 2026-11-02. */
 #ifndef MOTION_H
 #define MOTION_H
 #include "gcode.h"
@@ -20,7 +20,7 @@ typedef enum { MEV_NONE, MEV_SPINDLE, MEV_COOLANT, MEV_PAUSE, MEV_END, MEV_HOMED
 
 typedef struct {
 	fpga_t *f;
-	int64_t steps[NAXES];        /* commanded steps (sum of all bursts) */
+	int64_t steps[NAXES];        /* commanded steps (sum of all blocks sent) */
 	double pos[NAXES];           /* commanded machine position, mm */
 	/* op queue + its plan (parallel arrays) */
 	gc_op_t q[MQ_LEN]; int qh, qn;
@@ -46,16 +46,15 @@ typedef struct {
 	double dwell_left;
 	/* control */
 	bool hold, stopping;
-	bool dry;
-	uint8_t hw_busy;             /* FPGA axes still active/stepping (read once per tick) */                    /* simulate: positions advance, no bursts reach the FPGA */
+	bool dry;                    /* simulate: positions advance, nothing reaches the FPGA */
+	uint8_t hw_busy;             /* FPGA axes still stepping (read once per tick) */
 	int feed_ov, spin_ov;        /* % ; rapid % = min(feed %, 100) */
-	uint64_t burst_end_us[NAXES]; /* burst mode: when each axis' last burst ends (0 = none sent): the main loop slices then */
-	/* block mode (2026-11-01, docs/block-mode.md): the FPGA's queue is the clock */
+	/* blocks (2026-11-01, docs/block-mode.md): the FPGA's queue is the clock */
 	int q_est;                   /* blocks queued in the FPGA as of this tick (read once + sent since) */
 	int feed_ahead_ms;           /* main loop: fill the queue up to this much before a long frame (one tick) */
 	uint32_t blocks;             /* blocks sent (perf) */
 	bool stop_resync;            /* an immediate stop flushed the queue: adopt the counters silently at rest */
-	int8_t fpga_mode;            /* what the FPGA was last told: 1 block mode, 0 burst mode, -1 unknown (after fpga_init) */
+	int8_t fpga_mode;            /* 1 = the FPGA was put in block mode, -1 = not yet (after fpga_init) */
 	int stuck_ticks; bool fpga_stuck;   /* blocks queued but nothing plays: after 300 ms a fault (the controller reports it once) */
 	bool fpga_halted;            /* sticky: the FPGA's queue reads non-empty with nothing playing (only a power cycle clears the FPGA; this clears when the queue reads empty again) */
 	double nudge[NAXES];         /* pendant: distance still to move per axis */
@@ -64,25 +63,22 @@ typedef struct {
 	int jog_axis, jog_dir;       /* continuous jog, jog_dir 0 = off */
 	double jv[NAXES], ja[NAXES]; /* jog / wheel S-curve state per axis: speed mm/s, accel mm/s² */
 	int last_dir[NAXES];
-	int burst_dir[NAXES];         /* direction of the last burst sent to the FPGA */
-	uint32_t deferred;           /* reversals held back until the axis stopped stepping */
 	int line;                    /* source line of the op being executed */
 	/* homing */
 	struct { bool on; int k, phase, axis; double travel; } home;
 	bool (*switch_active)(int axis);
 	bool (*range)(int axis, double *lo, double *hi);   /* soft/bench limits for jogs + nudges */
-	/* the controller's level gate: true = no burst on this axis this way (E-stop, drives off,
+	/* the controller's level gate: true = no steps on this axis this way (E-stop, drives off,
 	 * a tripped limit switch). Not asked while braking or homing, which handle switches
 	 * themselves. NULL = never blocked. */
-	bool (*burst_blocked)(int axis, int dir);
+	bool (*axis_blocked)(int axis, int dir);
 	int soft_stop;               /* axis+1 when a jog braked to a standstill at its limit */
 	/* safety (2026-10-31: a steps/mm change once streamed 336 mm of X at full speed) */
 	double spm[NAXES];           /* the steps/mm that steps[] and pos[] were counted in */
 	uint8_t rescaled;            /* axes whose steps/mm changed: position rebased, homing lost */
 	int runaway;                 /* axis+1: a step delta no plan could produce was refused */
-	uint32_t blocked;            /* bursts held back by burst_blocked */
-	double emit_pos[NAXES];      /* pos at the previous emit: the planned speed of this slice */
-	uint32_t rate[NAXES];        /* step rate of the last burst per axis (trace, tests) */
+	uint32_t blocked;            /* moves held back by axis_blocked */
+	double emit_pos[NAXES];      /* pos at the previous emit */
 	double stop_left;            /* s: a controlled stop must be at rest within this, else cut dead */
 	bool stop_cut;               /* a controlled stop overran its time bound and was cut */
 	/* events for the controller */

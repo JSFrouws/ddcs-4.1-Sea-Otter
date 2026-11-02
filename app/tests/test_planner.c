@@ -26,7 +26,7 @@ static run_t run_path(bool (*mid)(const double *pos))
 		if (v > 0.5 && v_prev > 0.5) r.jmax = fmax(r.jmax, fabs(a - a_prev) / 0.010);
 		v_prev = v;
 		a_prev = a;
-		if (motion_idle(&C.mo) && !SIM.left[0] && !SIM.left[1]) break;
+		if (motion_idle(&C.mo)) break;
 	}
 	return r;
 }
@@ -89,7 +89,7 @@ void test_planner(void)
 	}
 	fx_run(50);
 	printf("  3000 x 0.01 mm segments: peak %.1f of %.1f mm/s\n", vpeak, vF);
-	double vcap = CAP_SPS / SET.ax[0].steps_per_mm;              /* the FPGA cap: 20 mm/s in block mode, 16 with bursts */
+	double vcap = CAP_SPS / SET.ax[0].steps_per_mm;              /* the FPGA cap: 20 mm/s */
 	CHECK(vpeak > 0.95 * vcap);
 	CHECK_NEAR(C.mo.pos[0], x0 + 30, 1e-6);
 
@@ -120,8 +120,8 @@ void test_planner(void)
 	CHECK_NEAR(C.mo.pos[1], t[1], 1e-9);
 	CHECK(SIM.ignored_cmds == 0);
 
-	/* with the FPGA's 2 ms burst overhead modelled, a full-speed move keeps the backlog of
-	 * planned-but-unsent steps under one burst, and stops overshoot little */
+	/* a full-speed move keeps the backlog of planned-but-unsent steps small, and stops
+	 * overshoot little */
 	bool gs = SET.graceful_stop;
 	for (int mode = 0; mode < 2; mode++) {
 		SET.graceful_stop = mode == 1;
@@ -135,7 +135,7 @@ void test_planner(void)
 		}
 		double v_at = C.mo.v, at = sim_pos_mm(0);
 		motion_stop(&C.mo, mode == 0);
-		for (int k = 0; k < 300 && (!motion_idle(&C.mo) || SIM.left[0]); k++) fx_run(10);
+		for (int k = 0; k < 300 && !motion_idle(&C.mo); k++) fx_run(10);
 		fx_run(50);
 		double over = sim_pos_mm(0) - at;
 		printf("  %s stop at %.1f mm/s: overshoot %.2f mm, backlog %lld steps\n", mode ? "graceful" : "abrupt", v_at, over, (long long)backlog);

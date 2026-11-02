@@ -13,6 +13,6 @@ curl -s -X POST $U/program/load -d '{"name":"zigzag_y.nc"}'; echo
 curl -s -X POST $U/run/start -d '{"mode":"run"}'; echo
 i=0; while [ $i -lt 120 ]; do s=$(curl -s $U/status | python -c "import sys,json; print(json.load(sys.stdin)['state'])"); [ "$s" = IDLE ] && break; sleep 0.5; i=$((i+1)); done
 sleep 1
-curl -s $U/status | python -c "import sys,json; s=json.load(sys.stdin); print('faults', s['posFaults'], 'err', s['posErr'], 'at line*100+state', s['faultLine'], 'waited', s['reversalsWaited'], 'checks', s['posChecks'], 'busErrors', s['busErrors'], 'retries', s['busRetries'], 'errno', s['busErrno'])"
+curl -s $U/status | python -c "import sys,json; s=json.load(sys.stdin); print('faults', s['posFaults'], 'err', s['posErr'], 'at line*100+state', s['faultLine'], 'checks', s['posChecks'], 'busErrors', s['busErrors'], 'retries', s['busRetries'], 'errno', s['busErrno'])"
 D 'killall pandora; sleep 6; cat /tmp/ptrace.txt' > build/ptrace.txt
 wc -l build/ptrace.txt

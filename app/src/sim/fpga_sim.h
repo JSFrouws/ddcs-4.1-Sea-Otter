@@ -5,12 +5,6 @@
  * MEASURED on the unit 2026-10-18 (docs/fpga-motion.md):
  *   - nothing steps unless 0x67 (watchdog) was written within the last WATCHDOG_MS
  *   - position counters 0x02..0x09, latched by each 0x67 write; preset via 0x0C/0x0D + 0x05
- *   - 0x01: bit n = move active, bit 8+n = stepping
- *   - a burst's top rate = 2 x rate word A steps/s; the FPGA's own ramp (word B) is not
- *     modelled (the app sets B to its fastest value and ramps in software)
- *   - same-direction bursts while stepping are appended, opposite ones are IGNORED
- *   - 0x04 = 4 while stepping stops within ~20 ms and leaves the axis HELD: bursts are
- *     ignored until power-off (sim: sim_reset_machine) - the release is still unknown
  * Block mode as MEASURED 2026-11-01 (docs/fpga-motion.md "Block mode"):
  *   - 16 words to 0x50..0x5F, 0x66 = 1 then 0 queues them; 256 deep (a push into a full
  *     queue is dropped and counted in ignored_cmds); read 0x36 = blocks waiting (0x100 when full)
@@ -26,7 +20,6 @@
 #define FPGA_SIM_H
 #include "../common.h"
 
-#define SIM_BURST_MS 10
 #define SIM_WATCHDOG_MS 100
 #define SIM_BLOCK_QUEUE 256
 
@@ -48,19 +41,14 @@ typedef struct {
 	/* observed outputs */
 	uint8_t outputs; int pwm; bool beep;
 	uint16_t axis_cfg[NAXES];
-	uint32_t crashes, ignored_cmds, bursts, heartbeats;
+	uint32_t crashes, ignored_cmds, heartbeats;
 	/* internals */
 	uint64_t t_ms, hb_ms;
 	uint16_t wr[256];
 	uint16_t bank[NAXES][256];
 	int sel;
-	int32_t left[NAXES];          /* steps still to emit */
-	int dir[NAXES];
-	double rate[NAXES], acc[NAXES];
-	double wait_ms[NAXES];       /* measured ~2 ms start overhead of each burst */
 	int64_t cnt[NAXES];           /* FPGA position counter (counts in DIR-bit sense, preset via 0x05) */
 	int32_t latched[NAXES];       /* counter value at the last heartbeat */
-	bool held[NAXES];
 	/* block mode */
 	bool flush_on_mode_off;       /* tests: 0x42 = 0x20+ch empties the queue (unmeasured) */
 	uint16_t axis_mode[NAXES];    /* last 0x42 written per channel */

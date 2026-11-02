@@ -65,8 +65,6 @@ uint16_t sim_read(uint8_t a)
 	case FR_STATUS: {
 		uint16_t s = 0;
 		for (int i = 0; i < NAXES; i++) {
-			if (SIM.left[i] || SIM.held[i]) s |= (uint16_t)(1u << i);
-			if (SIM.left[i]) s |= (uint16_t)(1u << (8 + i));
 			if (SIM.blk_on && SIM.blk_steps[i]) s |= (uint16_t)FR_STATUS_BLOCK(i);
 		}
 		return s;
@@ -92,21 +90,6 @@ uint16_t sim_read(uint8_t a)
 			return sim_switch_active(a - FR_AXIS_IOSTAT) ? 0x0030 : 0;
 		return 0xFFFF;
 	}
-}
-
-static void start_burst(int ax)
-{
-	uint16_t *bk = SIM.bank[ax];
-	int32_t n = (int32_t)((uint32_t)bk[FW_STEPS_HI] << 16 | bk[FW_STEPS_LO]);
-	int dir = (SIM.wr[FW_MOVE_CMD] & 2) ? +1 : -1;           /* counter sense */
-	if (SIM.held[ax] || (SIM.left[ax] && SIM.dir[ax] != dir)) { SIM.ignored_cmds++; return; }
-	SIM.dir[ax] = dir;
-	if (!SIM.left[ax]) SIM.wait_ms[ax] = 2;   /* measured: ~2 ms before a burst starts stepping */
-	SIM.left[ax] += n;
-	uint32_t ra = (uint32_t)bk[FW_RATE_A_HI] << 16 | bk[FW_RATE_A_LO];
-	double r = ra ? 2.0 * ra / 1000.0 : MAX_RATE_PER_MS;     /* measured: top rate = 2 x A steps/s */
-	SIM.rate[ax] = r > MAX_RATE_PER_MS ? MAX_RATE_PER_MS : r;
-	SIM.bursts++;
 }
 
 void sim_write(uint8_t a, uint16_t v)
@@ -138,12 +121,6 @@ void sim_write(uint8_t a, uint16_t v)
 		if (a == FW_AXIS_CFG) SIM.axis_cfg[SIM.sel] = v;
 		if (a == FW_POS_PRESET && (v & 1) && !(prev & 1))
 			SIM.cnt[SIM.sel] = (int32_t)((uint32_t)SIM.bank[SIM.sel][FW_PRESET_LO + 1] << 16 | SIM.bank[SIM.sel][FW_PRESET_LO]);
-		if (a == FW_MOVE_CMD && (v & 1) && !(prev & 1)) start_burst(SIM.sel);
-		if (a == FW_MOVE_CMD && (v & 4) && !(prev & 4) && SIM.left[SIM.sel]) {   /* stop -> held */
-			int32_t decel = (int32_t)(SIM.rate[SIM.sel] * 10);
-			if (SIM.left[SIM.sel] > decel) SIM.left[SIM.sel] = decel;
-			SIM.held[SIM.sel] = true;
-		}
 	}
 	if (a == FW_OUTPUTS) SIM.outputs = (uint8_t)(v & 7);
 }
@@ -205,17 +182,5 @@ void sim_step(uint32_t ms)
 {
 	SIM.t_ms += ms;
 	bool alive = SIM.no_watchdog || (SIM.heartbeats && SIM.t_ms - SIM.hb_ms <= SIM_WATCHDOG_MS);
-	for (int a = 0; a < NAXES; a++) {
-		if (!SIM.left[a] || !alive) continue;
-		double run = ms;
-		if (SIM.wait_ms[a] > 0) { double w = SIM.wait_ms[a] < run ? SIM.wait_ms[a] : run; SIM.wait_ms[a] -= w; run -= w; }
-		SIM.acc[a] += SIM.rate[a] * run;
-		int32_t n = (int32_t)SIM.acc[a];
-		if (n > SIM.left[a]) n = SIM.left[a];
-		SIM.acc[a] -= n;
-		SIM.left[a] -= n;
-		emit(a, SIM.dir[a], n);
-		if (!SIM.left[a]) SIM.acc[a] = 0;
-	}
 	if (alive) play_blocks(ms);
 }

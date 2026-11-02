@@ -60,7 +60,7 @@ phase). IDs are stable references for later design docs and tickets.
   resume from a line works directly. The overshoot is the braking distance
   v²/2a (≈ 0.67 mm at 1200 mm/min, 300 mm/s²) and **is the user's to allow
   for**: place limit switches that far before the hard stop. When off, motion
-  halts after the burst already in the FPGA (≈ one 10-40 ms slice), which at
+  halts after the blocks already in the FPGA (≤ `motion.queue_ms`, 50 ms), which at
   speed can lose steps on a real machine. Switching the drives off (F3 Drives,
   API) is always immediate. Simulation stops are always immediate (nothing moves).
 - **REQ-A8 (M) The E-stop stops motion, it does not remove power** (user,

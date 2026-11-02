@@ -425,10 +425,9 @@ on OFF: it edits, and nothing moves.
 
 **Continuous motion** (since 2026-11-01): jogs, the wheel, programs and homing are fed to
 the motion controller's own queue, so the axes move in one steady stream with smooth ramps
-instead of short bursts. Two settings under *Settings › Axes*: **Continuous motion (FPGA
-block queue)** (on; off goes back to the old bursts) and **Motion kept queued in the FPGA**
-(50 ms): more rides out a slow screen redraw, less makes a jog key or wheel click answer
-sooner. A jog key or wheel click reacts after about that time.
+instead of short bursts (the old burst mode was removed 2026-11-02). One setting under
+*Settings › Axes*: **Motion kept queued in the FPGA** (50 ms): more rides out a slow screen
+redraw, less makes a jog key or wheel click answer sooner. A jog key or wheel click reacts after about that time.
 
 **Pendant dead, E-stop "pressed"?** If every pendant line reads high (I/O screen: raw
 `0x3FF`), the pendant is unplugged, its cable is loose or it has no power. The E-stop line then

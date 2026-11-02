@@ -91,46 +91,17 @@ static int bench_render(display_t *d, const char *prog)
 	return 0;
 }
 
-/* One motion slice covering the real elapsed time (back-to-back catch-up slices would hit axes
- * that are still stepping), clamped to 40 ms: the longest burst = the shortest stop. */
+/* One motion slice per TICK_MS of wall time. The planner is paced by the FPGA's block queue
+ * (motion.c tick_blocks), not by the elapsed time: el only drives the wall-clock parts (the
+ * wheel's averaging, jog ramps at rest) and is clamped to 40 ms. */
 static bool g_sim;
-static uint64_t g_next, g_last_tick, g_wake;
-/* A burst planned at the previous one's end. Every burst costs the FPGA's ~2.3 ms start, so
- * the dead time is 2.3 / BURST_MS: 9 % at 25 ms, 4 % at 60 ms (loop log 2026-11-01). A burst
- * in flight is cut by the FPGA stop command on E-stop / Reset; a planned stop brakes anyway. */
-#define BURST_MS 60
-/* the next slice no later than the end of the earliest burst in flight that has not had its
- * burst-end slice yet (g_served). An end that passed while this slice was still being
- * computed (a slice costs 1-4 ms) is served at once - lost, it cost an 8 ms gap per burst
- * (loop log 2026-11-01). */
-static uint64_t g_served[NAXES];
-static void set_wake(uint64_t t)
-{
-	bool moving = C.m == M_RUN || C.mo.active || !motion_idle(&C.mo);
-	uint64_t nu = now_us(), e = 0;
-	for (int a = 0; a < NAXES; a++) {
-		uint64_t b = C.mo.burst_end_us[a];
-		if (!moving) { g_served[a] = b; continue; }       /* at rest: nothing to chain, no 1 ms wakes */
-		if (b > g_served[a] && (!e || b < e)) e = b;
-	}
-	if (!e) return;
-	uint64_t w = e > nu ? (e + 999) / 1000 : t + 1;
-	if (w < g_next) { g_next = g_wake = w > t + 1 ? w : t + 1; PERF.wakes++; }
-}
-static void mark_served(void)
-{
-	uint64_t nu = now_us();
-	for (int a = 0; a < NAXES; a++) if (C.mo.burst_end_us[a] <= nu + 1000) g_served[a] = C.mo.burst_end_us[a];
-}
+static uint64_t g_next, g_last_tick;
 static void motion_slice(void)
 {
 	uint64_t t = now_ms();
-	/* planned time already past real time (a burst-ahead slice): plan NOTHING this slice - a
-	 * 2 ms minimum here let the planner run away from the motors by 50 ms per burst
-	 * (loop log 2026-11-01: 767-step bursts for 60 ms planned, the backlog never drained) */
 	uint32_t real = !g_last_tick ? TICK_MS : t <= g_last_tick ? 0u : (uint32_t)(t - g_last_tick);
 	uint32_t el = real > 40u ? 40u : real;
-	if (SET.block_mode && !el) el = 1;                    /* block mode plans by the FPGA's queue, not by el: a forced slice (before a frame) must still run */
+	if (!el) el = 1;                                      /* a forced slice (before a frame) must still run */
 	if (PERF.debug && (C.m == M_RUN || C.mo.active || !motion_idle(&C.mo))) fprintf(stderr, "%llu slice el %u (real %u) busy %u\n", (unsigned long long)now_us() / 1000, el, real, C.mo.hw_busy);
 	PERF.loops++;
 	if (real > PERF.gap_ms_max) PERF.gap_ms_max = real;
@@ -139,60 +110,13 @@ static void motion_slice(void)
 	g_last_tick = t;
 	g_next = t + TICK_MS;
 	ctl_tick(el / 1000.0);
-	if (g_sim) sim_step(SET.block_mode ? real : el);      /* block mode: the sim is the FPGA and must keep wall time, or its queue grows */
-	set_wake(t);                                          /* slice again the moment the burst in flight ends */
+	if (g_sim) sim_step(real);                            /* the sim is the FPGA and must keep wall time, or its queue grows */
 	uint32_t tk = (uint32_t)(now_us() - t_us);
 	PERF.tick_us_last = tk;
 	PERF.tick_us_avg = (PERF.tick_us_avg * 15 + tk) / 16;
 	if (tk > PERF.tick_us_max) PERF.tick_us_max = tk;
 }
 static void slice_if_due(void) { if (now_ms() >= g_next) motion_slice(); }
-/* The slice that would fall inside a frame, run before it: a frame blocks the loop for the
- * draw time (~26 ms here, one piece), and a burst sized to a 10 ms slice ended a third of
- * the way in, so the axis idled until the frame was done - felt as a 5 Hz stutter at the
- * wheel (2026-10-31). The planner is ticked `ms` ahead and the clock moved with it; the
- * burst in flight then lasts the frame. */
-static void motion_slice_ahead(uint32_t ms)
-{
-	uint64_t t = now_ms();
-	ctl_tick(ms / 1000.0);
-	if (g_sim) sim_step(ms);
-	g_last_tick = t + ms;
-	g_next = t + ms + TICK_MS;
-	set_wake(t);
-	PERF.loops++;
-}
-/* Continuous motion on an FPGA that takes a burst only into an idle axis (docs/fpga-motion.md):
- * at the moment a burst ends, plan and send the next one a whole BURST_MS ahead, so bursts are
- * long (the ~2 ms start per burst amortised) and back to back. Measured 2026-11-01 before this:
- * 2217 slices found the axis busy for 1700 bursts sent, speed over 50 ms windows swung 3-36
- * mm/s on a 16 mm/s jog - "jumpy". Returns false when the axis still reads busy (the end was
- * estimated): the caller retries a millisecond later, a few times. */
-static bool slice_at_burst_end(void)
-{
-	static int tries;
-	if (!g_sim && fpga_moving(&C.fp) && tries++ < 8) { if (PERF.debug) fprintf(stderr, "%llu wake: still busy (%d)\n", (unsigned long long)now_us() / 1000, tries); g_next = now_ms() + 1; return false; }
-	if (PERF.debug) fprintf(stderr, "%llu wake: slice %u ms ahead%s\n", (unsigned long long)now_us() / 1000, BURST_MS, tries ? " (gave up waiting)" : "");
-	tries = 0; g_wake = 0;
-	mark_served();
-	motion_slice_ahead(BURST_MS);
-	return true;
-}
-/* Before a frame is drawn: a burst that would end inside the frame leaves the axis idle until
- * a yield point, so wait for it (at most a burst) and send one that lasts the frame. */
-static void slice_for_frame(uint32_t frame_ms)
-{
-	uint64_t nu = now_us(), fe = 0;
-	for (int a = 0; a < NAXES; a++) if (C.mo.burst_end_us[a] > nu && C.mo.burst_end_us[a] > fe) fe = C.mo.burst_end_us[a];
-	if (fe && fe < nu + (uint64_t)(frame_ms + 5) * 1000) {
-		while (now_us() < fe) http_poll(1);
-		for (int i = 0; i < 8 && !g_sim && fpga_moving(&C.fp); i++) http_poll(1);
-	}
-	if (PERF.debug) fprintf(stderr, "%llu frame: waited %.1f ms, slice %u ms ahead\n", (unsigned long long)now_us() / 1000, (now_us() - nu) / 1000.0, frame_ms * 11 / 10 + 2);
-	g_wake = 0;
-	mark_served();
-	motion_slice_ahead(frame_ms * 11 / 10 + 2);
-}
 
 
 int main(int argc, char **argv)
@@ -300,9 +224,7 @@ int main(int argc, char **argv)
 			/* the wheel BEFORE the slice: a click read after it waited a whole tick (review 2026-10-31) */
 			int counts = fpga_wheel_delta(&C.fp);
 			ui_pendant(&C.pend, counts);
-			bool moving = C.m == M_RUN || C.mo.active || !motion_idle(&C.mo);
-			if (g_wake && t >= g_wake && moving) { if (!slice_at_burst_end()) goto poll; }
-			else { g_wake = 0; STALL_WATCH("tick", motion_slice()); }
+			STALL_WATCH("tick", motion_slice());
 			if (t - last_scan >= 20) {                          /* keys: 50 Hz, debounced over two scans */
 				last_scan = t;
 				uint32_t k;
@@ -343,11 +265,10 @@ int main(int argc, char **argv)
 			if (!splash_until && (U.dirty || s != sig) && t - last_render >= gap) {
 				uint64_t r_us = now_us();
 				if (mv) {
-					uint32_t frame_ms = CLAMP(PERF.draw_us_avg / 1000 + 5, TICK_MS, 40u);
-					/* block mode: top the FPGA's queue up to the frame plus the normal depth, in one
-					 * tick; the yields inside the draw refill it. Burst mode: the old dance. */
-					if (SET.block_mode) { C.mo.feed_ahead_ms = (int)(PERF.draw_us_avg / 1000 + PERF.present_us_avg / 1000 + SET.queue_ms); motion_slice(); }
-					else slice_for_frame(frame_ms);
+					/* top the FPGA's queue up to the frame plus the normal depth, in one tick; the
+					 * yields inside the draw refill it */
+					C.mo.feed_ahead_ms = (int)(PERF.draw_us_avg / 1000 + PERF.present_us_avg / 1000 + SET.queue_ms);
+					motion_slice();
 				}
 				STALL_WATCH("render", ui_render(&dsp.back));
 				slice_if_due();                                   /* a frame is ~60 ms here: keep motion */
@@ -368,7 +289,6 @@ int main(int argc, char **argv)
 			/* three fsyncs (~0.5 s each on the eMMC): never with a hand on the wheel or an axis moving */
 			if (t - last_save > 30000 && (C.m == M_IDLE || C.m == M_LIMIT || C.m == M_OFF) && !C.pend.held && motion_idle(&C.mo)) { STALL_WATCH("save", ctl_save()); last_save = t; }
 		}
-poll:;
 		int wait = (int)(g_next > now_ms() ? g_next - now_ms() : 0);
 		STALL_WATCH("http", http_poll(wait));
 	}

@@ -62,9 +62,9 @@ share) and `/udisk-sda1`, `/udisk-sda` (USB).
 | Item | Effect on the real machine | Where |
 |---|---|---|
 | ~~Move-done acknowledge~~ **solved**: `0x67` is a motion watchdog. Motion verified step-exact on the unit (0 faults, Reset overrun ≤ 1 mm) | — | [docs/fpga-motion.md](../docs/fpga-motion.md) |
-| Bursts are stop-go (only into an idle axis); no motor tested yet | Check smoothness with a real stepper | `core/motion.c` emit() |
+| Blocks play back to back (burst mode removed 2026-11-02); no motor tested yet | Check smoothness with a real stepper | `core/motion.c` emit_block() |
 | FPGA ceiling ~40 000 steps/s (1200 mm/min here) | Max speed | `hal/fpga.h` FPGA_MAX_SPS |
-| `0x04 = 4` mid-move holds the axis until power-off | Never used by the app | `hal/fpga.c` fpga_stop() |
+| `0x04 = 4` mid-move holds the axis until power-off (burst mode; untested with blocks) | Never used by the app | docs/fpga-motion.md |
 | Vendor home offset `#214/#215` semantics | Ours: "position at switch" (default 0) + back-off | `core/settings.c` |
 | Limit level "High" (NC) with no switches wired (desk unit) | Every limit reads active → LIMIT at start-up; set *Limit/home active when open* OFF on the desk | Settings › Homing & limits |
 | Probe input not wired | Probe routines refuse | — |

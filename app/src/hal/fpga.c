@@ -1,18 +1,9 @@
 #include "fpga.h"
 #include "fpga_regs.h"
 
-/* Rate words of a burst (measured on the unit 2026-10-18, docs/fpga-motion.md):
- * A (0x12/0x13) = half the top step rate in steps/s; B (0x14/0x15) scales the FPGA's own
- * acceleration ramp. The vendor jogs with A = 0x208D (~16 700 steps/s), B = 0x2710. We set A
- * from the planner's speed and B high, so the planner - not the FPGA - shapes the ramp. */
-#define RATE_A 0x208Du
-#define RATE_B 0x2710u
-#define RATE_B_FAST 0x1000000u   /* measured: 400 steps at 50k/s take 80 ms with B = 0x9C40 (FPGA ramp),
-                                  * 8 ms with B = 0x1000000 (no ramp) - our planner does the ramping */
-
 void fpga_attach(fpga_t *f, bus_t *b)
 {
-	*f = (fpga_t){ .bus = b };   /* zeroes bursts, writes, blocks, block_seq, virt[] */
+	*f = (fpga_t){ .bus = b };   /* zeroes writes, blocks, block_seq, virt[] */
 	for (int a = 0; a < NAXES; a++) f->chan[a] = (int8_t)a;
 	f->last_mpg = bus_r(b, FR_MPG_COUNT);
 }
@@ -136,44 +127,16 @@ void fpga_set_outputs(fpga_t *f, uint8_t mask)
 
 void fpga_spindle_pwm(fpga_t *f, int duty) { bus_pwm(f->bus, CLAMP(duty, 0, 3000)); }
 
-void fpga_burst(fpga_t *f, int axis, int32_t steps, uint32_t rate)
-{
-	if (!steps)
-		return;
-	if (f->chan[axis] < 0) { f->virt[axis] += steps; return; }   /* no output: count, send nothing */
-	axis = f->chan[axis];
-	uint32_t n = (uint32_t)(steps < 0 ? -steps : steps);
-	uint32_t ra = rate ? (rate + 1) / 2 : RATE_A, rb = rate ? RATE_B_FAST : RATE_B;
-	if (ra < 16) ra = 16;
-	bus_t *b = f->bus;
-	bus_w(b, FW_AXIS_SEL, (uint16_t)axis);
-	bus_w(b, FW_RATE_A_LO, (uint16_t)(ra & 0xFFFF)); bus_w(b, FW_RATE_A_HI, (uint16_t)(ra >> 16));
-	bus_w(b, FW_RATE_B_LO, (uint16_t)(rb & 0xFFFF)); bus_w(b, FW_RATE_B_HI, (uint16_t)(rb >> 16));
-	bus_w(b, FW_STEPS_LO, (uint16_t)(n & 0xFFFF));
-	bus_w(b, FW_STEPS_HI, (uint16_t)(n >> 16));
-	bus_w(b, FW_MOVE_MODE, 2);
-	bus_w(b, FW_MOVE_CMD, steps > 0 ? 3 : 1);   /* ASSUMPTION: DIR bit set = positive */
-	bus_w(b, FW_MOVE_CMD, 0);
-	f->bursts++;
-	f->writes += 10;
-}
-
-void fpga_status_sweep(fpga_t *f)
-{
-	bus_w(f->bus, FW_STATUS_ACK, 0);
-	for (int ax = 0; ax < NAXES; ax++)
-		bus_w(f->bus, FW_AXIS_SEL, (uint16_t)ax);
-}
-
-/* stepping: burst bit 8+n, or a block playing (4+n / 12+n); not the burst's active bit n,
- * which stays set on a held axis */
-bool fpga_busy(fpga_t *f) { return (bus_r(f->bus, FR_STATUS) & 0xFFF0) != 0; }
-/* moving = burst active (bit n) or stepping (8+n), or block layout (4+n, 12+n, measured
- * 0x2020 for channel 1 2026-11-01): a reversal or a preset is only safe when all are clear */
+/* a block playing on channel ch sets bits 4+ch and 12+ch (0x2020 measured for channel 1,
+ * 2026-11-01). The burst-mode layout (bits ch, 8+ch) is not read since burst mode was
+ * removed (2026-11-02): nothing in a block stream was ever seen to set it. */
+#define STATUS_BLOCK_BITS 0xF0F0u
+bool fpga_busy(fpga_t *f) { return (bus_r(f->bus, FR_STATUS) & STATUS_BLOCK_BITS) != 0; }
+/* a preset is only safe when no channel is playing */
 uint8_t fpga_moving(fpga_t *f)
 {
 	uint16_t s = bus_r(f->bus, FR_STATUS);
-	uint8_t ch = (uint8_t)((s | s >> 4 | s >> 8 | s >> 12) & 0x0F), ax = 0;
+	uint8_t ch = (uint8_t)((s >> 4 | s >> 12) & 0x0F), ax = 0;
 	for (int a = 0; a < NAXES; a++) if (f->chan[a] >= 0 && (ch >> f->chan[a] & 1)) ax |= (uint8_t)(1u << a);
 	return ax;
 }
@@ -201,13 +164,4 @@ void fpga_preset(fpga_t *f, int axis, int32_t steps)
 	bus_w(f->bus, FW_POS_PRESET, 1);
 	bus_w(f->bus, FW_POS_PRESET, 0);
 	bus_w(f->bus, FW_AXIS_SEL, 0x0F);
-}
-
-void fpga_stop(fpga_t *f, int axis)
-{
-	if (f->chan[axis] < 0) return;
-	axis = f->chan[axis];
-	bus_w(f->bus, FW_AXIS_SEL, (uint16_t)axis);
-	bus_w(f->bus, FW_MOVE_CMD, 4);
-	bus_w(f->bus, FW_MOVE_CMD, 0);
 }

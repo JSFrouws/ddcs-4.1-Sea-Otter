@@ -43,8 +43,7 @@ typedef struct {
 	int pendant_follow;        /* 0 exact: every click is moved; 1 velocity: the axis stops ~100 ms after the wheel, surplus dropped */
 	int pendant_smooth_ms;     /* wheel speed = distance still queued / this time (0 = full speed per click) */
 	int approach_pct;          /* % of max_speed allowed towards a limit inside the approach zone (bench..soft, >= 10 mm) */
-	bool block_mode;           /* continuous motion through the FPGA's block queue (2026-11-01); off = the old burst mode */
-	int queue_ms;              /* block mode: motion kept queued in the FPGA = jog/wheel latency, absorbs loop jitter */
+	int queue_ms;              /* motion kept queued in the FPGA = jog/wheel latency, absorbs loop jitter */
 	bool wheel_reverse;        /* flip the raw count: on this pendant clockwise counts DOWN */
 	bool api; int api_port; bool remote_start; int start_delay; bool agent_msgs;
 	/* what the API may do, each on its own (panel only; user 2026-10-24: whatever can hurt

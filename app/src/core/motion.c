@@ -4,17 +4,9 @@
 #include "settings.h"
 #include "../perf.h"
 
-/* What idle-only bursts can sustain per axis: each burst costs ~2 ms of start overhead and the
- * next one may only go in once the axis is idle again, so a plan at the full 40 000 steps/s
- * builds a backlog of unsent steps - which a stop then still has to send (measured: 2-3.5 mm
- * stop overshoot at 20 mm/s). Planning at 80 % keeps the backlog near zero. */
-#define FPGA_SUSTAIN_SPS (FPGA_MAX_SPS * 0.8)
-/* block mode plays the queue back to back: the full 40 000 steps/s is sustainable (the 80 %
- * left room for the ~2 ms start of every burst) */
-static double sustain_sps(void) { return SET.block_mode ? FPGA_MAX_SPS : FPGA_SUSTAIN_SPS; }
-/* steps in one burst, at most: whatever is in flight can't be recalled by a stop */
-#define BURST_MAX_S 0.080   /* 2026-11-01: was 0.030; a frame is 70-100 ms and each burst costs ~2.3 ms dead; E-stop/Reset cut a burst via the FPGA stop */
-/* longest kinematic step inside one tick (see motion_tick) */
+/* the FPGA plays its block queue back to back: the full 40 000 steps/s is sustainable */
+#define SUSTAIN_SPS ((double)FPGA_MAX_SPS)
+/* longest kinematic step inside one tick of a dry run (see motion_tick) */
 #define MOTION_SUBSTEP 0.010
 
 int rapid_override(int feed_ov) { return feed_ov < 100 ? feed_ov : 100; }
@@ -39,8 +31,8 @@ void motion_set_pos(motion_t *m, int a, double mm)
 }
 
 /* A steps/mm change must never move anything. pos[] is the commanded position in mm and
- * emit() sends pos * steps/mm - steps, so keeping pos across a new scale turns the difference
- * into one huge burst stream with no ramp and no limits (2026-10-31, X ran +336.6 mm). The
+ * emit_block() sends pos * steps/mm - steps, so keeping pos across a new scale turns the difference
+ * into one huge step stream with no ramp and no limits (2026-10-31, X ran +336.6 mm). The
  * steps are what the motors really did, so they stay and the mm position follows them. */
 static void rescale(motion_t *m)
 {
@@ -98,7 +90,7 @@ bool motion_plan_setup(struct plan *p, const gc_op_t *op, const double start[NAX
 		p->u[a] /= p->len;
 		double c = fabs(p->u[a]);
 		if (c < 1e-9) continue;
-		double cap = fmin(SET.ax[a].max_speed, sustain_sps() / SET.ax[a].steps_per_mm);   /* FPGA limit */
+		double cap = fmin(SET.ax[a].max_speed, SUSTAIN_SPS / SET.ax[a].steps_per_mm);   /* FPGA limit */
 		vcap = fmin(vcap, cap / c);
 		ac = fmin(ac, SET.ax[a].accel / c);
 		jk = fmin(jk, SET.ax[a].jerk / c);
@@ -165,7 +157,7 @@ bool motion_wants_more(const motion_t *m)
 	if (m->qn < SET.lookahead) return true;
 	double vmax = 0, amin = 1e9, jmin = 1e12;
 	for (int a = 0; a < NAXES; a++) {
-		vmax = fmax(vmax, fmin(SET.ax[a].max_speed, sustain_sps() / SET.ax[a].steps_per_mm));
+		vmax = fmax(vmax, fmin(SET.ax[a].max_speed, SUSTAIN_SPS / SET.ax[a].steps_per_mm));
 		amin = fmin(amin, SET.ax[a].accel); jmin = fmin(jmin, SET.ax[a].jerk);
 	}
 	/* deep enough for the PLANNER to see a stop from top speed: it plans with the S-curve's
@@ -263,7 +255,7 @@ void motion_stop(motion_t *m, bool immediate)
 		/* Measured on the unit: when the FPGA can't keep up (40 000 steps/s cap, render stalls)
 		 * the plan runs ahead of what was sent, and a decelerating stop still sends that backlog
 		 * (5+ mm overrun at 1200 mm/min). So a stop drops every planned-but-unsent step: the
-		 * machine stops at the end of the burst already in flight (one slice, ~0.2 mm). */
+		 * machine stops once the blocks already in the FPGA's queue have played (<= queue_ms). */
 		for (int a = 0; a < NAXES; a++) m->pos[a] = (double)m->steps[a] / SET.ax[a].steps_per_mm;
 		immediate = true;
 	}
@@ -273,10 +265,10 @@ void motion_stop(motion_t *m, bool immediate)
 	if (m->dry) immediate = true;
 	if (immediate || !m->active || m->v < 1e-6) { m->active = false; m->v = 0; m->a = 0; m->stopping = false; m->hold = false; }
 	else begin_brake(m);
-	/* block mode: what is already queued in the FPGA (<= queue_ms) would still play; the mode
-	 * flush is our candidate for emptying it (to be measured). The counters are then the
-	 * truth: steps[] is adopted from them at rest without a position-fault toast. */
-	if (immediate && SET.block_mode && !m->dry && m->q_est > 0) { fpga_block_flush(m->f); m->q_est = 0; m->stop_resync = true; }
+	/* what is already queued in the FPGA (<= queue_ms) would still play; the mode flush is
+	 * our candidate for emptying it (to be measured). The counters are then the truth:
+	 * steps[] is adopted from them at rest without a position-fault toast. */
+	if (immediate && !m->dry && m->q_est > 0) { fpga_block_flush(m->f); m->q_est = 0; m->stop_resync = true; }
 	bool coasting = false;
 	for (int a = 0; a < NAXES; a++) coasting |= fabs(m->jv[a]) > 1e-12;
 	if (brake && coasting) begin_brake(m);                      /* run_simple clears it at rest */
@@ -318,89 +310,6 @@ static bool next_op(motion_t *m)
 		return m->active;
 	}
 	return false;
-}
-
-/* One burst per axis per slice, and ONLY into an idle axis. Measured on the unit: a burst sent
- * while the axis is still active is unreliable - an opposite one is ignored, and appending even
- * in the same direction loses steps at certain timings (docs/fpga-motion.md). A burst into an
- * idle axis has been step-exact in every test. So a busy axis just keeps its steps for the next
- * slice. The rate is chosen so each burst (incl. the FPGA's ~2 ms start overhead) ends inside
- * its slice and the axis is idle again when the next one is due. */
-static int emit(motion_t *m, double dt)
-{
-	int bursts = 0;
-	uint8_t moving = m->hw_busy;
-	for (int a = 0; a < NAXES; a++) {
-		int64_t d = llround(m->pos[a] * SET.ax[a].steps_per_mm) - m->steps[a];
-		if (!d) continue;
-		/* a delta no plan can produce: more than a whole second at the axis' top speed (the
-		 * legitimate backlog is a few mm). Refuse it rather than send it */
-		double top = fmin(SET.ax[a].max_speed * SET.ax[a].steps_per_mm, FPGA_MAX_SPS);
-		if ((d > 0 ? d : -d) > (int64_t)top + 100) {
-			m->runaway = a + 1;
-			motion_stop(m, true);
-			for (int k = 0; k < NAXES; k++) m->pos[k] = (double)m->steps[k] / SET.ax[k].steps_per_mm;
-			memcpy(m->plan_end, m->pos, sizeof m->plan_end);
-			memcpy(m->emit_pos, m->pos, sizeof m->emit_pos);
-			m->home.on = false;
-			return bursts;
-		}
-		/* level gate: braking (stopping) and homing may run on into a switch, nothing else */
-		if (!m->dry && !m->stopping && !m->home.on && m->burst_blocked && m->burst_blocked(a, d > 0 ? 1 : -1)) {
-			m->blocked++;
-			m->pos[a] = (double)m->steps[a] / SET.ax[a].steps_per_mm;   /* drop it, don't bank it */
-			if (!m->qn) m->plan_end[a] = m->pos[a];
-			continue;
-		}
-		double spm = SET.ax[a].steps_per_mm;
-		double planned = fabs(m->pos[a] - m->emit_pos[a]) * spm / (dt > 1e-4 ? dt : 1e-4);
-		/* a burst is at most BURST_MAX_S of the planned motion (the stop latency): in steps of the
-		 * top rate it was 1200 steps = 150 ms at a jog's 8000 steps/s (2026-11-01) */
-		int64_t dmax = (int64_t)((planned > 100 ? planned * 1.2 : FPGA_MAX_SPS) * BURST_MAX_S);
-		if (dmax < 20) dmax = 20;
-		if (d > dmax) d = dmax; else if (d < -dmax) d = -dmax;
-		int dir = d > 0 ? 1 : -1;
-		m->last_dir[a] = dir;
-		if (!m->dry) {
-			if (moving & (1u << a)) { m->deferred++; continue; }
-		}
-		m->burst_dir[a] = dir;
-		/* Pacing (2026-10-31, measured with a motor and the trace): the rate follows the PLANNED
-		 * speed, not "these steps within this slice": sized to the slice, a burst still running
-		 * when the next slice came made it skip and send double next time - 2x speed spikes
-		 * and stops, the jerk felt on the machine. Since 2026-11-01 the main loop slices a whole
-		 * burst ahead at the moment the previous burst ends (burst_end_us), so bursts are long
-		 * and back to back; the rate then only has to cover the FPGA's ~2 ms start per burst
-		 * (+11 % on a 25 ms burst) - a larger surplus made the planner run ahead of the motors.
-		 * A real backlog (a late slice) drains within ~120 ms. Without a planned speed (the last
-		 * steps of a move, a stop) the old rule: fit burst + ~2 ms overhead into 85 % of the slice. */
-		double ad = (double)(d > 0 ? d : -d);
-		double win = dt * 0.85 - 0.002;
-		double r = ad / (win > 0.002 ? win : 0.002);
-		/* not while homing: there the counter is preset mid-search, so every burst must be done
-		 * by the next slice (a longer burst still stepping at the preset ran the sim 20 steps off) */
-		/* the burst must be over when its planned time is: its steps in that time less the
-		 * FPGA's 2.3 ms start, so planned and real time stay in step (a fixed +11 % let the
-		 * planner creep ahead of the motors) */
-		if (planned > 100 && !m->home.on) r = fmax(ad / fmax(ad / planned - 0.0023, 0.002), ad / 0.120);
-		/* never faster than the axis' own top speed + 15 % (review 2026-10-31): a backlog after a
-		 * stall drains at most that fast, or it is the same spike again - a stepper stalls on it */
-		r = fmin(r, fmax(top * 1.15, planned * 1.15 + 50));   /* top: the guard's max_speed rate above */
-		uint32_t rate = r > FPGA_MAX_SPS ? FPGA_MAX_SPS : (uint32_t)r + 1;
-		m->rate[a] = rate;
-		/* when this burst ends: the loop slices a burst ahead right then (main.c). 2 ms = the
-		 * FPGA's start overhead, 0.3 ms late so the axis reads idle */
-		m->burst_end_us[a] = now_us() + (uint64_t)(ad / rate * 1e6) + 2300;
-		if (PERF.debug && !m->dry) fprintf(stderr, "%llu burst %c %lld steps rate %u planned %.0f dt %.0f ms -> ends +%.1f ms\n",
-			(unsigned long long)now_us() / 1000, "XYZA"[a], (long long)d, rate, planned, dt * 1000, ad / rate * 1000 + 2.3);
-		while (d) {                                   /* bursts are 32-bit */
-			int32_t n = d > 0x7FFFFFFF ? 0x7FFFFFFF : d < -0x7FFFFFFF ? -0x7FFFFFFF : (int32_t)d;
-			if (!m->dry) fpga_burst(m->f, a, n, rate);
-			m->steps[a] += n; d -= n; bursts++;
-		}
-	}
-	memcpy(m->emit_pos, m->pos, sizeof m->emit_pos);
-	return bursts;
 }
 
 /* S-curve step: move the acceleration towards `want` by at most jerk*dt, then the speed */
@@ -560,7 +469,7 @@ static void run_simple(motion_t *m, double dt)
 	 * rest exactly on the limit. */
 	bool any = false;
 	for (int a = 0; a < NAXES; a++) {
-		double vcap = fmin(SET.ax[a].max_speed, sustain_sps() / SET.ax[a].steps_per_mm);
+		double vcap = fmin(SET.ax[a].max_speed, SUSTAIN_SPS / SET.ax[a].steps_per_mm);
 		int s = 0; double dist = 0;
 		bool jog = m->jog_dir && m->jog_axis == a, wheel = fabs(m->nudge[a]) > 1e-9;
 		/* the wheel's own speed, averaged over ~80 ms: a pendant is not a smooth input (hard
@@ -652,8 +561,7 @@ static void run_home(motion_t *m, double dt)
 		if (m->home.travel > 25) {                     /* switch never releases */ m->home.on = false; m->ev = MEV_HOME_FAIL; }
 		break;
 	case 2:                                            /* this is the reference */
-		/* the counter is preset only once the FPGA has played everything (block mode: the
-		 * queue; burst mode: a burst still stepping once ran the sim 20 steps off) */
+		/* the counter is preset only once the FPGA has played its whole queue */
 		if (m->q_est > 0 || m->hw_busy) break;
 		motion_set_pos(m, a, s->home_pos);
 		fpga_preset(m->f, a, (int32_t)m->steps[a]);      /* FPGA counter = machine coordinate */
@@ -667,10 +575,11 @@ static void run_home(motion_t *m, double dt)
 	}
 }
 
-/* ---- block mode (2026-11-01, docs/block-mode.md): one block per 10 ms carrying all axes ---- */
+/* ---- blocks (2026-11-01, docs/block-mode.md): one block per 10 ms carrying all axes ---- */
 #define BLOCK_DT 0.010
 
-/* the step deltas of this block, gated: a refused (runaway) or blocked axis is rebased */
+/* the step deltas of this block, gated: a refused (runaway) or blocked axis is rebased.
+ * A dry run counts the steps and sends nothing. */
 static int emit_block(motion_t *m)
 {
 	int32_t d[NAXES]; bool any = false;
@@ -678,7 +587,9 @@ static int emit_block(motion_t *m)
 		double spm = SET.ax[a].steps_per_mm;
 		int64_t dd = llround(m->pos[a] * spm) - m->steps[a];
 		double top = fmin(SET.ax[a].max_speed * spm, FPGA_MAX_SPS);
-		if ((dd > 0 ? dd : -dd) > (int64_t)top + 100) {   /* a delta no plan can produce (see emit) */
+		/* a delta no plan can produce: more than a whole second at the axis' top speed (the
+		 * legitimate backlog is a few mm). Refuse it rather than send it */
+		if ((dd > 0 ? dd : -dd) > (int64_t)top + 100) {
 			m->runaway = a + 1;
 			motion_stop(m, true);
 			for (int k = 0; k < NAXES; k++) m->pos[k] = (double)m->steps[k] / SET.ax[k].steps_per_mm;
@@ -687,7 +598,8 @@ static int emit_block(motion_t *m)
 			m->home.on = false;
 			return 0;
 		}
-		if (dd && !m->dry && !m->stopping && !m->home.on && m->burst_blocked && m->burst_blocked(a, dd > 0 ? 1 : -1)) {
+		/* level gate: braking (stopping) and homing may run on into a switch, nothing else */
+		if (dd && !m->dry && !m->stopping && !m->home.on && m->axis_blocked && m->axis_blocked(a, dd > 0 ? 1 : -1)) {
 			m->blocked++;
 			m->pos[a] = (double)m->steps[a] / spm;         /* drop it, don't bank it */
 			if (!m->qn) m->plan_end[a] = m->pos[a];
@@ -697,12 +609,11 @@ static int emit_block(motion_t *m)
 		if (dd) { m->last_dir[a] = dd > 0 ? 1 : -1; any = true; }
 	}
 	memcpy(m->emit_pos, m->pos, sizeof m->emit_pos);
-	if (PERF.debug) fprintf(stderr, "%llu emit: d %d %d %d %d active %d qn %d v %.3f jv %.3f %.3f %.3f ev %d\n", (unsigned long long)now_us() / 1000,
+	if (PERF.debug && !m->dry) fprintf(stderr, "%llu emit: d %d %d %d %d active %d qn %d v %.3f jv %.3f %.3f %.3f ev %d\n", (unsigned long long)now_us() / 1000,
 		d[0], d[1], d[2], d[3], m->active, m->qn, m->v, m->jv[0], m->jv[1], m->jv[2], (int)m->ev);
 	if (!any) return 0;
-	if (!m->dry) fpga_block(m->f, d, BLOCK_DT);
+	if (!m->dry) { fpga_block(m->f, d, BLOCK_DT); m->blocks++; }
 	for (int a = 0; a < NAXES; a++) m->steps[a] += d[a];
-	m->blocks++;
 	return 1;
 }
 
@@ -743,18 +654,21 @@ static void tick_blocks(motion_t *m, double dt)
 void motion_tick(motion_t *m, double dt)
 {
 	if (dt <= 0) return;                                 /* planned time is ahead of real time: nothing to plan or send */
-	/* the FPGA follows the setting (and fpga_init resets what it was told: ctl_apply_axis_config) */
-	if (!m->dry && m->fpga_mode != (int8_t)SET.block_mode) { fpga_block_mode(m->f, SET.block_mode); m->fpga_mode = (int8_t)SET.block_mode; }
-	if (SET.block_mode && !m->dry) { tick_blocks(m, dt); return; }
-	m->hw_busy = m->dry ? 0 : fpga_moving(m->f);
+	if (!m->dry) {
+		/* block mode is set once (fpga_init resets it: ctl_apply_axis_config clears fpga_mode) */
+		if (m->fpga_mode != 1) { fpga_block_mode(m->f, true); m->fpga_mode = 1; }
+		tick_blocks(m, dt);
+		return;
+	}
+	/* simulate (dry run): no FPGA, so no queue to pace by - the wall clock drives the planner */
+	m->hw_busy = 0;
 	rescale(m);
 	if (m->stopping && (m->stop_left -= dt) < 0) { motion_stop(m, true); m->stop_cut = true; }
 	if (m->home.on) run_home(m, dt);
 	else {
 		/* the path in steps of at most 10 ms, however long this tick was: the braking and
-		 * S-curve decisions are taken per step, so a late tick (a screen redraw) no longer
-		 * makes the machine brake early - measured: a 32 ms tick every 18 made a 1200-segment
-		 * engraving 2.4 % slower than at steady 10 ms ticks. Still one burst per tick. */
+		 * S-curve decisions are taken per step, so a late tick (a screen redraw) does not
+		 * make the machine brake early */
 		for (double left = dt; left > 1e-9; ) {
 			double step = left > MOTION_SUBSTEP ? MOTION_SUBSTEP : left;
 			run_lines(m, step);
@@ -762,8 +676,5 @@ void motion_tick(motion_t *m, double dt)
 		}
 		run_simple(m, dt);
 	}
-	if (emit(m, dt) && !m->dry) {
-		fpga_status_sweep(m->f);      /* as the vendor app does after its bursts */
-		m->hw_busy = fpga_moving(m->f);
-	}
+	emit_block(m);
 }

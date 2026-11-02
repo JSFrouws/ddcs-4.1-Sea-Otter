@@ -25,8 +25,8 @@ void fx_reset(void)
 	remove("t_settings.cfg"); remove("t_work.cfg"); remove("t_work.cfg.pos");
 	program_free(&C.prog);
 	ctl_init(bus, true, "t_settings.cfg", "t_work.cfg");
-	/* block mode with one block queued: the planner advances one 10 ms block per fx tick, as
-	 * the burst-era tests assume; the queue depth itself has its own tests */
+	/* one block queued: the planner advances one 10 ms block per fx tick, which the motion
+	 * tests assume; the queue depth itself has its own tests */
 	SET.queue_ms = 10;
 }
 
@@ -50,7 +50,7 @@ void fx_until_idle(int max_ms)
 {
 	for (int t = 0; t < max_ms; t += TICK_MS) {
 		fx_run(TICK_MS);
-		if (motion_idle(&C.mo) && (C.m == M_IDLE || C.m == M_LIMIT) && !SIM.left[0] && !SIM.left[1] && !SIM.left[2] && !SIM.left[3]) {
+		if (motion_idle(&C.mo) && (C.m == M_IDLE || C.m == M_LIMIT)) {
 			fx_run(20);
 			return;
 		}

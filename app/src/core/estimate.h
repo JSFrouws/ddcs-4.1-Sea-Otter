@@ -34,9 +34,9 @@
  * unit the FPGA adds a little (measured: see docs/app-architecture.md). Hence a tiny margin. */
 #define EST_XMARGIN 1.003
 #define EST_XMARGIN_S 0.05
-/* block mode (2026-11-01): the FPGA plays its queue out after the planner is done, and the
- * end is seen on the next tick + heartbeat; a replay came out 0.3 % under a 16.5 s run */
-#define EST_END_S (SET.block_mode ? SET.queue_ms / 1000.0 + 0.08 : 0)
+/* the FPGA plays its block queue out after the planner is done, and the end is seen on the
+ * next tick + heartbeat; a replay came out 0.3 % under a 16.5 s run (2026-11-01) */
+#define EST_END_S (SET.queue_ms / 1000.0 + 0.08)
 
 /* work on the loaded program's estimate for about budget_ms (call every tick); true = done */
 bool est_background(int budget_ms);

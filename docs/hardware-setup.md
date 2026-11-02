@@ -18,8 +18,8 @@ the limit/home switches connected.
   `axis.A.output` = `-`. X keeps its own `dir_invert` (it belongs to the drive's wiring).
 - **Switch overtravel vs. braking:** limit stops and the E-stop brake on the ramp
   (`motion.graceful_stop`), and braking is not blocked by a tripped switch. Travel past the
-  switch point = v·t_tick (the switch is polled once per tick, up to 34 ms seen) + v·t_burst
-  (one burst in flight, ~30 ms) + v²/2A + vA/2J, at the highest speed the axis reaches
+  switch point = v·t_tick (the switch is polled once per tick, up to 34 ms seen) + v·t_queue
+  (the blocks already queued in the FPGA, `motion.queue_ms`, 50 ms) + v²/2A + vA/2J, at the highest speed the axis reaches
   (`max_vel`, also G0; settings of 2026-10-31):
 
   | axis | max_vel | accel / jerk | detection | in flight | braking | **total** |

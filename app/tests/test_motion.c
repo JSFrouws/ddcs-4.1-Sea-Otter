@@ -25,7 +25,7 @@ void test_motion(void)
 		fx_run(10);
 		double dx = phys(0) - prev[0], dy = phys(1) - prev[1];
 		(void)dx; (void)dy;
-		double v = m->v * 60;                 /* commanded path speed (the motor's per-tick distance is lumpy: stop-go bursts) */
+		double v = m->v * 60;                 /* commanded path speed */
 		if (v > maxv) maxv = v;
 		prev[0] = phys(0); prev[1] = phys(1);
 	}
@@ -33,7 +33,7 @@ void test_motion(void)
 	CHECK(motion_idle(m));
 	CHECK_NEAR(phys(0), t[0], 0.0005); CHECK_NEAR(phys(1), t[1], 0.0005);
 	CHECK(m->steps[0] == llround(t[0] * 2000));
-	/* feed, or the per-axis sustained-burst cap along this direction (X carries 20/sqrt(500) of the path) */
+	/* feed, or the per-axis FPGA cap along this direction (X carries 20/sqrt(500) of the path) */
 	double cap = fmin(1200, CAP_SPS / 2000 * 60 / (20 / sqrt(500.0)));
 	CHECK(maxv <= cap * 1.02);
 	CHECK(maxv >= cap * 0.95);
@@ -84,25 +84,20 @@ void test_motion(void)
 	CHECK(at100 - x0 > 0.005 && at100 - x0 < 0.0365);  /* under way, the last bit settling */
 	CHECK_NEAR(phys(0), x0 + 0.037, 0.00051);
 
-	/* a long rapid: bursts respect the FPGA ceiling measured on the unit (40 000 steps/s) */
-	uint32_t b0 = C.fp.bursts;
+	/* a long rapid: blocks respect the FPGA ceiling measured on the unit (40 000 steps/s) */
+	uint32_t b0 = C.fp.blocks;
 	memcpy(t, m->pos, sizeof t);
 	t[1] += 100;
 	motion_move_to(m, t, 0, true);
 	fx_until_idle(10000);
-	CHECK(C.fp.bursts + C.fp.blocks > b0);                  /* a motion command of either kind went out */
+	CHECK(C.fp.blocks > b0);
 	CHECK_NEAR(phys(1), t[1], 0.0005);
 	CHECK(SIM.crashes == 0);
 
-	/* zig-zag: every corner reverses X; the FPGA would ignore a reversal while still stepping,
-	 * so motion holds it back - and not one step is lost */
-	uint32_t d0 = m->deferred;
+	/* zig-zag: every corner reverses X, from one block to the next - and not one step is lost */
 	memcpy(t, m->pos, sizeof t);
 	for (int i = 0; i < 12; i++) { t[0] += (i & 1) ? -3 : 3; t[1] += 0.5; motion_move_to(m, t, 2400, false); }
 	fx_until_idle(30000);
 	CHECK_NEAR(phys(0), t[0], 0.0005); CHECK_NEAR(phys(1), t[1], 0.0005);
 	CHECK(SIM.ignored_cmds == 0);
-	CHECK(m->deferred >= d0);
-	/* bursts carry the planner's speed: 1200 mm/min = 40 000 steps/s -> rate word 25 000 */
-	CHECK(SIM.bank[0][0x12] > 0);
 }

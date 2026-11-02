@@ -8,7 +8,9 @@ which turned out to be two missing halves of the FPGA initialisation (pauses, 31
 reads, e6507bc - fpga-motion.md "INITIALISATION problem"). **Proven on a cold-booted unit
 2026-11-02** (local-345: jogs and `trace_square.nc` over the API, queue 0 and no halt after
 each; motors disconnected, so smoothness by ear is still to be judged). Replaces the burst
-emitter for jog, wheel, programs and homing; burst mode is being removed (owner's decision)._
+emitter for jog, wheel, programs and homing; **burst mode was removed 2026-11-02** (owner's
+decision): blocks are the only motion path, and `motion.block_mode` is gone (an old saved
+key is ignored on load)._
 
 ## The contract with the FPGA (what we rely on, all measured)
 
@@ -22,11 +24,12 @@ emitter for jog, wheel, programs and homing; burst mode is being removed (owner'
   `w8` = dominant steps; `w10/w12/w14` = the remaining axes' steps in index order.
 - `R 0x36` = blocks queued (`0xff` = full). An empty queue stops the axis; the next block
   resumes it. Direction may change from one block to the next.
-- The `0x67` watchdog must keep being written (as for bursts) or nothing plays.
+- The `0x67` watchdog must keep being written or nothing plays.
 - Before a stream the vendor writes, per axis, `W 00=a; W 42=0x30+a; W 00=0x0f`; after it
   `0x20+a`. We do the same (`fpga_block_mode`). Nothing else is needed.
 - Status `0x01` while a block stream runs on channel 1 reads `0x2020`: bits 4+ch and
-  12+ch — a different layout from burst mode (bits ch and 8+ch). `fpga_moving()` ORs both.
+  12+ch — a different layout from burst mode (bits ch and 8+ch). `fpga_moving()` reads the
+  block layout only since burst mode was removed.
 - Open (to be measured): what a mid-stream `0x04 = 4` does in block mode; whether the mode
   write `0x20+a` flushes the queue.
 
@@ -41,14 +44,13 @@ is absorbed by the queue as long as it is refilled before it runs dry.
 
 ```
 motion_tick(m, wall_dt):                     every wall tick (10 ms) and every ui_yield
-    if block mode:
-        q = fpga_block_queue()               blocks still queued
-        while q < target && planner moves:   target = motion.queue_ms / 10 (+ frame top-up)
-            plan one 10 ms block (run_lines / run_simple / run_home with dt = 0.010)
-            emit_block(): one block carrying all four axes' step deltas; q++
-        (nothing to move: one planner step per wall tick, no block — the wheel's
-         averaging and the jog ramps keep wall time)
-    else: the burst path, unchanged
+    q = fpga_block_queue()                   blocks still queued
+    while q < target && planner moves:       target = motion.queue_ms / 10 (+ frame top-up)
+        plan one 10 ms block (run_lines / run_simple / run_home with dt = 0.010)
+        emit_block(): one block carrying all four axes' step deltas; q++
+    (nothing to move: one planner step per wall tick, no block — the wheel's
+     averaging and the jog ramps keep wall time)
+    (a dry run / Simulate: the planner follows wall_dt, steps are counted, nothing is sent)
 ```
 
 - `motion_t.steps[]` = steps *sent* (ahead of the FPGA by ≤ the queue depth). The counters
@@ -62,11 +64,11 @@ motion_tick(m, wall_dt):                     every wall tick (10 ms) and every u
 
 ## What stays, what changes
 
-| area | burst mode (kept behind the setting) | block mode |
+| area | burst mode (removed 2026-11-02) | block mode |
 |---|---|---|
 | planner (`run_lines`, `run_simple`, S-curve, jerk, lookahead) | unchanged | unchanged — it produces per-axis positions per 10 ms |
 | emit | one burst per axis into an idle axis, rate pacing, deferrals, `BURST_MAX_S`, burst-end wake | one block per 10 ms with all axes; no deferral, no cap, no wake |
-| level gate `burst_blocked` (E-stop, drives off, tripped switch) | per axis per burst | per axis per block: that axis' steps are dropped (position rebased), the others go |
+| level gate `axis_blocked` (was `burst_blocked`; E-stop, drives off, tripped switch) | per axis per burst | per axis per block: that axis' steps are dropped (position rebased), the others go |
 | runaway guard (a delta no plan can produce) | refuse + stop | same |
 | graceful stop | planner brakes | same: the brake is in the blocks |
 | immediate stop | drop unsent steps; the burst in flight finishes | drop unsent steps; `fpga_block_flush()` (mode off/on) — to be measured; worst case the queue (≤ 50 ms) plays out |
@@ -81,9 +83,9 @@ motion_tick(m, wall_dt):                     every wall tick (10 ms) and every u
 
 - `hal/bus.h`, `bus_ioctl.c`, `bus_sim.c`: `bus_block(b, w[16])` (ioctl `0x4622` / sim).
 - `hal/fpga.h`, `fpga.c`: `fpga_block_mode()`, `fpga_block()` (axes → channels, the word
-  layout), `fpga_block_queue()`, `fpga_moving()` for both layouts, `fpga_block_flush()`.
+  layout), `fpga_block_queue()`, `fpga_moving()` (block layout), `fpga_block_flush()`.
 - `sim/fpga_sim.c`: the queue model. `tests/test_fpga.c`: encoding and model tests.
 - `core/motion.c`: `emit_block()`, the queue-driven tick, homing drain wait, `motion_idle`.
-- `core/settings.c`: `motion.block_mode` (default on), `motion.queue_ms` (default 50).
+- `core/settings.c`: `motion.queue_ms` (default 50). (`motion.block_mode` removed 2026-11-02.)
 - `main.c`: wall-cadence ticks, `motion_feed_ahead` before a frame; wake code removed.
 - `net/api.c`, `core/ctl_tick.c`: status fields, trace columns.

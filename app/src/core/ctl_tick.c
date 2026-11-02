@@ -20,10 +20,10 @@ static bool level_active(int port, bool active_high)
 
 static bool switch_active(int axis) { return level_active(SET.ax[axis].home_port, SET.limit_level_high); }
 
-/* the level gate under every burst (motion.c emit): E-stop and drives off stop everything, a
+/* the level gate under every block (motion.c emit_block): E-stop and drives off stop everything, a
  * tripped switch its own direction. Edges alone missed a move that never reached the switch
  * edge, and the FPGA's own limit function can't be used with NC switches (fpga-motion.md) */
-static bool burst_blocked(int axis, int dir)
+static bool axis_blocked(int axis, int dir)
 {
 	if (C.m == M_ESTOP || C.m == M_OFF) return true;
 	return C.lim_active[axis] && C.lim_dir[axis] == dir;
@@ -33,10 +33,10 @@ static bool burst_blocked(int axis, int dir)
  * every heartbeat (20 ms) the commanded steps and the FPGA counters, while anything moves and
  * one second after. GET /api/v1/trace returns it as CSV; the HTTP poller was far too coarse. */
 #define TRACE_N 4096
-/* mpg/bursts/held (2026-10-31): the wheel latency split - raw wheel count changes -> first
- * burst out (bursts counter) -> FPGA counter moves. Recorded while the pendant is held too,
+/* mpg/blocks/held (2026-10-31): the wheel latency split - raw wheel count changes -> first
+ * block out (blocks counter) -> FPGA counter moves. Recorded while the pendant is held too,
  * so a click at rest is in the trace. */
-static struct { uint32_t t; int64_t cmd[NAXES]; int32_t fpga[NAXES]; uint16_t mpg; uint32_t bursts; uint8_t held, busy, queue; uint16_t tick_us; } trace[TRACE_N];
+static struct { uint32_t t; int64_t cmd[NAXES]; int32_t fpga[NAXES]; uint16_t mpg; uint32_t blocks; uint8_t held, busy, queue; uint16_t tick_us; } trace[TRACE_N];
 static int trace_head, trace_len;
 static uint64_t trace_t0, trace_busy_ms;
 
@@ -50,9 +50,9 @@ static void trace_add(void)
 	if (trace_len < TRACE_N) trace_len++; else trace_head = (trace_head + 1) % TRACE_N;
 	trace[i].t = (uint32_t)(now - trace_t0);
 	for (int a = 0; a < NAXES; a++) { trace[i].cmd[a] = C.mo.steps[a]; trace[i].fpga[a] = C.fpos[a]; }
-	trace[i].mpg = C.fp.last_mpg; trace[i].bursts = C.fp.bursts + C.mo.blocks; trace[i].held = C.pend.held;   /* motion commands sent, either kind */
+	trace[i].mpg = C.fp.last_mpg; trace[i].blocks = C.mo.blocks; trace[i].held = C.pend.held;   /* blocks sent */
 	trace[i].busy = C.mo.hw_busy;                        /* FPGA axes still stepping at this slice (2026-11-01: jog ripple) */
-	trace[i].queue = (uint8_t)(C.mo.q_est > 255 ? 255 : C.mo.q_est);   /* block mode: blocks queued in the FPGA */
+	trace[i].queue = (uint8_t)(C.mo.q_est > 255 ? 255 : C.mo.q_est);   /* blocks queued in the FPGA */
 	trace[i].tick_us = (uint16_t)(PERF.tick_us_last > 65535 ? 65535 : PERF.tick_us_last);   /* the previous tick's cost */
 }
 
@@ -61,13 +61,13 @@ size_t ctl_trace_csv(char **out, bool clear)
 	char *buf = NULL; size_t len = 0;
 	FILE *f = open_memstream(&buf, &len);
 	if (!f) { *out = NULL; return 0; }
-	fprintf(f, "t_ms,x_cmd,x_fpga,y_cmd,y_fpga,z_cmd,z_fpga,a_cmd,a_fpga,x_spm,y_spm,z_spm,a_spm,mpg,bursts,held,busy,tick_us,queue\n");
+	fprintf(f, "t_ms,x_cmd,x_fpga,y_cmd,y_fpga,z_cmd,z_fpga,a_cmd,a_fpga,x_spm,y_spm,z_spm,a_spm,mpg,blocks,held,busy,tick_us,queue\n");
 	for (int k = 0; k < trace_len; k++) {
 		int i = (trace_head + k) % TRACE_N;
 		fprintf(f, "%u", trace[i].t);
 		for (int a = 0; a < NAXES; a++) fprintf(f, ",%lld,%d", (long long)trace[i].cmd[a], trace[i].fpga[a]);
 		for (int a = 0; a < NAXES; a++) fprintf(f, ",%g", SET.ax[a].steps_per_mm);
-		fprintf(f, ",%u,%u,%u,%u,%u,%u\n", trace[i].mpg, trace[i].bursts, trace[i].held, trace[i].busy, trace[i].tick_us, trace[i].queue);
+		fprintf(f, ",%u,%u,%u,%u,%u,%u\n", trace[i].mpg, trace[i].blocks, trace[i].held, trace[i].busy, trace[i].tick_us, trace[i].queue);
 	}
 	fclose(f);
 	if (clear) trace_len = trace_head = 0;
@@ -81,7 +81,7 @@ void ctl_apply_axis_config(void)
 	for (int a = 0; a < NAXES; a++) {
 		const axis_set_t *s = &SET.ax[a];
 		/* Limit and home switches are NOT handed to the FPGA (found on the machine 2026-10-31):
-		 * its own limit function treats a closed input as active and blocks every burst, so
+		 * its own limit function treats a closed input as active and blocks every move, so
 		 * NC switches (closed at rest) froze all three axes. It also cannot brake along the
 		 * path, and with one shared switch per axis it would block moving off it again.
 		 * Limits and homing are entirely in software (switch_active, limits.level_high). */
@@ -92,7 +92,7 @@ void ctl_apply_axis_config(void)
 	int8_t was[NAXES];
 	memcpy(was, C.fp.chan, sizeof was);
 	fpga_init(&C.fp, cfg);
-	C.mo.fpga_mode = -1;                                  /* block / burst mode is told again on the next tick */
+	C.mo.fpga_mode = -1;                                  /* block mode is set again on the next tick */
 	/* an axis moved to another connector: that channel's counter takes over the axis'
 	 * position (counters are per channel), so the position check sees no jump and nothing moves */
 	for (int a = 0; a < NAXES && C.mo.f; a++)             /* C.mo.f: not at start-up, motion owns the position */
@@ -196,7 +196,7 @@ void ctl_init(bus_t *bus, bool sim, const char *cfg_path, const char *wd_path)
 	}
 	motion_init(&C.mo, &C.fp, p);
 	C.mo.switch_active = switch_active;
-	C.mo.burst_blocked = burst_blocked;
+	C.mo.axis_blocked = axis_blocked;
 	C.mo.range = ctl_axis_range;
 	C.resume_line = C.work_done = -1; C.touch_axis = -1; C.limit_axis = -1;
 	C.rpm = SET.spindle_default;
@@ -453,7 +453,7 @@ static void inputs(void)
 	C.pend = fpga_pendant(&C.fp);
 	if (C.m == M_ESTOP || C.m == M_OFF) {                /* motion is not ticked here: keep its view of the FPGA fresh */
 		C.mo.hw_busy = C.mo.dry ? 0 : fpga_moving(&C.fp);
-		if (SET.block_mode && !C.mo.dry) C.mo.q_est = fpga_block_queue(&C.fp);
+		if (!C.mo.dry) C.mo.q_est = fpga_block_queue(&C.fp);
 	}
 	bool ext = level_active(SET.estop_port, SET.estop_level_high), pend = SET.pendant_estop && C.pend.estop;
 	bool es = ext || pend;
@@ -566,7 +566,7 @@ void ctl_tick(double dt)
 	agent_checks();
 	pos_track();
 	est_background(C.m == M_RUN || !motion_idle(&C.mo) ? 1 : 3);   /* the run-time estimate, a little per tick; 3 ms made every jog slice late (2026-11-01) */
-	/* watchdog: without it the FPGA accepts bursts but never steps (measured); it also latches
+	/* watchdog: without it the FPGA accepts motion but never steps (measured); it also latches
 	 * the position counters, which we compare with the commanded steps whenever all is at rest */
 	if (now_ms() - hb >= 20) {
 		hb = now_ms();

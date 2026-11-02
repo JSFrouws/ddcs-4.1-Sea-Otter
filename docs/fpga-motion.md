@@ -30,7 +30,7 @@ Supersedes the "done latch" open item in [fpga-outputs.md](fpga-outputs.md)._
 | Start overhead | ~2 ms per burst on top of steps/rate |
 | No heartbeat | accepted, not stepped; resumes when the heartbeat returns |
 
-## Consequences for the app (implemented in `app/`)
+## Consequences for the app (burst era, until 2026-11-02 - burst mode is removed; the app now streams blocks, see "Block mode" below and [block-mode.md](block-mode.md))
 
 1. **Bursts only go into an idle axis** (`0x01` bits *n* and 8+*n* clear); a busy axis keeps its steps for the next slice.
 2. Rate = steps ÷ (0.85·slice − 2 ms), capped at 40 000 steps/s; B = `0x1000000` so the **planner** does all the ramping and the axes stay synchronised.
@@ -163,7 +163,7 @@ the hardware), one burst carries at most 30 ms. The honest sustained top speed i
 
 ## Still open
 
-- **Real motors**: no motor was connected. Bursts are stop-go (the axis idles ~15 % of each 10 ms slice), which a stepper at speed may not like - check with a motor, or find a safe append.
+- **Real motors**: no motor was connected. (Burst stop-go is gone: since 2026-11-02 the app only streams blocks, which play back to back - smoothness on a real stepper is still to be judged.)
 - **The 40 000 steps/s ceiling** - not in `0x16/17`, `0x2B/2C`; probably another init parameter or the pulse generator itself.
 - **Release of a mid-move stop** - unknown; avoided.
 - ~~The vendor's coordinated block interface (`0x4622` → `0x50…0x60`) would give true interpolation and continuous motion; still not decoded.~~ **Decoded and driven 2026-11-01 — see below.**

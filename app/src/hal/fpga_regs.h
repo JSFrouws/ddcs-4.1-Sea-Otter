@@ -10,20 +10,12 @@
 #define FW_AXIS_SEL     0x00  /* CONFIRMED: banked-register axis select 0..3 = X Y Z A, 0x0F = none */
 #define FW_AXIS_ENABLE  0x01  /* TRACE: banked, per-axis I/O function enables (see fpga_init) */
 #define FW_AXIS_CFG     0x02  /* CONFIRMED: banked, bit1 DIR invert, bit2 pulse idle-high */
-#define FW_MOVE_MODE    0x03  /* TRACE: always 2 for jog bursts */
-#define FW_MOVE_CMD     0x04  /* CONFIRMED: bit0 go, bit1 DIR; written back to 0 after.
-                               * 4 = STOP (CONFIRMED 2026-10-18: decelerates within ~20 ms), but leaves
-                               * the axis in a held state that ignores new bursts - release unknown */
+/* 0x03, 0x04, 0x0A/0x0B, 0x12..0x15, 0x2E: the step-BURST registers (move mode, go/DIR/STOP,
+ * step count, rate words, status ack). Not used since burst mode was removed 2026-11-02;
+ * what was measured about them is in docs/fpga-motion.md. */
 #define FW_POS_PRESET   0x05  /* CONFIRMED 2026-10-18 (vendor init): banked, 1 -> 0 loads 0x0C/0x0D into the position counter */
 #define FW_SOFT_MAX_LO  0x06  /* CONFIRMED: banked FPGA soft limit +, 32 bit steps (06/07); - in 08/09 */
 #define FW_PRESET_LO    0x0C  /* CONFIRMED: banked 32-bit value for the position preset (0C/0D) */
-#define FW_STEPS_LO     0x0A  /* CONFIRMED: banked burst step count, low 16 */
-#define FW_STEPS_HI     0x0B  /*            high 16 */
-#define FW_RATE_A_LO    0x12  /* TRACE: 0x208D with every jog burst (rate/period word) */
-#define FW_RATE_A_HI    0x13
-#define FW_RATE_B_LO    0x14  /* TRACE: 0x2710 with every jog burst */
-#define FW_RATE_B_HI    0x15
-#define FW_STATUS_ACK   0x2E  /* TRACE: 0 written before each status sweep (not the done-ack, tested) */
 #define FW_LIMIT_PORTS  0x34  /* TRACE: banked, low byte = +limit input port, high = -limit */
 #define FW_HOME_PORT    0x35  /* TRACE: banked, home input port */
 #define FW_ALARM_PORT   0x36  /* TRACE: banked, drive-alarm input port << 8 (READ 0x36 = FR_BLOCK_QUEUE, unrelated) */
@@ -33,13 +25,13 @@
 #define FW_BLOCK_FIRST  0x50  /* CONFIRMED 2026-11-01: 16 block words 0x50..0x5F (see BLOCK WORDS below) */
 #define FW_BLOCK_LATCH  0x66  /* CONFIRMED 2026-11-01: 1 then 0 pushes the staged block into the queue
                                * (the vendor driver's ioctl 0x4622 does words + latch itself) */
-#define FW_HEARTBEAT    0x67  /* CONFIRMED 2026-10-18: motion WATCHDOG + position latch. Without it a burst
+#define FW_HEARTBEAT    0x67  /* CONFIRMED 2026-10-18: motion WATCHDOG + position latch. Without it motion
                                * is accepted but never stepped; each write latches the position counters */
 
 /* ---- read registers ---- */
 #define FR_SELECTED     0x00  /* CONFIRMED: after a finished move shows 0x80 | axis bit (done latch) */
-#define FR_STATUS       0x01  /* CONFIRMED 2026-10-18: per axis n: bit n = move active (stays set after a
-                               * STOP = held), bit 8+n = stepping (the old "bit 9 busy" was axis Y) */
+#define FR_STATUS       0x01  /* CONFIRMED 2026-11-01: bits 4+ch and 12+ch while a block plays on channel
+                               * ch (0x2020 for Y). Burst mode used bits ch / 8+ch (docs/fpga-motion.md) */
 #define FR_POS_LO       0x02  /* CONFIRMED 2026-10-18: position counters, 32-bit steps, X 02/03 (lo/hi),
                                * Y 04/05, Z 06/07, A 08/09; latched by each 0x67 write; keep their value
                                * while the unit is powered (the vendor reads them at start-up) */
@@ -54,9 +46,7 @@
                                * register written at 0x36 (FW_ALARM_PORT, banked): read and write differ */
 #define FR_VERSION      0x41  /* CONFIRMED: FPGA version */
 
-#define FR_STATUS_MOVING(ax) (1u << (8 + (ax)))
-#define FR_STATUS_ACTIVE(ax) (1u << (ax))
-/* block mode uses other bits: 0x2020 while a stream plays on channel 1 (measured 2026-11-01) */
+/* 0x2020 while a stream plays on channel 1 (measured 2026-11-01) */
 #define FR_STATUS_BLOCK(ch)  (1u << (4 + (ch)) | 1u << (12 + (ch)))
 
 /* BLOCK WORDS (decoded + driven on the unit 2026-11-01, docs/fpga-motion.md "Block mode"):
@@ -66,7 +56,7 @@
  *        vendor: X+ 03e1, X- 01e1, Y+ 03e3, Y- 01e3, X-Y- 00e1, Z 03e4
  *   w1   0x3020, constant
  *   w2   sequence id (the vendor: per G-code line; any value works)
- *   w4   rate word of the dominant channel = steps/s / 2 (as the burst rate 0x12)
+ *   w4   rate word of the dominant channel = steps/s / 2 (as the old burst rate word 0x12)
  *   w6   0x0d05 (3333); 0x126a on the vendor's 45 deg diagonal - NOT a time base (3333 and
  *        4714 give the same 1.385 s), kept at 3333
  *   w8   steps of the dominant channel in this block (20 mm = 410 blocks, sum 8000 exact)

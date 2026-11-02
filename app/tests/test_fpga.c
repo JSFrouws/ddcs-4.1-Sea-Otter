@@ -136,7 +136,7 @@ static void test_fpga_blocks(void)
 	CHECK(SIM.cnt[1] - c0[1] == 20 && SIM.cnt[2] - c0[2] == 10 && (fpga_status(&f) & 0x6060) == 0x6060);
 	for (int i = 0; i < 10; i++) tick1(&f);
 	CHECK(SIM.cnt[1] - c0[1] == 40 && SIM.cnt[2] - c0[2] == 20 && SIM.cnt[0] == c0[0] && SIM.cnt[3] == c0[3]);
-	/* X: DIR invert + reversed wiring = the counter's direction physically, as for bursts */
+	/* X: DIR invert + reversed wiring = the counter's direction physically */
 	SIM.axis_cfg[0] = 2;
 	int64_t px = SIM.pos[0]; c0[0] = SIM.cnt[0];
 	fpga_block(&f, (int32_t[NAXES]){ 15, 0, 0, 0 }, 0.010);
@@ -191,33 +191,20 @@ void test_fpga(void)
 	}
 	CHECK(SIM.axis_cfg[0] == 6 && SIM.axis_cfg[1] == 4);   /* X: DIR invert + pulse high, as the unit's config */
 
-	/* 2. a 50-step burst = the app's first MPG jog burst, write for write */
-	ngot = 0;
-	fpga_burst(&f, 0, 50, 0);
-	CHECK(ngot == 10);
-	if (have) {
-		int i = find(0x0a, 0x0032, 0);
-		CHECK(i >= 6);
-		if (i >= 6) CHECK(same(got, &vt[i - 5], 10, "jog burst"));
-	}
-	/* 3. the status sweep after a burst */
-	ngot = 0;
-	fpga_status_sweep(&f);
-	wr_t sweep[5] = { { 0x2e, 0 }, { 0, 0 }, { 0, 1 }, { 0, 2 }, { 0, 3 } };
-	CHECK(ngot == 5 && same(got, sweep, 5, "status sweep"));
-
-	/* 4. the simulator executes it: +50 steps on X (DIR invert + reversed wiring = correct way) */
+	/* 2. the simulator executes a block: +50 steps on X (DIR invert + reversed wiring = correct way) */
 	int64_t x0 = SIM.pos[0];
-	sim_step(SIM_BURST_MS);
+	fpga_block(&f, (int32_t[NAXES]){ 50, 0, 0, 0 }, 0.010);
+	sim_step(10);
 	CHECK(SIM.pos[0] == x0);                   /* measured: no heartbeat, no steps */
 	fpga_heartbeat(&f);
-	sim_step(SIM_BURST_MS);
+	sim_step(20);
 	CHECK(SIM.pos[0] - x0 == 50);
-	fpga_burst(&f, 1, -400, 40000);          /* 40 000 steps/s = 400 steps per 10 ms */
-	CHECK(fpga_busy(&f) && (fpga_status(&f) & 0x0202) == 0x0202);
+	fpga_block(&f, (int32_t[NAXES]){ 0, -400, 0, 0 }, 0.010);   /* 40 000 steps/s = 400 steps per 10 ms */
 	fpga_heartbeat(&f);
-	sim_step(SIM_BURST_MS + 3);           /* + the ~2 ms start overhead */
-	CHECK(!fpga_busy(&f));
+	sim_step(5);
+	CHECK(fpga_busy(&f) && (fpga_status(&f) & 0x2020) == 0x2020 && fpga_moving(&f) == 2);
+	sim_step(10);
+	CHECK(!fpga_busy(&f) && !fpga_moving(&f));
 	int32_t cnt[NAXES];
 	fpga_heartbeat(&f);                       /* latches the counters */
 	fpga_positions(&f, cnt);
@@ -226,7 +213,7 @@ void test_fpga(void)
 	fpga_heartbeat(&f); fpga_positions(&f, cnt);
 	CHECK(cnt[2] == 12345);
 
-	/* 5. inputs and pendant decoding */
+	/* 3. inputs and pendant decoding */
 	CHECK((fpga_inputs(&f) & 1) == 1);          /* IN01 open: E-stop button not pressed */
 	SIM.ext_estop = true;
 	CHECK((fpga_inputs(&f) & 1) == 0);
@@ -246,26 +233,10 @@ void test_fpga(void)
 	SIM.wheel = 0x0002;
 	CHECK(fpga_wheel_delta(&f) == 4);           /* wraps cleanly */
 
-	/* 6. outputs */
+	/* 4. outputs */
 	fpga_set_outputs(&f, 5);
 	CHECK(SIM.outputs == 5);
 
-	/* 7. measured on the unit: same-direction bursts append, a reversal while stepping is
-	 *    ignored, and a STOP mid-move holds the axis (further bursts ignored) */
-	fpga_heartbeat(&f);
-	int64_t a0 = SIM.cnt[3];
-	fpga_burst(&f, 3, 300, 10000); fpga_burst(&f, 3, 300, 10000);   /* appended */
-	fpga_burst(&f, 3, -500, 10000);                                  /* ignored */
-	for (int i = 0; i < 10; i++) { fpga_heartbeat(&f); sim_step(SIM_BURST_MS); }
-	CHECK(SIM.cnt[3] - a0 == 600 && SIM.ignored_cmds == 1);
-	fpga_burst(&f, 3, 10000, 10000);
-	fpga_heartbeat(&f); sim_step(SIM_BURST_MS);
-	fpga_stop(&f, 3);
-	for (int i = 0; i < 20; i++) { fpga_heartbeat(&f); sim_step(SIM_BURST_MS); }
-	CHECK(SIM.held[3] && (fpga_status(&f) & 0x0808) == 0x0008);
-	int64_t a1 = SIM.cnt[3];
-	fpga_burst(&f, 3, 100, 10000); fpga_heartbeat(&f); sim_step(SIM_BURST_MS);
-	CHECK(SIM.cnt[3] == a1);
 	b->close(b);
 	test_fpga_blocks();
 }

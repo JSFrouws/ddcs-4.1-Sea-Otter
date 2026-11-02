@@ -61,7 +61,7 @@ result arrive as events and via `GET /jobs/<id>`.
 | Method | Path | Body | Does |
 |---|---|---|---|
 | POST | `/machine/drives` | `{"on":true}` | Enable / disable the drives. **No dedicated FPGA drive-enable output has been confirmed on this machine** (the real saved config maps `OUT1`=spindle/M3, `OUT2`=coolant flood/M8, `OUT3`=aux/M10 — see [machine-settings.md](machine-settings.md); drive power may simply be hard-wired, gated only by the drives' own alarm/E-stop lines). Until one is found, this is a software-only interlock, not a real output toggle. |
-| POST | `/machine/stop` | | Stop: program aborted, spindle off (any client). With `motion.graceful_stop` (default on) motion brakes along the path at the axes' max deceleration (no lost steps, overshoot ≈ v²/2a); off = halts after the burst in flight |
+| POST | `/machine/stop` | | Stop: program aborted, spindle off (any client). With `motion.graceful_stop` (default on) motion brakes along the path at the axes' max deceleration (no lost steps, overshoot ≈ v²/2a); off = halts after the blocks already queued in the FPGA (≤ `motion.queue_ms`) |
 | POST | `/machine/reset` | | Clear a cleared-condition alarm, return to Idle |
 | GET | `/machine/estop` | | E-stop state (pendant `0x3D` bit 9 and external inputs) |
 

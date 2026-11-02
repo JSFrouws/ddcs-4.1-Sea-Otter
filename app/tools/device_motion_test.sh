@@ -5,7 +5,7 @@
 U=${1:-http://192.168.1.200:8080}/api/v1
 post() { curl -s -m 10 -X POST "$U/$1" -d "$2"; echo; }
 st() { curl -s -m 10 "$U/status"; }
-f() { st | python -c "import sys,json; s=json.load(sys.stdin); print('   state=%s fpga=%s steps=%s faults=%d checks=%d waited=%d bursts=%d line=%d' % (s['state'], [s['fpga'][k] for k in 'xyza'], [s['steps'][k] for k in 'xyza'], s['posFaults'], s['posChecks'], s['reversalsWaited'], s['bursts'], s['program']['line']))"; }
+f() { st | python -c "import sys,json; s=json.load(sys.stdin); print('   state=%s fpga=%s steps=%s faults=%d checks=%d blocks=%d line=%d' % (s['state'], [s['fpga'][k] for k in 'xyza'], [s['steps'][k] for k in 'xyza'], s['posFaults'], s['posChecks'], s['blocks'], s['program']['line']))"; }
 idle() { i=0; while [ $i -lt ${1:-600} ]; do s=$(st | python -c "import sys,json; print(json.load(sys.stdin)['state'])"); [ "$s" = IDLE ] && return; sleep 0.5; i=$((i+1)); done; echo "   (timeout)"; }
 t0() { T0=$(date +%s.%N); }
 dt() { python -c "print('   took %.2f s' % ($(date +%s.%N) - $T0))"; }

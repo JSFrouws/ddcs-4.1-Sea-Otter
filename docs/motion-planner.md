@@ -9,11 +9,10 @@ carries all four axes, and the loop keeps `motion.queue_ms` (default 50 ms) queu
 now, so the pulses never pause between slices. Everything on this page about the planner
 itself — lookahead, corner speeds, S-curve and jerk, the jog/wheel follower with its
 feedforward and smoothing, the approach zone — is unchanged. The burst emitter (one burst
-per axis per slice) remains as a fallback behind `motion.block_mode = off`. The two long
-sections at the bottom ("The half a second late pendant", "Bursts back to back") were
-measured in the burst era and stay as the record of why (the loop-stall and wheel fixes in
-the first still apply); the burst-end wake, `BURST_MAX_S` and
-`slice_for_frame` they describe are only used in burst mode.
+per axis per slice) was removed 2026-11-02. The two long sections at the bottom ("The half
+a second late pendant", "Bursts back to back") were measured in the burst era and stay as
+the record of why (the loop-stall and wheel fixes in the first still apply); the burst-end
+wake, `BURST_MAX_S` and `slice_for_frame` they describe no longer exist.
 
 ## What a "segment" is
 
@@ -174,9 +173,9 @@ reviewing, owner's choices):
 - A click at x1 / x10 / x100 is 0.001 / 0.01 / 0.1 mm (`ui_pendant.c`).
 - `GET trace` now also records `mpg` (raw wheel count), `bursts` and `held`, and records
   while the pendant is held, so a click's latency (count → burst → FPGA counter) can be
-  read from one CSV (`app/tools/wheel_trace.py` does the reading). Since 2026-11-01
-  `bursts` counts motion commands of either kind (bursts + blocks), and a `queue` column
-  (blocks queued in the FPGA) follows `tick_us`.
+  read from one CSV (`app/tools/wheel_trace.py` does the reading). Since 2026-11-01 a `queue`
+  column (blocks queued in the FPGA) follows `tick_us`; since 2026-11-02 the `bursts` column
+  is `blocks` (blocks sent).
 
 ## The "half a second late" pendant (2026-11-01, measured on the unit)
 
