@@ -477,6 +477,7 @@ void test_machine(void)
 
 	/* --- soft limits after homing: a jog past the limit stops exactly AT it (the planner
 	 * brakes into the endpoint), the next one that way is refused --- */
+	SET.soft_limits = true;                          /* off by default since 2026-11-02 */
 	arg_t sj = J(AX_X, -1, 55);
 	CHECK(can(C_JOG, &sj, SRC_PANEL) == NULL);      /* 50 - 55 = -5 < soft min 0: clamped, not refused */
 	CHECK(act(C_JOG, &sj, SRC_PANEL));

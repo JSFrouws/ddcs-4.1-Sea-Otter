@@ -361,21 +361,37 @@ static void draw_view(fb_t *fb, int x, int y, int w, int h, bool mini)
 	for (int k = 0; k < nj; k++) { gx0 = fmin(gx0, d[k][0]); gx1 = fmax(gx1, d[k][0]); gy0 = fmin(gy0, d[k][1]); gy1 = fmax(gy1, d[k][1]); }
 	double g = grid_step(fmax(gx1 - gx0, gy1 - gy0));
 	gx0 = floor(gx0 / g - 1) * g; gx1 = ceil(gx1 / g + 1) * g; gy0 = floor(gy0 / g - 1) * g; gy1 = ceil(gy1 / g + 1) * g;
+	/* the BED (user 2026-11-02: "the grid should indicate the bed size"): the X/Y soft-limit
+	 * box in work coordinates, when one is set - the grid fills it and stops at its edge, which
+	 * is drawn. Without a travel set, the grid covers the picture as before */
+	const double *wo = WD.wcs[WD.active].off;
+	bool bed = SET.ax[AX_X].soft_max > SET.ax[AX_X].soft_min && SET.ax[AX_Y].soft_max > SET.ax[AX_Y].soft_min;
+	if (bed) {
+		gx0 = SET.ax[AX_X].soft_min - wo[0]; gx1 = SET.ax[AX_X].soft_max - wo[0];
+		gy0 = SET.ax[AX_Y].soft_min - wo[1]; gy1 = SET.ax[AX_Y].soft_max - wo[1];
+		g = grid_step(fmax(gx1 - gx0, gy1 - gy0));
+	}
 	double gz = p.iso ? floor_z(lo) : 0;
 	if ((gx1 - gx0) / g < 80 && (gy1 - gy0) / g < 80) {
 		double f = g * p.sc >= 50 ? g / 10 : g * p.sc >= 25 ? g / 5 : 0;   /* fine lines at least 5 px apart */
 		if (f > 0 && (gx1 - gx0) / f < 400 && (gy1 - gy0) / f < 400) {
 			uint16_t fc = RGB(0x0d, 0x27, 0x4b);
-			for (double gx = gx0; gx <= gx1 + 1e-9; gx += f) { P(&p, gx, gy0, gz, &ax, &ay); P(&p, gx, gy1, gz, &bx, &by); gfx_line(fb, ax, ay, bx, by, fc, 1); }
-			for (double gy = gy0; gy <= gy1 + 1e-9; gy += f) { P(&p, gx0, gy, gz, &ax, &ay); P(&p, gx1, gy, gz, &bx, &by); gfx_line(fb, ax, ay, bx, by, fc, 1); }
+			for (double gx = floor(gx0 / f) * f; gx <= gx1 + 1e-9; gx += f) if (gx >= gx0 - 1e-9) { P(&p, gx, gy0, gz, &ax, &ay); P(&p, gx, gy1, gz, &bx, &by); gfx_line(fb, ax, ay, bx, by, fc, 1); }
+			for (double gy = floor(gy0 / f) * f; gy <= gy1 + 1e-9; gy += f) if (gy >= gy0 - 1e-9) { P(&p, gx0, gy, gz, &ax, &ay); P(&p, gx1, gy, gz, &bx, &by); gfx_line(fb, ax, ay, bx, by, fc, 1); }
 		}
 		uint16_t gc = RGB(0x17, 0x37, 0x63);
-		for (double gx = gx0; gx <= gx1 + 1e-9; gx += g) { P(&p, gx, gy0, gz, &ax, &ay); P(&p, gx, gy1, gz, &bx, &by); gfx_line(fb, ax, ay, bx, by, gc, 1); }
-		for (double gy = gy0; gy <= gy1 + 1e-9; gy += g) { P(&p, gx0, gy, gz, &ax, &ay); P(&p, gx1, gy, gz, &bx, &by); gfx_line(fb, ax, ay, bx, by, gc, 1); }
+		/* coarse lines from work zero outwards, so a line always passes through the origin */
+		for (double gx = floor(gx0 / g) * g; gx <= gx1 + 1e-9; gx += g) if (gx >= gx0 - 1e-9) { P(&p, gx, gy0, gz, &ax, &ay); P(&p, gx, gy1, gz, &bx, &by); gfx_line(fb, ax, ay, bx, by, gc, 1); }
+		for (double gy = floor(gy0 / g) * g; gy <= gy1 + 1e-9; gy += g) if (gy >= gy0 - 1e-9) { P(&p, gx0, gy, gz, &ax, &ay); P(&p, gx1, gy, gz, &bx, &by); gfx_line(fb, ax, ay, bx, by, gc, 1); }
+		if (bed) {                                        /* the bed's edge */
+			uint16_t bc = RGB(0x2e, 0x5c, 0x96);
+			double xs[5] = { gx0, gx1, gx1, gx0, gx0 }, ys[5] = { gy0, gy0, gy1, gy1, gy0 };
+			for (int k = 0; k < 4; k++) { P(&p, xs[k], ys[k], gz, &ax, &ay); P(&p, xs[k + 1], ys[k + 1], gz, &bx, &by); gfx_line(fb, ax, ay, bx, by, bc, 1); }
+		}
 		if (!mini) {
 			char gl[80];
-			if (f > 0) snprintf(gl, sizeof gl, "grid %g / %g mm%s", g, f, p.iso ? " · on the Z floor" : "");
-			else snprintf(gl, sizeof gl, "grid %g mm%s", g, p.iso ? " · on the Z floor" : "");
+			if (f > 0) snprintf(gl, sizeof gl, "%sgrid %g / %g mm%s", bed ? "bed · " : "", g, f, p.iso ? " · on the Z floor" : "");
+			else snprintf(gl, sizeof gl, "%sgrid %g mm%s", bed ? "bed · " : "", g, p.iso ? " · on the Z floor" : "");
 			gfx_text_r(fb, &font_12, x + w - 8, y + h - 18, COL_DIM2, gl);
 		}
 	}

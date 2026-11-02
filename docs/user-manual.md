@@ -165,6 +165,10 @@ Every other key works as usual, F2 Pause and F3 Reset included.
 - **In the view pane** (Tab): 2D pans with **X± / Y±** (40 px a press), ISO turns with X±
   and tilts with Y±; **Cancel / Enter** zoom, **Shift + F4** fits / resets (2026-11-02: the
   2D pan did nothing before).
+- **The grid is the bed** (since 2026-11-02): it fills the machine's X/Y travel (the soft
+  limit box, whether soft limits are switched on or not) seen from the active work zero, and
+  stops at the bed's edge, which is drawn. Grid lines pass through work zero. Without a
+  travel set the grid just covers the picture.
 - **F4 View** cycles **2D → ISO → G-code view**; the key shows the view you are in (the
   soft keys name the state, not the next value: Jog's *Drives* reads **On** in green or
   **Off** in red, *WCS* reads **> G59 <**, the active one). The G-code view draws no wireframe at all:
@@ -317,7 +321,7 @@ Two software boxes keep the machine inside its travel, without touching a switch
 
 | | In force | Set in *Settings › Homing & limits* |
 |---|---|---|
-| **Soft limits** | once the machine is **homed** (before that, positions mean nothing). Default: the machine's **400 × 200 × 100 mm** (X 0…400, Y 0…200, Z −100…0 below the Z switch) | *X/Y/Z soft limit − / +*, switch: *Soft limits* |
+| **Soft limits** | once the machine is **homed** (before that, positions mean nothing). Default: the machine's **400 × 200 × 100 mm** (X 0…400, Y 0…200, Z −100…0 below the Z switch) | *X/Y/Z soft limit − / +*, switch: *Soft limits* (**off** by default since 2026-11-02; the − / + rows only show while it is on) |
 | **Bench limits** | **always**, homed or not: a work box, e.g. the part of the table you use, or a safe box on the bench while testing | *X/Y/Z bench limit − / +*, switch: *Bench limits* |
 
 When both are on, the tighter one counts. What they do:

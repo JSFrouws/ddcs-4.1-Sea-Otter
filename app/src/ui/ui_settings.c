@@ -87,8 +87,12 @@ static int ngroups(void) { int n = 0; while (SETTING_GROUPS[n]) n++; return n; }
 static int group_items(const setting_desc_t **out, int max)
 {
 	int n = 0;
+	/* Homing & limits hides what its flags make inapplicable instead of greying it (user
+	 * 2026-11-02: one shared switch, one level and no soft limits are there to keep the page
+	 * simple, so the rows they replace must go) */
+	bool hide = !strcmp(SETTING_GROUPS[U.grp], "Homing & limits");
 	for (int i = 0; i < NSETTINGS && n < max; i++)
-		if (!strcmp(SETTINGS[i].group, SETTING_GROUPS[U.grp])) out[n++] = &SETTINGS[i];
+		if (!strcmp(SETTINGS[i].group, SETTING_GROUPS[U.grp]) && !(hide && inapplicable(&SETTINGS[i]))) out[n++] = &SETTINGS[i];
 	return n;
 }
 

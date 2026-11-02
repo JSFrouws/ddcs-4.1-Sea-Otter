@@ -58,6 +58,14 @@ const setting_desc_t SETTINGS[] = {
 	/* the two freedoms on top of the group (user 2026-11-02): a level per axis, a home switch apart from the limit */
 	{ "limits.level_per_axis", "Homing & limits", "Switch level per axis", "", ST_BOOL, O(limit_level_per_axis), 0, 1, 0, 0, 1, 0 },
 	{ "home.separate_inputs", "Homing & limits", "Separate home inputs (home switch apart from limit)", "", ST_BOOL, O(home_separate), 0, 1, 0, 0, 1, 0 },
+	{ "limits.level_high", "Homing & limits", "Limit/home active when open (NC)", "", ST_BOOL, O(limit_level_high), 0, 1, 0, 0, 1, 0 },
+	/* every machine-wide row above the per-axis ones (user 2026-11-02) */
+	{ "home.order", "Homing & limits", "Home order", "", ST_ENUM, O(home_order), 0, 3, 0, HOME_ORDERS, 1, 0 },
+	{ "home.retain", "Homing & limits", "Keep the homed state after a restart / power cut", "", ST_BOOL, O(retain_homed), 0, 1, 0, 0, 1, 0 },
+	{ "limits.soft", "Homing & limits", "Soft limits (when homed)", "", ST_BOOL, O(soft_limits), 0, 1, 0, 0, 1, 0 },
+	{ "limits.bench", "Homing & limits", "Bench limits (work box, also un-homed)", "", ST_BOOL, O(bench_limits), 0, 1, 0, 0, 1, 0 },
+	{ "estop.port", "Homing & limits", "External E-stop input", "", ST_PORT, O(estop_port), 0, 18, 0, IN_PORTS, 1, 0 },
+	{ "estop.level_high", "Homing & limits", "E-stop active when open (NC)", "", ST_BOOL, O(estop_level_high), 0, 1, 0, 0, 1, 0 },
 	{ "limits.approach_pct", "Homing & limits", "Speed towards a limit inside the approach zone", "%", ST_INT, O(approach_pct), 10, 100, 0, 0, 1, 0 },
 	{ "motion.graceful_stop", "Homing & limits", "Controlled stop on Reset, E-stop, limit (no lost steps)", "", ST_BOOL, O(graceful_stop), 0, 1, 0, 0, 1, 0 },
 	{ "motion.queue_ms", "Axes", "Motion kept queued in the FPGA", "ms", ST_INT, O(queue_ms), 20, 200, 0, 0, 1, 0 },
@@ -89,13 +97,6 @@ const setting_desc_t SETTINGS[] = {
 	{ "api.drives", "API", "Allow: drives ON (OFF is always allowed)", "", ST_BOOL, O(api_drives), 0, 1, 0, 0, 0, 1 },
 	{ "api.keys", "API", "Allow: panel keys (browser panel, key presses)", "", ST_BOOL, O(api_keys), 0, 1, 0, 0, 0, 1 },
 	AXROWS(0, "X"), AXROWS(1, "Y"), AXROWS(2, "Z"), AXROWS(3, "A"),
-	{ "home.order", "Homing & limits", "Home order", "", ST_ENUM, O(home_order), 0, 3, 0, HOME_ORDERS, 1, 0 },
-	{ "limits.soft", "Homing & limits", "Soft limits (when homed)", "", ST_BOOL, O(soft_limits), 0, 1, 0, 0, 1, 0 },
-	{ "home.retain", "Homing & limits", "Keep the homed state after a restart / power cut", "", ST_BOOL, O(retain_homed), 0, 1, 0, 0, 1, 0 },
-	{ "limits.bench", "Homing & limits", "Bench limits (work box, also un-homed)", "", ST_BOOL, O(bench_limits), 0, 1, 0, 0, 1, 0 },
-	{ "limits.level_high", "Homing & limits", "Limit/home active when open (NC)", "", ST_BOOL, O(limit_level_high), 0, 1, 0, 0, 1, 0 },
-	{ "estop.port", "Homing & limits", "External E-stop input", "", ST_PORT, O(estop_port), 0, 18, 0, IN_PORTS, 1, 0 },
-	{ "estop.level_high", "Homing & limits", "E-stop active when open (NC)", "", ST_BOOL, O(estop_level_high), 0, 1, 0, 0, 1, 0 },
 	{ "spindle.max", "Spindle & outputs", "Spindle max RPM (10 V)", "rpm", ST_DBL, O(spindle_max), 100, 60000, 0, 0, 1, 0 },
 	{ "spindle.default", "Spindle & outputs", "Spindle RPM when none given", "rpm", ST_DBL, O(spindle_default), 0, 60000, 0, 0, 1, 0 },
 	{ "spindle.delay", "Spindle & outputs", "Spin-up wait", "s", ST_DBL, O(spindle_delay), 0, 30, 1, 0, 1, 0 },
@@ -141,7 +142,7 @@ void settings_defaults(settings_t *s)
 		a->limit_port = lim[i]; a->home_port = lim[i]; a->alarm_port = alarm[i]; a->limit_level_high = true;
 		a->output = i + 1;                                     /* each axis on its own connector */
 	}
-	s->home_order = 0; s->soft_limits = true;
+	s->home_order = 0; s->soft_limits = false;             /* off by default (user 2026-11-02); a saved config keeps its own */
 	s->limit_level_high = true; s->estop_port = 1; s->estop_level_high = false;
 	s->pendant_estop = true;
 	s->spindle_max = 24000; s->spindle_default = 12000; s->spindle_delay = 2;
