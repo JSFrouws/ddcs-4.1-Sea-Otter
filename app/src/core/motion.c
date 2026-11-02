@@ -538,7 +538,7 @@ static void run_home(motion_t *m, double dt)
 {
 	if (m->home.phase == 99) {                         /* next axis */
 		int ax;
-		do { m->home.k++; ax = home_axis_at(m->home.k); } while (ax >= 0 && (!SET.ax[ax].enabled || !SET.ax[ax].home_port));
+		do { m->home.k++; ax = home_axis_at(m->home.k); } while (ax >= 0 && (!SET.ax[ax].enabled || !axis_home_port(ax)));
 		if (ax < 0 || m->home.k >= NAXES) { m->home.on = false; m->ev = MEV_HOMED; return; }
 		m->home.axis = ax; m->home.phase = 0; m->home.travel = 0;
 	}

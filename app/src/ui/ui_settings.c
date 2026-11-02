@@ -28,6 +28,9 @@ static const char *inapplicable(const setting_desc_t *d)
 	if (!strcmp(k, "api.start_delay") && !SET.remote_start) return "START is off";
 	if (!strncmp(k, "pendant.", 8) && strcmp(k, "pendant.on") && !SET.pendant) return "no pendant fitted";
 	if (!strcmp(k, "estop.level_high") && !SET.estop_port) return "no E-stop input";
+	if (!strcmp(k, "limits.level_high") && SET.limit_level_per_axis) return "the level is set per axis";
+	if (!strncmp(k, "axis.", 5) && strstr(k, ".level_high") && !SET.limit_level_per_axis) return "one level for all axes";
+	if (!strncmp(k, "axis.", 5) && strstr(k, ".home_port") && !SET.home_separate) return "home shares the limit input";
 	if (!strcmp(k, "drives.enable_on") && !SET.out_enable) return "no enable output";
 	if (!strncmp(k, "axis.", 5) && strstr(k, ".soft_m") && !SET.soft_limits) return "soft limits are off";
 	if (!strcmp(k, "macro.warm_s") && SET.warm_rpm <= 0) return "warm-up speed is 0";

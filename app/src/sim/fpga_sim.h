@@ -30,6 +30,7 @@ typedef struct {
 	int switch_side[NAXES];      /* -1: trips when pos <= switch_at, +1: when >=, 0: none */
 	int64_t hard_lo[NAXES], hard_hi[NAXES];  /* mechanical end: beyond = crash counter */
 	uint8_t switch_input[NAXES]; /* INnn wired to that switch (2,3,4 on this machine) */
+	uint8_t home_input[NAXES];   /* tests: a second input that mirrors the same switch (separate home inputs) */
 	bool switch_nc;              /* limit switches normally-closed (vendor level "High") */
 	bool wiring_rev[NAXES];      /* motor/driver wired reversed (X on this machine: why X has DIR invert) */
 	bool ext_estop;              /* IN01, normally-open push button (vendor level "Low") */

@@ -18,7 +18,9 @@ static bool level_active(int port, bool active_high)
 	return high == active_high;
 }
 
-static bool switch_active(int axis) { return level_active(SET.ax[axis].home_port, SET.limit_level_high); }
+/* the home switch (homing's callback) and the limit switch: one input unless home.separate_inputs */
+static bool switch_active(int axis) { return level_active(axis_home_port(axis), axis_level_high(axis)); }
+static bool limit_active(int axis) { return level_active(SET.ax[axis].limit_port, axis_level_high(axis)); }
 
 /* the level gate under every block (motion.c emit_block): E-stop and drives off stop everything, a
  * tripped switch its own direction. Edges alone missed a move that never reached the switch
@@ -216,7 +218,7 @@ void ctl_init(bus_t *bus, bool sim, const char *cfg_path, const char *wd_path)
 	}
 	C.inputs = fpga_inputs(&C.fp);
 	for (int a = 0; a < NAXES; a++) {
-		C.lim_active[a] = switch_active(a);
+		C.lim_active[a] = limit_active(a);
 		C.lim_dir[a] = C.lim_active[a] ? 2 : 0;
 		if (C.lim_active[a] && C.m == M_IDLE) {          /* active since power-up: direction unknown */
 			C.m = M_LIMIT; C.limit_axis = a; C.limit_dir = 0;
@@ -467,7 +469,7 @@ static void inputs(void)
 	/* every axis on its own: two switches at once both stop and both block their direction;
 	 * LIMIT only clears when the last one is released */
 	for (int a = 0; a < NAXES; a++) {
-		bool on = switch_active(a);
+		bool on = limit_active(a);
 		if (C.m != M_HOMING) {
 			if (on && !C.lim_active[a]) {
 				arg_t x = { .axis = a, .dir = C.mo.last_dir[a] };

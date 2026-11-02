@@ -40,7 +40,9 @@ static const char *const FOLLOW[] = { "Exact: every click is moved", "Velocity: 
 	{ "axis." n ".soft_max", "Homing & limits", n " soft limit +", "mm", ST_DBL, A(i, soft_max), -9999, 9999, DEC_POS, 0, 1, 0 }, \
 	{ "axis." n ".bench_min", "Homing & limits", n " bench limit −", "mm", ST_DBL, A(i, bench_min), -99999, 99999, DEC_POS, 0, 1, 0 }, \
 	{ "axis." n ".bench_max", "Homing & limits", n " bench limit +", "mm", ST_DBL, A(i, bench_max), -99999, 99999, DEC_POS, 0, 1, 0 }, \
-	{ "axis." n ".limit_port", "Homing & limits", n " limit/home switch input", "", ST_PORT, A(i, home_port), 0, 18, 0, IN_PORTS, 1, 0 }, \
+	{ "axis." n ".limit_port", "Homing & limits", n " limit switch input", "", ST_PORT, A(i, limit_port), 0, 18, 0, IN_PORTS, 1, 0 }, \
+	{ "axis." n ".home_port", "Homing & limits", n " home switch input (separate)", "", ST_PORT, A(i, home_port), 0, 18, 0, IN_PORTS, 1, 0 }, \
+	{ "axis." n ".level_high", "Homing & limits", n " limit/home active when open (NC)", "", ST_BOOL, A(i, limit_level_high), 0, 1, 0, 0, 1, 0 }, \
 	{ "axis." n ".home_dir", "Homing & limits", n " home direction", "", ST_ENUM, A(i, home_dir), 0, 1, 0, DIRS, 1, 0 }, \
 	{ "axis." n ".home_pos", "Homing & limits", n " position at switch", "mm", ST_DBL, A(i, home_pos), -9999, 9999, DEC_POS, 0, 1, 0 }, \
 	{ "axis." n ".home_backoff", "Homing & limits", n " back-off after home", "mm", ST_DBL, A(i, home_backoff), 0, 500, DEC_POS, 0, 1, 0 }
@@ -53,6 +55,9 @@ const setting_desc_t SETTINGS[] = {
 	{ "jog.speed", "Jog & touch-off", "Jog speed", "mm/s", ST_DBL, O(jog_speed), 0.1, 100, 1, 0, 1, 0 },
 	{ "jog.safe_z", "Jog & touch-off", "Safe Z above work zero", "mm", ST_DBL, O(safe_z), 0, 200, DEC_POS, 0, 1, 0 },
 	{ "jog.jerk", "Jog & touch-off", "Jog / wheel jerk (0 = acceleration only)", "mm/s³", ST_DBL, O(jog_jerk), 0, 1000000, 0, 0, 1, 0 },
+	/* the two freedoms on top of the group (user 2026-11-02): a level per axis, a home switch apart from the limit */
+	{ "limits.level_per_axis", "Homing & limits", "Switch level per axis", "", ST_BOOL, O(limit_level_per_axis), 0, 1, 0, 0, 1, 0 },
+	{ "home.separate_inputs", "Homing & limits", "Separate home inputs (home switch apart from limit)", "", ST_BOOL, O(home_separate), 0, 1, 0, 0, 1, 0 },
 	{ "limits.approach_pct", "Homing & limits", "Speed towards a limit inside the approach zone", "%", ST_INT, O(approach_pct), 10, 100, 0, 0, 1, 0 },
 	{ "motion.graceful_stop", "Homing & limits", "Controlled stop on Reset, E-stop, limit (no lost steps)", "", ST_BOOL, O(graceful_stop), 0, 1, 0, 0, 1, 0 },
 	{ "motion.queue_ms", "Axes", "Motion kept queued in the FPGA", "ms", ST_INT, O(queue_ms), 20, 200, 0, 0, 1, 0 },
@@ -133,7 +138,7 @@ void settings_defaults(settings_t *s)
 		a->home_search = i == AX_A ? 700 : 1000; a->home_locate = 50; a->home_pos = 0;
 		a->home_backoff = back[i]; a->home_dir = hdir[i];
 		a->dir_invert = i == AX_X; a->pulse_high = true; a->enabled = true;
-		a->limit_port = lim[i]; a->home_port = lim[i]; a->alarm_port = alarm[i];
+		a->limit_port = lim[i]; a->home_port = lim[i]; a->alarm_port = alarm[i]; a->limit_level_high = true;
 		a->output = i + 1;                                     /* each axis on its own connector */
 	}
 	s->home_order = 0; s->soft_limits = true;
@@ -182,7 +187,14 @@ void setting_set(const setting_desc_t *d, double v)
 	case ST_BOOL: *(bool *)p = v != 0; break;
 	default: *(int *)p = (int)(v + (v < 0 ? -0.5 : 0.5)); break;
 	}
+	/* switching the per-axis level ON starts every axis at the shared level: nothing changes
+	 * until an axis is set differently */
+	if (!strcmp(d->key, "limits.level_per_axis") && SET.limit_level_per_axis)
+		for (int a = 0; a < NAXES; a++) SET.ax[a].limit_level_high = SET.limit_level_high;
 }
+
+int axis_home_port(int a) { return SET.home_separate ? SET.ax[a].home_port : SET.ax[a].limit_port; }
+bool axis_level_high(int a) { return SET.limit_level_per_axis ? SET.ax[a].limit_level_high : SET.limit_level_high; }
 
 const setting_desc_t *setting_find(const char *key)
 {

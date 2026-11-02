@@ -50,6 +50,7 @@ static uint32_t input_levels(void)
 		bool tripped = sim_switch_active(a);
 		bool is_closed = SIM.switch_nc ? !tripped : tripped;
 		if (is_closed) closed |= 1u << (in - 1);
+		if (is_closed && SIM.home_input[a]) closed |= 1u << (SIM.home_input[a] - 1);
 	}
 	return ~closed & 0x3FFFFu;
 }

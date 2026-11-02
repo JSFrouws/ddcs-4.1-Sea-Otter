@@ -303,8 +303,14 @@ blocks its own direction; the banner lists them all (`X+ Y− LIMIT · jog X− 
 LIMIT only goes away when the **last** switch is released.
 
 A program that was running has stopped with its progress remembered: resume as in 3.6.
-Which input each axis's switch is on: *Settings › Homing & limits › X/Y/Z limit/home switch
-input* (this machine: IN02 / IN03 / IN04; 0 = no switch on that axis).
+Which input each axis's switch is on: *Settings › Homing & limits › X/Y/Z limit switch
+input* (this machine: IN02 / IN03 / IN04; 0 = no switch on that axis). Two switches on
+that page (since 2026-11-02, both off by default) give more freedom: **Switch level per
+axis** replaces the one *active when open* setting by one per axis, and **Separate home
+inputs** gives every axis its own *home switch input* next to the limit input, so the home
+switch can sit anywhere along the travel (*position at switch* says where). The inputs
+themselves are all the same electrically: opto-coupled, "closed" = pulled to COM−; the
+level setting only decides whether open or closed means *active* (NC or NO switch).
 
 ### 4.3a Soft limits and bench limits
 Two software boxes keep the machine inside its travel, without touching a switch:

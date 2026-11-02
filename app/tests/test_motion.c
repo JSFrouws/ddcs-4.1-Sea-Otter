@@ -128,4 +128,28 @@ void test_motion(void)
 	CHECK(!sim_switch_active(AX_X));
 	CHECK_NEAR(m->pos[0], SET.ax[AX_X].home_pos + SET.ax[AX_X].home_backoff, 0.0005);   /* dir -: retract is + */
 	CHECK_NEAR(phys(0), m->pos[0], 0.015);              /* the switch edge is found within one tick at the locate speed */
+
+	/* separate home inputs (2026-11-02): X homes on IN07 (a second input on the same switch
+	 * in the sim), the limit stays on IN02; off, homing reads the limit input */
+	CHECK(axis_home_port(AX_X) == SET.ax[AX_X].limit_port);
+	SET.home_separate = true; SET.ax[AX_X].home_port = 7; SIM.home_input[AX_X] = 7;
+	CHECK(axis_home_port(AX_X) == 7);
+	SET.ax[AX_X].limit_port = 0;                        /* no limit input at all: homing must still find IN07 */
+	memcpy(t, m->pos, sizeof t); t[0] += 20; motion_move_to(m, t, 0, true); fx_until_idle(10000);
+	CHECK(act(C_HOME, NULL, SRC_PANEL) && C.m == M_HOMING);
+	fx_until_idle(120000);
+	CHECK(C.homed && C.m == M_IDLE);
+	CHECK_NEAR(m->pos[0], SET.ax[AX_X].home_pos + SET.ax[AX_X].home_backoff, 0.0005);
+	SET.ax[AX_X].limit_port = 2; SET.home_separate = false; SIM.home_input[AX_X] = 0;
+
+	/* switch level per axis: Y's level flipped (NO) while the sim wires NC = Y reads tripped */
+	CHECK(axis_level_high(AX_Y) == SET.limit_level_high);
+	SET.limit_level_per_axis = true;
+	CHECK(axis_level_high(AX_Y) == SET.limit_level_high);   /* turning it on changes nothing */
+	SET.ax[AX_Y].limit_level_high = !SET.limit_level_high;
+	fx_run(50);
+	CHECK(C.lim_active[AX_Y] && C.m == M_LIMIT);
+	SET.ax[AX_Y].limit_level_high = SET.limit_level_high; SET.limit_level_per_axis = false;
+	fx_run(50);
+	CHECK(!C.lim_active[AX_Y]);
 }

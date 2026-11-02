@@ -406,7 +406,11 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `axis.<X|Y|Z|A>.soft_max` | Homing & limits | soft limit + | mm | number, -9999 to 9999 | yes |
 | `axis.<X|Y|Z|A>.bench_min` | Homing & limits | bench limit − | mm | number, -99999 to 99999 | yes |
 | `axis.<X|Y|Z|A>.bench_max` | Homing & limits | bench limit + | mm | number, -99999 to 99999 | yes |
-| `axis.<X|Y|Z|A>.limit_port` | Homing & limits | limit/home switch input |  | port: `"-"` · `"IN01"` … `"IN18"` | yes |
+| `axis.<X|Y|Z|A>.limit_port` | Homing & limits | limit switch input (also home, unless `home.separate_inputs`) |  | port: `"-"` · `"IN01"` … `"IN18"` | yes |
+| `axis.<X|Y|Z|A>.home_port` | Homing & limits | home switch input (with `home.separate_inputs`) |  | port: `"-"` · `"IN01"` … `"IN18"` | yes |
+| `axis.<X|Y|Z|A>.level_high` | Homing & limits | this axis' limit/home active when open (with `limits.level_per_axis`) |  | on/off | yes |
+| `limits.level_per_axis` | Homing & limits | Switch level per axis |  | on/off | yes |
+| `home.separate_inputs` | Homing & limits | Separate home inputs |  | on/off | yes |
 | `axis.<X|Y|Z|A>.home_dir` | Homing & limits | home direction |  | choice index 0 to 1 | yes |
 | `axis.<X|Y|Z|A>.home_pos` | Homing & limits | position at switch | mm | number, -9999 to 9999 | yes |
 | `axis.<X|Y|Z|A>.home_backoff` | Homing & limits | back-off after home | mm | number, 0 to 500 | yes |
