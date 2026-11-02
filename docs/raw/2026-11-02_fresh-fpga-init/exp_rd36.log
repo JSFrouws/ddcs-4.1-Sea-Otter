@@ -1,0 +1,9 @@
+untouched FPGA: read  0x00 = 0x0000 read  0x36 = 0x0000 read  0x41 = 0x0809 
+=== raw vendor init WITH reads, timed, then +400 5 ms
+replayed 1437 init writes: reg 00 = 01c0, 0x36 = 000, status 0000
+  idle 1200 ms done: 0x36 = 000 status 0020
+position final: 400 (moved -2147483248); motion -1.000 s (first -> last step), total 5.775 s
+=== -400, 10 ms blocks
+  idle 1200 ms done: 0x36 = 000 status 0020
+position final: 0 (moved -400); motion 0.367 s (first -> last step), total 1.775 s
+=== done

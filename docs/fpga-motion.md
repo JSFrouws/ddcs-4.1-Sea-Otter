@@ -237,11 +237,29 @@ initialised FPGA found write #56 (`0x44=0`, a reset line of the block engine; th
 back to back it poisons the FPGA, replayed with the vendor's own pauses (51 ms after
 `0x44=1`, 50/250 ms after `0x45` writes - `vendor_start_reads.log` has the time stamps,
 the old writes-only capture did not) it does not. `fpga_init` now honours those pauses
-(`fpga_init_write_t.wait_us`, `bus_settle`). **That is not yet enough on a freshly powered
-FPGA**: local-340's init still leaves `0x00 = 0x0800` and the first stream halts, while
-the vendor's init on the same fresh FPGA does not. Open: what else differs - the reads
-inside the serial sequence (replay with reads built, untested), the substituted registers
-on a fresh FPGA, or something the vendor app writes after its init table ends.
+(`fpga_init_write_t.wait_us`, `bus_settle`). That was not enough on a **freshly powered**
+FPGA: local-340's init still left `0x00 = 0x0800` and the first stream halted, while the
+vendor's init on the same fresh FPGA did not. **The second half is the vendor's READS**
+(2026-11-02, four more cold boots with the FPGA untouched - `docs/raw/2026-11-02_fresh-fpga-init/`,
+`fresh.sh` boots with a `NO_INIT` flag so nothing touches the FPGA before the tool). The
+vendor reads `0x40` after every strobe of its bit-banged serial configuration (`0x47`
+data, `0x48=5`, read `0x40`, `0x48=0`; 250 times) plus a few status reads. On a fresh FPGA:
+
+| init replayed on a fresh FPGA | +400 then −400 stream |
+|---|---|
+| vendor's writes, timed, with its 261 reads | clean, queue 0 after both |
+| the same with Sea Otter's substitutions | clean |
+| reads redirected to an unrelated register (`0x36`) | clean |
+| a 70 µs pause in place of each read (what a read costs) | **halts** on the first stream |
+
+So the substitutions are innocent and it is the bus read transaction that the serial
+configuration needs, not the time it takes. `fpga_init` now replays the reads
+(`fpga_init_write_t.read`, generated into the table by `tools/gen_vendor_init.py`).
+Verified on a cold-booted unit with local-345: four Y ±1 mm jogs and `trace_square.nc`,
+queue 0 and `fpgaHalted=false` after each, exact step counts. An FPGA the vendor app
+initialised since power-up is immune to all of this, which is why the first tool sessions
+never saw the halt and why every experiment on this subject needs a power cycle, not a
+Linux reboot.
 
 **Caveats found**: the very first run after killing the vendor app mid-session counted
 double (800 for 400 steps) — never again in ~30 runs, including with the whole queue pushed

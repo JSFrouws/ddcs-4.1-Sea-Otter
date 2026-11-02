@@ -50,6 +50,10 @@ void fpga_init(fpga_t *f, const fpga_axis_cfg_t axcfg[NAXES])
 		 * engine and it needs ~50 ms before it takes configuration (2026-11-02, bisected on
 		 * the unit: replayed back to back, every block stream ended in the halted FPGA) */
 		bus_settle(f->bus, FPGA_VENDOR_INIT[i].wait_us);
+		/* ... and so are its READS: 0x40 after every strobe of the serial configuration. With the
+		 * writes alone a freshly powered FPGA halts on its first stream; a pause in their place
+		 * does not help, the read transaction itself does (2026-11-02, tools/gen_vendor_init.py) */
+		if (FPGA_VENDOR_INIT[i].read) { (void)bus_r(f->bus, a); continue; }
 		bool banked = sel >= 0 && sel < NAXES;
 		if (a == FW_AXIS_SEL) sel = v;
 		if (banked && (a == FW_PRESET_LO || a == FW_PRESET_LO + 1 || a == FW_POS_PRESET)) continue;

@@ -7,6 +7,9 @@ typedef struct {
 	uint8_t addr;
 	uint16_t val;
 	uint32_t wait_us;      /* the vendor's pause BEFORE this write (0 = none); part of the protocol */
+	uint8_t read;          /* 1 = a register READ (val unused): the vendor reads 0x40 after every strobe
+	                        * of its serial configuration; replayed without them a freshly powered FPGA
+	                        * comes up poisoned (reg 0 bit 0x0800, every stream halts; 2026-11-02) */
 } fpga_init_write_t;
 
 extern const fpga_init_write_t FPGA_VENDOR_INIT[];

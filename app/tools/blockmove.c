@@ -91,6 +91,10 @@ int main(int argc, char **argv)
 				if (d) usleep(d);
 				R(a); n++; continue;
 			}
+			if (line[0] == 'd') {                           /* "d us": a pure pause in place of a read (is the read itself needed, or only the time it takes?) */
+				if (sscanf(line + 1, "%u", &d) == 1 && d) usleep(d);
+				n++; continue;
+			}
 			if (sscanf(line, "%x %x %u", &a, &v, &d) < 2) continue;
 			if (d) usleep(d);
 			W(a, (uint16_t)v); n++;
