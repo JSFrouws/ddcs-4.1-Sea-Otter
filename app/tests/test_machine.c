@@ -675,13 +675,13 @@ void test_machine(void)
 		CHECK(act(C_JOG, &cj, SRC_PANEL));
 		double last = C.mo.pos[AX_X], vprev = 1e9, vin = 0;
 		bool slowing = true;
-		for (int i = 0; i < 400 && C.mo.jog_dir; i++) {
+		for (int i = 0; i < 400 && motion_jogging(&C.mo); i++) {
 			fx_run(10);
 			double v = (C.mo.pos[AX_X] - last) / 0.01; last = C.mo.pos[AX_X];
 			if (SET.ax[AX_X].bench_max - C.mo.pos[AX_X] < 0.5) { if (v > vprev + 1e-6) slowing = false; if (!vin) vin = v; }
 			vprev = v;
 		}
-		CHECK(!C.mo.jog_dir);                                           /* it stopped by itself */
+		CHECK(!motion_jogging(&C.mo));                                  /* it stopped by itself */
 		CHECK_NEAR(C.mo.pos[AX_X], SET.ax[AX_X].bench_max, 0.001);
 		CHECK(slowing);                                                 /* never sped up in the last 0.5 mm */
 		printf("  bench edge: arrived within %.4f mm, last-0.5mm speed %.1f mm/s (jog %.1f)\n",

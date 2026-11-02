@@ -447,7 +447,10 @@ right now, the LEDs and the FPGA position counters. **F6** or **Cancel** goes ba
 
 The wheel never acts as a jog key. Before this fix, turning it on the Jog screen with the
 switch on OFF and the step on *continuous* started a Y jog that kept going. Also: any key
-press ends a continuous jog, and touch-off waits until the axis stands still.
+that is not a jog key ends a continuous jog, and touch-off waits until the axis stands still.
+**Several jog keys at once** (since 2026-11-02): hold X and press Y (or Z) too and both
+move, each at its own speed, and each stops when its own key is released. This is
+positioning, not milling, so a diagonal is not slowed down.
 **While an edit box is open** (the digit editor, Goto line, a setting being changed, the
 tool-change question), the axis switch is ignored. The wheel then works as with the switch
 on OFF: it edits, and nothing moves.

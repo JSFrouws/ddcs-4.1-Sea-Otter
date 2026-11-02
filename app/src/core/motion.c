@@ -207,7 +207,7 @@ static void replan(motion_t *m)
 
 bool motion_idle(const motion_t *m)
 {
-	if (m->active || m->qn || m->jog_dir || m->home.on || m->hw_busy || m->q_est) return false;
+	if (m->active || m->qn || motion_jogging(m) || m->home.on || m->hw_busy || m->q_est) return false;
 	for (int a = 0; a < NAXES; a++) if (fabs(m->nudge[a]) > 1e-9 || fabs(m->jv[a]) > 1e-12) return false;
 	return true;
 }
@@ -240,7 +240,7 @@ static void begin_brake(motion_t *m)
 void motion_stop(motion_t *m, bool immediate)
 {
 	bool brake = !immediate && !m->dry && SET.graceful_stop;   /* a jog / wheel move brakes on its ramp */
-	m->jog_dir = 0; m->home.on = false;
+	memset(m->jog, 0, sizeof m->jog); m->home.on = false;
 	memset(m->nudge, 0, sizeof m->nudge); memset(m->nudge_in, 0, sizeof m->nudge_in); memset(m->wheel_v, 0, sizeof m->wheel_v);
 	if (!immediate && !m->dry && SET.graceful_stop && m->active && m->op.kind == OP_LINE && m->v > 1e-6) {
 		/* Controlled stop (user requirement 2026-10-18): brake along the programmed path at the
@@ -378,10 +378,19 @@ static void run_lines(motion_t *m, double dt)
 	if (m->stopping && !m->active && !m->qn && !jog_coasting(m)) { m->stopping = false; m->v = 0; m->a = 0; }   /* braked past the last segment (a braking jog: run_simple ends it) */
 }
 
+/* Every axis has its own jog: holding X and then Y moves both, each at its own speed - this
+ * is positioning, not milling, so no compensation for the diagonal (user 2026-11-02). */
 void motion_jog_cont(motion_t *m, int a, int dir)
 {
-	if (!dir) { m->jog_dir = 0; return; }
-	m->jog_axis = a; m->jog_dir = dir; m->last_dir[a] = dir;
+	if (a < 0) { memset(m->jog, 0, sizeof m->jog); return; }
+	m->jog[a] = dir;
+	if (dir) m->last_dir[a] = dir;
+}
+
+bool motion_jogging(const motion_t *m)
+{
+	for (int a = 0; a < NAXES; a++) if (m->jog[a]) return true;
+	return false;
 }
 
 /* distance left before axis a reaches its soft/bench limit going in direction dir
@@ -471,17 +480,17 @@ static void run_simple(motion_t *m, double dt)
 	for (int a = 0; a < NAXES; a++) {
 		double vcap = fmin(SET.ax[a].max_speed, SUSTAIN_SPS / SET.ax[a].steps_per_mm);
 		int s = 0; double dist = 0;
-		bool jog = m->jog_dir && m->jog_axis == a, wheel = fabs(m->nudge[a]) > 1e-9;
+		bool jog = m->jog[a] != 0, wheel = fabs(m->nudge[a]) > 1e-9;
 		/* the wheel's own speed, averaged over ~80 ms: a pendant is not a smooth input (hard
 		 * detents, a hand that catches), and it decays to 0 within a few slices of the last click */
 		m->wheel_v[a] += (m->nudge_in[a] / dt - m->wheel_v[a]) * fmin(1.0, dt / 0.08);
 		m->nudge_in[a] = 0;
 		if (jog) {
-			s = m->jog_dir; dist = room(m, a, s);
+			s = m->jog[a]; dist = room(m, a, s);
 			vcap = approach_vcap(m, a, s, dist, fmin(vcap, SET.jog_speed));
 			if (dist < 0.0005 && fabs(m->jv[a]) < 1e-9) {        /* arrived at the limit */
 				if (dist < 1e17) m->soft_stop = a + 1;
-				m->jog_dir = 0; continue;
+				m->jog[a] = 0; continue;
 			}
 		} else if (wheel) {
 			s = m->nudge[a] > 0 ? 1 : -1;
@@ -663,7 +672,7 @@ static void tick_blocks(motion_t *m, double dt)
 	 * ioctl then hangs the process - so this is a fault, not something to wait out. */
 	if (m->fpga_halted) {                                 /* until the queue reads empty again (a power cycle), no motion at all */
 		if (m->q_est == 0 && !m->hw_busy) m->fpga_halted = false;
-		else { if (m->active || m->qn || m->jog_dir) motion_stop(m, true); return; }
+		else { if (m->active || m->qn || motion_jogging(m)) motion_stop(m, true); return; }
 	}
 	if (m->q_est > 0 && !m->hw_busy) { if (++m->stuck_ticks >= 30) { m->fpga_stuck = m->fpga_halted = true; m->stuck_ticks = 0; motion_stop(m, true); return; } }
 	else m->stuck_ticks = 0;

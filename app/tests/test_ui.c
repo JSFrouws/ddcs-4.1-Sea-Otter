@@ -352,7 +352,7 @@ void test_ui(void)
 		U.pane[SCR_JOG] = 0;
 		ui_pendant(&q, -8); ui_pendant(&q, 8);           /* even on the jog pane: nothing */
 		fx_run(300);
-		CHECK(!C.mo.jog_dir && motion_idle(&C.mo));
+		CHECK(!motion_jogging(&C.mo) && motion_idle(&C.mo));
 		for (int a = 0; a < NAXES; a++) CHECK_NEAR(C.mo.pos[a], p0[a], 1e-9);
 		q.axis = AX_Y; ui_pendant(&q, 0);                /* Y picked: jog pane, diamond */
 		CHECK(ui_pane() == 0);
@@ -378,9 +378,13 @@ void test_ui(void)
 		q.held = false; q.axis = -1; ui_pendant(&q, 0);
 		/* a continuous jog stops on any other key, and touch-off waits for a standstill */
 		ui_key(K_YP); fx_run(100);
-		CHECK(C.mo.jog_dir == 1);
+		CHECK(C.mo.jog[AX_Y] == 1);
+		ui_key(K_XP); fx_run(100);                       /* a second jog key adds its axis (2026-11-02) */
+		CHECK(C.mo.jog[AX_Y] == 1 && C.mo.jog[AX_X] == 1 && C.mo.jv[AX_X] > 0 && C.mo.jv[AX_Y] > 0);
+		ui_key_release(K_XP); fx_run(300);
+		CHECK(C.mo.jog[AX_Y] == 1 && !C.mo.jog[AX_X]);   /* X released, Y goes on */
 		ui_key(K_SHIFT); ui_key(K_XM);
-		CHECK(!C.mo.jog_dir);
+		CHECK(!motion_jogging(&C.mo));
 		fx_run(20);
 		CHECK(can(C_TOUCHOFF, &(arg_t){ .axis = AX_X, .dir = -1 }, SRC_PANEL) != NULL || motion_idle(&C.mo));
 		fx_until_idle(5000);

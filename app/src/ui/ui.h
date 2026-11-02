@@ -90,6 +90,7 @@ void ui_scan_files(void);
 /* per screen */
 void run_render(fb_t *fb);  void run_key(pkey_t k, bool sh);  void run_sk(sk_t sk[7]);
 void jog_render(fb_t *fb);  void jog_key(pkey_t k, bool sh);  void jog_sk(sk_t sk[7]);
+void jog_key_release(pkey_t k); bool jog_is_jog_key(pkey_t k);
 void files_render(fb_t *fb); void files_key(pkey_t k, bool sh); void files_sk(sk_t sk[7]);
 void work_render(fb_t *fb); void work_key(pkey_t k, bool sh); void work_sk(sk_t sk[7]);
 void tools_render(fb_t *fb); void tools_key(pkey_t k, bool sh); void tools_sk(sk_t sk[7]);

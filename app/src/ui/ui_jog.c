@@ -174,9 +174,11 @@ void jog_key(pkey_t k, bool sh)
 	}
 }
 
-/* continuous jog stops when the key is released */
+bool jog_is_jog_key(pkey_t k) { return jog_index(k) >= 0; }
+
+/* a continuous jog stops when its key is released; the other held keys keep their axes going */
 void jog_key_release(pkey_t k)
 {
 	int i = jog_index(k);
-	if (U.screen == SCR_JOG && i >= 0 && C.mo.jog_dir && C.mo.jog_axis == JOGA[i]) motion_jog_cont(&C.mo, 0, 0);
+	if (U.screen == SCR_JOG && i >= 0 && C.mo.jog[JOGA[i]] == JOGD[i]) motion_jog_cont(&C.mo, JOGA[i], 0);
 }

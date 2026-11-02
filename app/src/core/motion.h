@@ -60,7 +60,7 @@ typedef struct {
 	double nudge[NAXES];         /* pendant: distance still to move per axis */
 	double nudge_in[NAXES];      /* pendant: distance clicked in since the last slice */
 	double wheel_v[NAXES];       /* pendant: the wheel's own speed, mm/s, averaged over ~80 ms (feedforward) */
-	int jog_axis, jog_dir;       /* continuous jog, jog_dir 0 = off */
+	int jog[NAXES];              /* continuous jog per axis: direction, 0 = off (several keys at once, user 2026-11-02) */
 	double jv[NAXES], ja[NAXES]; /* jog / wheel S-curve state per axis: speed mm/s, accel mm/s² */
 	int last_dir[NAXES];
 	int line;                    /* source line of the op being executed */
@@ -92,7 +92,8 @@ int motion_space(const motion_t *m);
 bool motion_idle(const motion_t *m);                   /* nothing queued, nothing moving */
 bool motion_wants_more(const motion_t *m);             /* lookahead not yet deep enough */
 void motion_move_to(motion_t *m, const double target[NAXES], double feed, bool rapid);
-void motion_jog_cont(motion_t *m, int axis, int dir); /* dir 0 = stop (controlled) */
+void motion_jog_cont(motion_t *m, int axis, int dir); /* dir 0 = stop that axis (controlled); axis -1 = stop all */
+bool motion_jogging(const motion_t *m);               /* any continuous jog held */
 void motion_nudge(motion_t *m, int axis, double mm);
 void motion_hold(motion_t *m, bool on);
 void motion_stop(motion_t *m, bool immediate);        /* controlled: decel, then flush */

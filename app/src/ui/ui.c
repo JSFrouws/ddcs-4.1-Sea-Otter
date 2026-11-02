@@ -107,7 +107,9 @@ void ui_key(pkey_t k)
 	}
 	if (k == K_SHIFT) { U.shift = !U.shift; C.touch_axis = -1; return; }
 	U.shift = false;
-	if (C.mo.jog_dir) motion_jog_cont(&C.mo, 0, 0);   /* safety: any other key ends a continuous jog */
+	/* safety: any key that is not a jog key ends every continuous jog; a second jog key adds
+	 * its axis (user 2026-11-02: X held, then Y = both move) */
+	if (motion_jogging(&C.mo) && !(U.screen == SCR_JOG && ui_pane() == 0 && !sh && jog_is_jog_key(k))) motion_jog_cont(&C.mo, -1, 0);
 	if (!(sh && U.screen == SCR_JOG)) C.touch_axis = -1;
 	if (k != K_F3) C.rewind_ask = 0;                   /* "back to line 1?" waits for Reset only */
 	bool ps = U.pagesel, ws = U.wcssel, hs = U.homesel;
@@ -154,7 +156,6 @@ void ui_key(pkey_t k)
 	}
 }
 
-void jog_key_release(pkey_t k);
 void ui_key_release(pkey_t k) { jog_key_release(k); U.dirty = true; }
 
 void ui_render(fb_t *fb)
