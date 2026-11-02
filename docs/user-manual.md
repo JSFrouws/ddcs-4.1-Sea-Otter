@@ -161,6 +161,9 @@ Every other key works as usual, F2 Pause and F3 Reset included.
   simpler model is shown (a little long); for very long programs the exact one follows within
   minutes. *…* means it is still being worked out. The operator's tool changes are not in it;
   *+ N tool changes* is shown below it instead.
+- **In the view pane** (Tab): 2D pans with **X± / Y±** (40 px a press), ISO turns with X±
+  and tilts with Y±; **Cancel / Enter** zoom, **Shift + F4** fits / resets (2026-11-02: the
+  2D pan did nothing before).
 - **F4 View** cycles **2D → ISO → G-code view**. The G-code view draws no wireframe at all:
   the program listing fills the whole right side (about 18 lines), and the screen redraws
   less often, leaving more time for motion. It's the best choice for heavy programs. After an
@@ -169,15 +172,23 @@ Every other key works as usual, F2 Pause and F3 Reset included.
   Sea Otter first redraws it less often (an amber note in the view says so), then switches to
   the G-code view by itself, with an amber line that stays until you press F4.
 - **Work offset menu**: **A+** (or **Shift + F2**) turns F1-F6 into G54-G59. Each key says
-  **in job** in orange when that offset is part of the job, and which one is active; press one
-  to make it active (when idle). The active JOB part is also the part the Program pane, Goto
+  **in job** in orange when that offset is part of the job, **in G-code** when the program
+  writes it itself, and which one is active; press one to make it active (when idle). Only
+  the offsets in the job or in the program's G-code open (the others say *not in job* and
+  refuse); with nothing marked and nothing in the code, all six do (2026-11-02). The active JOB part is also the part the Program pane, Goto
   line and Start are about: with G55 active, the parts before it show as done (orange) up to
   the tool being cut, and a Goto line + Start continue on G55. F7 or Cancel closes the menu. The active offset is shown at the bottom of the left panel,
   with whether it's in the job.
-- **A program that writes two different G54-G59 itself** can't be a multi-part job (the two
-  would mix): its JOB marks are ignored and can't be set while it is loaded.
-- **G54-G59 in the program** are drawn where they cut: a program that switches to G55 halfway
-  shows that part at G55's zero. Switching the active offset moves the picture accordingly.
+- **A G54-G59 the program writes itself is in the job, fixed** (2026-11-02): the Work page
+  shows **In G-code** after it and its JOB mark can't be cleared while the program is loaded
+  (Shift + F4 clears the other marks). One such WCS - the usual CAM header - still allows a
+  multi-part job: mark more parts and the program's WCS maps to each in turn. **Two or more**
+  can't be a multi-part job (they would mix): the program runs once, as written, and no part
+  can be added.
+- **G54-G59 in the program** are drawn where they cut: every move is kept in the work
+  coordinates of the WCS it went through, so a program that switches to G55 halfway shows
+  that part at G55's zero, and a touch-off or a switch of the active offset after the load
+  moves the picture to where the machine will actually go (2026-11-02).
 - **The preview** always fits and centres the whole picture: the program, the work zero's
   axes, and small axes labelled G55, G56… at the zero of every other JOB part. The thin box
   around the toolpath is the program's size (there is none without a program). The grid lies

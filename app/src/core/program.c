@@ -14,18 +14,20 @@ void program_free(program_t *p)
 	memset(p, 0, sizeof *p);
 }
 
-static void add_pv(program_t *p, const double m[NAXES], const double off[NAXES], int line, bool rapid, bool force)
+/* m = machine position, wcs = the WCS the move went through: stored in its work coordinates */
+static void add_pv(program_t *p, const double m[NAXES], int wcs, int line, bool rapid, bool force)
 {
 	if (!p->pv) return;
+	const double *off = WD.wcs[wcs].off;
 	if (p->npv >= PREVIEW_MAX) {
 		/* decimate: drop points of the same line, keep line changes */
 		if (!force || p->pv[p->npv - 1].line == line) { pv_t *v = &p->pv[p->npv - 1];
-			v->x = (float)(m[0] - off[0]); v->y = (float)(m[1] - off[1]); v->z = (float)(m[2] - off[2]); return; }
+			v->x = (float)(m[0] - off[0]); v->y = (float)(m[1] - off[1]); v->z = (float)(m[2] - off[2]); v->wcs = (uint8_t)wcs; return; }
 		return;
 	}
 	pv_t *v = &p->pv[p->npv++];
 	v->x = (float)(m[0] - off[0]); v->y = (float)(m[1] - off[1]); v->z = (float)(m[2] - off[2]);
-	v->line = line; v->rapid = rapid;
+	v->line = line; v->rapid = rapid; v->wcs = (uint8_t)wcs;
 }
 
 int program_load_text(program_t *p, const char *name, const char *text, size_t len)
@@ -47,27 +49,26 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 
 	/* dry interpretation: validates the whole file and builds the preview */
 	p->pv = malloc(sizeof(pv_t) * PREVIEW_MAX);
-	const double *off = WD.wcs[WD.active].off;
 	double start[NAXES];
-	for (int a = 0; a < NAXES; a++) start[a] = off[a];
-	start[AX_Z] = off[AX_Z] + SET.safe_z;
+	for (int a = 0; a < NAXES; a++) start[a] = WD.wcs[WD.active].off[a];
+	start[AX_Z] += SET.safe_z;                          /* work (0, 0, safe Z) of the active WCS */
 	gc_t g;
 	gc_op_t op;
 	gc_begin(&g, p->text, p->len, start);
 	double last[NAXES];
 	memcpy(last, start, sizeof last);
-	for (int a = 0; a < 3; a++) p->pv_off[a] = off[a];
 	p->pv_wcs0 = -1;
-	add_pv(p, last, off, 0, true, true);
+	add_pv(p, last, WD.active, 0, true, true);
 	for (int a = 0; a < 3; a++) { p->lo[a] = 1e30f; p->hi[a] = -1e30f; p->mlo[a] = 1e30f; p->mhi[a] = -1e30f; }
 	int r;
 	/* retracts: a rapid move up to a Z (work) - counted per height, the lines kept */
 	enum { RMAX = 20000, ZMAX = 64 };
 	int *rl = malloc(sizeof(int) * RMAX); float *rz = malloc(sizeof(float) * RMAX); int nr = 0;
 	float zv[ZMAX]; int zc[ZMAX], nz = 0;
-	double lastz = start[AX_Z] - off[AX_Z];
+	double lastz = SET.safe_z;
 	while ((r = gc_next(&g, &op)) > 0) {
 		if (op.kind == OP_LINE && p->pv_wcs0 < 0) p->pv_wcs0 = g.wcs;
+		const double *off = WD.wcs[g.wcs].off;              /* this move's own WCS */
 		if (op.kind == OP_LINE) {
 			double z = op.end[AX_Z] - off[AX_Z];
 			if (op.rapid && z > lastz + 0.01 && rl && rz && nr < RMAX) {
@@ -85,7 +86,7 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 			p->ntc++;
 		}
 		if (op.kind != OP_LINE) continue;
-		add_pv(p, op.end, off, op.line, op.rapid, !op.arc);
+		add_pv(p, op.end, g.wcs, op.line, op.rapid, !op.arc);
 		for (int a = 0; a < 3; a++) {                       /* every move's end point */
 			float w = (float)(op.end[a] - off[a]);
 			if (w < p->mlo[a]) p->mlo[a] = w;
@@ -140,6 +141,7 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 				&& (i == 0 || !((p->text[i - 1] >= 'A' && p->text[i - 1] <= 'Z') || (p->text[i - 1] >= 'a' && p->text[i - 1] <= 'z'))))
 				seen |= 1 << (p->text[i + 2] - '4');
 		}
+		p->code_wcs = (uint8_t)seen;
 		p->multi_wcs = (seen & (seen - 1)) != 0;
 		if (seen && !p->multi_wcs) for (int k = 0; k < NWCS; k++) if (seen == 1 << k) p->pv_wcs0 = k;   /* its one WCS */
 	}

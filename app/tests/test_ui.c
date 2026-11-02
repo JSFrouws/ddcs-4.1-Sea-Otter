@@ -196,7 +196,10 @@ void test_ui(void)
 		int w0 = WD.active;
 		ui_key(K_F2); CHECK(U.wcssel && !U.shift);                      /* Shift + F2: F1-F6 = G54-G59 */
 		snap("08k_wcs_menu");
-		ui_key(K_F3); CHECK(WD.active == 2 && !U.wcssel);                /* F3 = G56 */
+		ui_key(K_F3); CHECK(WD.active == w0 && !U.wcssel);               /* F3 = G56: not in the job (only G54 is) - refused (2026-11-02) */
+		WD.wcs[2].job = true;
+		ui_key(K_SHIFT); ui_key(K_F2); ui_key(K_F3); CHECK(WD.active == 2 && !U.wcssel);   /* in the job: taken */
+		WD.wcs[2].job = false;
 		U.pane[SCR_RUN] = 0; ui_key(K_SEL); CHECK(U.wcssel);             /* A+ opens it too */
 		ui_key(K_CANCEL); CHECK(!U.wcssel && WD.active == 2);
 		/* the drawing follows: a program switching to G55 itself, then another active offset */

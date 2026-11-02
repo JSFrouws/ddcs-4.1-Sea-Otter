@@ -259,8 +259,8 @@ static void get_offsets(http_resp_t *r)
 	jbuf_t j = { malloc(1024), 0, 1024 };
 	jb(&j, "{\"active\":\"G%d\",\"wcs\":{", 54 + WD.active);
 	for (int i = 0; i < NWCS; i++)
-		jb(&j, "%s\"G%d\":{\"x\":%.4f,\"y\":%.4f,\"z\":%.4f,\"a\":%.4f,\"job\":%s}", i ? "," : "", 54 + i,
-			WD.wcs[i].off[0], WD.wcs[i].off[1], WD.wcs[i].off[2], WD.wcs[i].off[3], WD.wcs[i].job ? "true" : "false");
+		jb(&j, "%s\"G%d\":{\"x\":%.4f,\"y\":%.4f,\"z\":%.4f,\"a\":%.4f,\"job\":%s,\"inGcode\":%s}", i ? "," : "", 54 + i,
+			WD.wcs[i].off[0], WD.wcs[i].off[1], WD.wcs[i].off[2], WD.wcs[i].off[3], ctl_wcs_in_job(i) ? "true" : "false", ctl_wcs_fixed(i) ? "true" : "false");
 	jb(&j, "}}");
 	jb_send(r, &j);
 }

@@ -7,7 +7,7 @@
 #define PREVIEW_MAX 120000
 #define PROG_MAX_TC 64           /* tool changes remembered (multi-part jobs cut per tool) */
 
-typedef struct { float x, y, z; int32_t line; uint8_t rapid; } pv_t;
+typedef struct { float x, y, z; int32_t line; uint8_t rapid, wcs; } pv_t;   /* wcs = the G54-G59 the move went through (0-5) */
 
 typedef struct {
 	char name[128], path[256];
@@ -15,12 +15,14 @@ typedef struct {
 	int nlines;
 	uint32_t *line_off;          /* byte offset of each line */
 	pv_t *pv; int npv;           /* preview vertices; segment i = pv[i-1] -> pv[i] */
-	/* the preview is in work coordinates of the WCS active at load (pv_off = its machine
-	 * offset); pv_wcs0 = the WCS the program itself starts in. G54-G59 switches inside the
-	 * program are already in it (each move went through its own offset). */
-	double pv_off[3]; int pv_wcs0;
-	bool multi_wcs;              /* it switches between G54-G59 itself: no multi-part job (they would mix) */
-	float lo[3], hi[3];          /* work-coordinate bounding box of cutting moves (view) */
+	/* every preview vertex is in WORK coordinates of its own WCS (pv_t.wcs: the one the
+	 * move went through), so the view places it with the offsets as they are NOW, whatever
+	 * changed since the load (2026-11-02). pv_wcs0 = the program's own WCS: the one G54-G59
+	 * word it writes, else the one it starts in (active at load). */
+	int pv_wcs0;
+	uint8_t code_wcs;            /* bit k = the program writes G(54+k) itself: that WCS is fixed in the job */
+	bool multi_wcs;              /* it writes two or more: no multi-part job (they would mix), it runs once */
+	float lo[3], hi[3];          /* bounding box of cutting moves (view), work coordinates of each move's own WCS */
 	float mlo[3], mhi[3];        /* ... of every move, rapids included (soft/bench limit check) */
 	double est_s;                /* run time at 100 %, margin included (core/estimate.h); 0 until est_cum is there */
 	float *est_cum;              /* seconds before each line, per override level: [line * EST_NLV + level];

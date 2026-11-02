@@ -115,6 +115,11 @@ int ctl_prog_wcs(void);
  * part to resume / show progress on: the active WCS when it is a JOB part, else the last one cut */
 int ctl_job_parts(void);
 int ctl_resume_part(void);                                /* the WCS the running program uses */
+/* the job as it stands (2026-11-02): a WCS marked JOB on the Work page, or one the loaded
+ * program writes itself - a G54-G59 word in the code FIXES that WCS in the job */
+bool ctl_wcs_in_job(int i);
+bool ctl_wcs_fixed(int i);                                /* fixed by the program's G-code */
+bool ctl_wcs_selectable(int i);                           /* Run's WCS menu: in the job or the code; all six when that set is empty */
 void ctl_apply_axis_config(void);                      /* push settings to the FPGA */
 /* the motion trace (20 ms: commanded steps + FPGA counters per axis) as CSV; malloc'd */
 size_t ctl_trace_csv(char **out, bool clear);

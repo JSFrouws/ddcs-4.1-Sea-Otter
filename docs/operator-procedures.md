@@ -184,7 +184,10 @@ shows `Homed —`. From Run: **⇧ENTER (HOME)** does the same.
 ### 4. Several workpieces
 Give each part its own WCS: in Jog **F5** → G55, touch off as above; repeat. On
 **Work** mark the fixtures **F4 In job**. The top bar shows `job 2 parts`; Start
-runs the program on each JOB fixture in turn (safe Z between parts). The offsets
+runs the program on each JOB fixture in turn (safe Z between parts). A WCS the
+program writes itself (the CAM header's G54) is in the job by itself - *In G-code*
+on Work, the mark can't be cleared - and maps to each part; a program writing two
+or more runs once, as written (2026-11-02). The offsets
 table on Work is also where any value can be typed in (Enter → digit editor) or
 taken from the current position (**F2 From pos**).
 
@@ -274,7 +277,8 @@ while it runs (a follow-up, not done yet).
 
 **3D**: no stock-removal simulation (too expensive). The toolpath view offers a 2D
 plan and an **isometric wireframe** of the toolpath and the stock box, turned with
-X±, tilted with Y±, zoomed with Z± (Cancel/Enter) when the view pane has focus,
+X±, tilted with Y±, zoomed with Z± (Cancel/Enter) when the view pane has focus
+(the 2D plan pans with X± / Y± instead, 40 px a press, Shift + F4 resets),
 redrawn only on a key press or when the run advances.
 
 Turn and tilt are **clamped to the three principal views and never go past them**:
