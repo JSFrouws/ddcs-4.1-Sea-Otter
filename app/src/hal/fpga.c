@@ -128,15 +128,16 @@ void fpga_set_outputs(fpga_t *f, uint8_t mask)
 void fpga_spindle_pwm(fpga_t *f, int duty) { bus_pwm(f->bus, CLAMP(duty, 0, 3000)); }
 
 /* a block playing on channel ch sets bits 4+ch and 12+ch (0x2020 measured for channel 1,
- * 2026-11-01). The burst-mode layout (bits ch, 8+ch) is not read since burst mode was
- * removed (2026-11-02): nothing in a block stream was ever seen to set it. */
-#define STATUS_BLOCK_BITS 0xF0F0u
-bool fpga_busy(fpga_t *f) { return (bus_r(f->bus, FR_STATUS) & STATUS_BLOCK_BITS) != 0; }
+ * 2026-11-01). The old burst layout (bits ch = active, 8+ch = stepping) is still honoured:
+ * nothing in a block stream was ever seen to set it, but nothing proved it never does, and
+ * a spurious "moving" only delays a preset or a reversal. busy excludes bits 0-3, which
+ * stayed set on a held axis in burst mode. */
+bool fpga_busy(fpga_t *f) { return (bus_r(f->bus, FR_STATUS) & 0xFFF0) != 0; }
 /* a preset is only safe when no channel is playing */
 uint8_t fpga_moving(fpga_t *f)
 {
 	uint16_t s = bus_r(f->bus, FR_STATUS);
-	uint8_t ch = (uint8_t)((s >> 4 | s >> 12) & 0x0F), ax = 0;
+	uint8_t ch = (uint8_t)((s | s >> 4 | s >> 8 | s >> 12) & 0x0F), ax = 0;
 	for (int a = 0; a < NAXES; a++) if (f->chan[a] >= 0 && (ch >> f->chan[a] & 1)) ax |= (uint8_t)(1u << a);
 	return ax;
 }
