@@ -163,11 +163,11 @@ the hardware), one burst carries at most 30 ms. The honest sustained top speed i
 
 ## Still open
 
-- **Real motors**: no motor was connected. (Burst stop-go is gone: since 2026-11-02 the app only streams blocks, which play back to back - smoothness on a real stepper is still to be judged.)
+- ~~**Real motors**: no motor was connected.~~ **Driven with the drives connected (2026-11-02/03):** jogs and programs in block mode run smoothly on the real steppers (burst stop-go is gone; the app only streams blocks, which play back to back).
 - **The 40 000 steps/s ceiling** - not in `0x16/17`, `0x2B/2C`; probably another init parameter or the pulse generator itself.
 - **Release of a mid-move stop** - unknown; avoided.
 - ~~The vendor's coordinated block interface (`0x4622` → `0x50…0x60`) would give true interpolation and continuous motion; still not decoded.~~ **Decoded and driven 2026-11-01 — see below.**
-- Homing on real switches - not tested (nothing wired on the desk unit).
+- ~~Homing on real switches - not tested.~~ **Homed on the machine's own switches (2026-11-03)**, with the ramped search / back-off / retract.
 
 ## Block mode = continuous motion (DECODED 2026-11-01, driven on the real machine)
 

@@ -5,11 +5,11 @@ DDCS V4.1 (`app/`). This manual covers daily use. Design background is in
 [operator-procedures.md](operator-procedures.md), the network API in
 [api-reference.md](api-reference.md).
 
-> **Not yet tested on a machine with drives connected (2026-10-21).** Tested on a real
-> controller with no drives or motors attached: step-exact positions, real CAM programs up
-> to 64 000 lines, limit inputs and controlled stops through the real input path. Do the
-> first real tests with the motors unpowered or able to move freely, with a hard-wired
-> E-stop that cuts the drives. No warranty, no liability: see the README.
+> **Runs on a real machine (2026-11-03).** Tested on a DDCS V4.1 with its drives
+> connected: step-exact positions, real CAM programs up to 64 000 lines, jogging, homing on
+> the switches and controlled stops through the real input path. Do your own first tests
+> with a hand on a hard-wired E-stop that cuts the drives. No warranty, no liability: see
+> the README.
 
 ---
 
@@ -481,10 +481,8 @@ The controller serves a browser panel and the API on port 8080
 [api-reference.md](api-reference.md). What the network may do is set in *Settings › API*
 (§ 6). A remote start, once allowed, counts down on the panel first, and Reset cancels it.
 
-## 9. Known limits (2026-10-21)
-- **Not yet tested with drives or motors connected**, nor with real limit/home switches
-  or a probe (probing is not configured). Limit handling was tested through the real
-  input path with the inputs' level inverted, not with a switch.
+## 9. Known limits (2026-11-03)
+- Not yet tested with a probe (probing is not configured).
 - Loading a very large file (64 000 lines) takes ~4 s, and the panel freezes for that time.
 - G84 tapping and tool length compensation (G43) are not supported.
 - `G28` without axis words sends all axes to machine zero **together**, not Z first, as

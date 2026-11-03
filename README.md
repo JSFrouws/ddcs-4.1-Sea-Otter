@@ -141,8 +141,7 @@ by its maker, so it is not available from this project either.
 
 A CNC machine can cause serious injury and damage. This software controls motion,
 spindles and outputs and **is provided "as is", without warranty of any kind**. It is
-experimental, not certified for any safety function, and has not been tested on a machine
-with drives connected (see the notice at the top). You use it entirely at your own risk:
+experimental and not certified for any safety function. You use it entirely at your own risk:
 the authors and contributors accept **no liability** for any injury, damage, loss of data,
 broken tools, scrapped work or any other consequence of using it, or of installing it on
 your controller. Keep a working, hard-wired E-stop that cuts the drives independently of
