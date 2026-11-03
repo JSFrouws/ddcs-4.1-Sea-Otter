@@ -93,6 +93,40 @@ void test_planner(void)
 	CHECK(vpeak > 0.95 * vcap);
 	CHECK_NEAR(C.mo.pos[0], x0 + 30, 1e-6);
 
+	/* a small circle at full feed (2026-11-03): the chords are so short that the corner rules
+	 * alone would let v²/r reach 625 mm/s²; the centripetal limit holds the speed to
+	 * sqrt(accel x r) = 12.2 mm/s at r = 0.5, and the per-axis acceleration seen on the
+	 * positions stays near the axis' own limit */
+	{
+		double c[NAXES]; memcpy(c, C.mo.pos, sizeof c);
+		double rr = 0.5, cx = c[0] - rr, cy = c[1];
+		double sag = 0.005, step = 2 * acos(1 - sag / rr);
+		int nch = (int)ceil(2 * M_PI / step);
+		double amax_ax = 0, vmid = 0, pp[2] = { c[0], c[1] }, vp[2] = { 0, 0 };
+		int pushed = 0, ticks = 0;
+		while (pushed < nch || !motion_idle(&C.mo)) {
+			while (pushed < nch && motion_wants_more(&C.mo)) {
+				pushed++;
+				double ang = 2 * M_PI * pushed / nch;
+				memcpy(t, C.mo.plan_end, sizeof t);
+				t[0] = cx + rr * cos(ang); t[1] = cy + rr * sin(ang);
+				motion_move_to(&C.mo, t, F, false);
+			}
+			fx_run(10); ticks++;
+			double vx = (C.mo.pos[0] - pp[0]) / 0.01, vy = (C.mo.pos[1] - pp[1]) / 0.01;
+			if (ticks > 2) amax_ax = fmax(amax_ax, fmax(fabs(vx - vp[0]), fabs(vy - vp[1])) / 0.01);
+			if (pushed >= nch / 2 && C.mo.qn > 4) vmid = fmax(vmid, C.mo.v);
+			vp[0] = vx; vp[1] = vy; pp[0] = C.mo.pos[0]; pp[1] = C.mo.pos[1];
+			if (ticks > 5000) break;
+		}
+		printf("  r = 0.5 mm circle at %.0f mm/s: %d chords, speed %.1f (limit %.1f), per-axis accel %.0f\n",
+			vF, nch, vmid, sqrt(SET.ax[0].accel * rr), amax_ax);
+		CHECK(vmid <= sqrt(SET.ax[0].accel * rr) * 1.05);
+		CHECK(vmid >= sqrt(SET.ax[0].accel * rr) * 0.8);
+		CHECK(amax_ax <= SET.ax[0].accel * 1.3);               /* 10 ms sampling smears the chord steps */
+		CHECK_NEAR(C.mo.pos[0], c[0], 1e-9); CHECK_NEAR(C.mo.pos[1], c[1], 1e-9);
+	}
+
 	/* braking ahead: a long move into a reversal brakes in time, within the acceleration limit */
 	memcpy(t, C.mo.pos, sizeof t);
 	double xr = t[0] + 40;

@@ -123,8 +123,9 @@ static int start_arc(gc_t *g, const words_t *w, const double t[NAXES], bool cw)
 	if (r < 1e-6) { snprintf(g->err, sizeof g->err, "arc with zero radius"); return -1; }
 	if (fabs(hypot(e0 - c0, e1 - c1) - r) > 0.05 + r * 1e-3) { snprintf(g->err, sizeof g->err, "arc end not on the circle"); return -1; }
 	double st = atan2(s1 - c1, s0 - c0), en = atan2(e1 - c1, e0 - c0), sw = en - st;
-	if (cw && sw >= -1e-9) sw -= 2 * M_PI;
-	if (!cw && sw <= 1e-9) sw += 2 * M_PI;
+	double eps = 0.01 / r;      /* end within 0.01 mm of the start = a full circle, whichever way CAM rounding went */
+	if (cw && sw > -eps) sw -= 2 * M_PI;
+	if (!cw && sw < eps) sw += 2 * M_PI;
 	double step = 2 * acos(fmax(-1.0, 1 - TOL / r));
 	int n = (int)ceil(fabs(sw) / fmax(step, 1e-3));
 	g->arc.on = true; g->arc.n = CLAMP(n, 1, 4000); g->arc.i = 0;

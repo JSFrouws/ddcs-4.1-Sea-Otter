@@ -114,12 +114,31 @@ double motion_corner_limit(const struct plan *A, const struct plan *B)
 		dot += A->u[a] * B->u[a];
 		if (du > 1e-9) v = fmin(v, SET.ax[a].corner_speed / du);
 	}
+	double acc = fmin(A->acc, B->acc);
 	if (SET.junction_dev > 0 && dot < 0.999999) {
 		double sh = sqrt(fmax(0.0, 0.5 * (1 + dot)));      /* sin of half the angle between the paths' normals */
-		double acc = fmin(A->acc, B->acc);
 		if (sh < 0.999999) v = fmin(v, sqrt(acc * SET.junction_dev * sh / (1 - sh)));
 	}
-	return v;
+	return fmin(v, motion_curve_limit(A, B));
+}
+
+/* Centripetal limit (2026-11-03): a run of short chords IS a curve - a G2/G3 circle, or a
+ * CAM spline - and the axes must deliver v²/r sideways to follow it. The corner rules cap
+ * the per-chord speed step, which bounds v²/r at corner_speed²/(8 x sagitta) = 625 mm/s²
+ * whatever the radius: a 2 mm hole at full feed asked the drives for twice their
+ * acceleration. The effective radius of the polyline is chord / turn angle; the sideways
+ * acceleration is taken at the slowest axis involved. motion_push also caps both chords'
+ * own speed with it, or the planner would accelerate inside a chord and brake at its end. */
+double motion_curve_limit(const struct plan *A, const struct plan *B)
+{
+	double dot = 0, amin = 1e9;
+	for (int a = 0; a < NAXES; a++) {
+		dot += A->u[a] * B->u[a];
+		if (fabs(A->u[a]) > 1e-9 || fabs(B->u[a]) > 1e-9) amin = fmin(amin, SET.ax[a].accel);
+	}
+	double th = acos(CLAMP(dot, -1.0, 1.0));
+	if (th < 1e-6) return 1e9;
+	return sqrt(amin * fmin(A->len, B->len) / th);
 }
 
 static double ov_of(const motion_t *m, const struct plan *p)
@@ -139,6 +158,11 @@ bool motion_push(motion_t *m, const gc_op_t *op)
 		if (!motion_plan_setup(&p, op, m->plan_end)) return true;          /* zero length: nothing to do */
 		const struct plan *prev = m->qn ? &m->pl[QI(m, m->qn - 1)] : (m->active && m->op.kind == OP_LINE ? &m->cur : NULL);
 		p.vj = prev && prev->line ? motion_corner_limit(prev, &p) : 0;
+		if (prev && prev->line) {                                   /* on a curve, neither chord may exceed v²/r */
+			double vc = motion_curve_limit(prev, &p);
+			p.vcap = fmin(p.vcap, vc);
+			if (m->qn) { struct plan *q = &m->pl[QI(m, m->qn - 1)]; q->vcap = fmin(q->vcap, vc); }   /* replanned from i-1 below */
+		}
 		memcpy(m->plan_end, op->end, sizeof m->plan_end);
 		m->qdist += p.len;
 	}

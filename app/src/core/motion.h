@@ -105,5 +105,6 @@ int rapid_override(int feed_ov);                       /* the rapid-follows-feed
 /* the planner's own segment geometry and corner limit (also used by the time estimate) */
 bool motion_plan_setup(struct plan *p, const gc_op_t *op, const double start[NAXES]);
 double motion_corner_limit(const struct plan *A, const struct plan *B);
+double motion_curve_limit(const struct plan *A, const struct plan *B);    /* centripetal: v <= sqrt(a r) of the polyline */
 
 #endif

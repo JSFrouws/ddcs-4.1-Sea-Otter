@@ -122,6 +122,11 @@ static void est_op(est_t *e, const gc_op_t *op)
 		const struct plan *pv = e->n ? &e->w[e->n - 1].p : e->prev_line ? &e->prev : NULL;
 		double vj = pv ? motion_corner_limit(pv, &s.p) : 0;
 		s.vj2 = vj * vj;
+		if (pv) {                                            /* on a curve, neither chord may exceed v²/r (as motion_push) */
+			double vc = motion_curve_limit(pv, &s.p);
+			s.p.vcap = fmin(s.p.vcap, vc);
+			if (e->n) { seg_t *w = &e->w[e->n - 1]; w->p.vcap = fmin(w->p.vcap, vc); for (int k = 0; k < EST_NLV; k++) { double v = vrun(&w->p, k); w->vr2[k] = v * v; } }
+		}
 		for (int k = 0; k < EST_NLV; k++) { double v = vrun(&s.p, k); s.vr2[k] = v * v; }
 		e->w[e->n++] = s;
 		if (e->n == WIN) flush(e, false);

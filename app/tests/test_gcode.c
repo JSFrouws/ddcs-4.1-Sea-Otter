@@ -60,6 +60,14 @@ void test_gcode(void)
 		CHECK_NEAR(g.pos[0], 10, 1e-9); CHECK_NEAR(g.pos[1], 0, 1e-9);
 	}
 	/* R-format quarter arc */
+	/* a full circle whose end is a CAM-rounded hair past its start (2026-11-03) is still a full
+	 * circle, not a near-zero arc; a real short arc still is one */
+	n = run("G0 X10 Y0\nG2 X10 Y0.001 I-10 J0 F1000\n", o, 64, &g, NULL);
+	CHECK(n == 64);
+	n = run("G0 X10 Y0\nG2 X10 Y-0.001 I-10 J0 F1000\n", o, 64, &g, NULL);
+	CHECK(n == 64);
+	n = run("G0 X10 Y0\nG2 X9.9 Y-1.4 I-10 J0 F1000\n", o, 64, &g, NULL);
+	CHECK(n > 2 && n < 10);
 	n = run("G0 X0 Y0\nG3 X10 Y10 R10\n", o, 64, &g, NULL);
 	CHECK(n > 2);
 	CHECK_NEAR(o[n - 1].end[0], 10, 1e-9); CHECK_NEAR(o[n - 1].end[1], 10, 1e-9);
