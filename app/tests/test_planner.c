@@ -137,6 +137,17 @@ void test_planner(void)
 	CHECK(r.vmax > 0.95 * vcap);
 	CHECK_NEAR(C.mo.pos[0], t[0], 1e-9);
 
+	/* nor is a long rapid after a 0.006 mm stub at a gentle angle (TryCut flattens the last
+	 * cutting move to such a stub): sized by the stub, the rapid crawled at 1.1 mm/s on the
+	 * machine (2026-11-03) */
+	memcpy(t, C.mo.pos, sizeof t);
+	t[0] += 0.006 * cos(0.3); t[1] += 0.006 * sin(0.3); motion_move_to(&C.mo, t, F, false);
+	t[0] += 60; motion_move_to(&C.mo, t, 0, true);
+	r = run_path(NULL);
+	printf("  0.006 mm stub then 60 mm rapid at 17 deg: peak %.1f of %.1f mm/s\n", r.vmax, vcap);
+	CHECK(r.vmax > 0.95 * vcap);
+	CHECK_NEAR(C.mo.pos[0], t[0], 1e-9);
+
 	/* braking ahead: a long move into a reversal brakes in time, within the acceleration limit */
 	memcpy(t, C.mo.pos, sizeof t);
 	double xr = t[0] + 40;

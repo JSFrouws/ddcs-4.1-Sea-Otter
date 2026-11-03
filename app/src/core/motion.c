@@ -119,7 +119,7 @@ double motion_corner_limit(const struct plan *A, const struct plan *B)
 		double sh = sqrt(fmax(0.0, 0.5 * (1 + dot)));      /* sin of half the angle between the paths' normals */
 		if (sh < 0.999999) v = fmin(v, sqrt(acc * SET.junction_dev * sh / (1 - sh)));
 	}
-	return fmin(v, motion_curve_limit(A, B));
+	return fmin(v, motion_curve_limit(A, B, 0.5 * (A->len + B->len)));
 }
 
 /* Centripetal limit (2026-11-03): a run of short chords IS a curve - a G2/G3 circle, or a
@@ -131,7 +131,12 @@ double motion_corner_limit(const struct plan *A, const struct plan *B)
  * own speed with it, or the planner would accelerate inside a chord and brake at its end -
  * but only between CHORDS (motion_is_chord: a gentle turn). Capping the segment at a real
  * corner throttled a 44 mm rapid to 3.6 mm/s because it followed a 0.4 mm Z move at 90
- * degrees (measured on the machine, 2026-11-03); a corner is the junction rules' business. */
+ * degrees (measured on the machine, 2026-11-03); a corner is the junction rules' business.
+ * The radius is taken from the length that matters: the mean of both at a junction, and
+ * each segment's OWN length for its cap. With the shorter of the two, a 0.006 mm stub
+ * before a 306 mm rapid at a gentle angle capped the whole rapid to 1.1 mm/s (TryCut on a
+ * propeller job, measured on the machine the same day). Chords of one curve have equal
+ * lengths, so the circle case is the same either way. */
 #define CHORD_MAX_TURN 0.6                   /* rad: 0.64 is the turn between chords of an r = 0.1 mm arc */
 static double turn_angle(const struct plan *A, const struct plan *B)
 {
@@ -144,7 +149,7 @@ bool motion_is_chord(const struct plan *A, const struct plan *B)
 	double th = turn_angle(A, B);
 	return th > 1e-6 && th < CHORD_MAX_TURN;
 }
-double motion_curve_limit(const struct plan *A, const struct plan *B)
+double motion_curve_limit(const struct plan *A, const struct plan *B, double len)
 {
 	double dot = 0, amin = 1e9;
 	for (int a = 0; a < NAXES; a++) {
@@ -153,7 +158,7 @@ double motion_curve_limit(const struct plan *A, const struct plan *B)
 	}
 	double th = acos(CLAMP(dot, -1.0, 1.0));
 	if (th < 1e-6) return 1e9;
-	return sqrt(amin * fmin(A->len, B->len) / th);
+	return sqrt(amin * len / th);
 }
 
 static double ov_of(const motion_t *m, const struct plan *p)
@@ -174,9 +179,8 @@ bool motion_push(motion_t *m, const gc_op_t *op)
 		const struct plan *prev = m->qn ? &m->pl[QI(m, m->qn - 1)] : (m->active && m->op.kind == OP_LINE ? &m->cur : NULL);
 		p.vj = prev && prev->line ? motion_corner_limit(prev, &p) : 0;
 		if (prev && prev->line && motion_is_chord(prev, &p)) {     /* on a curve, neither chord may exceed v²/r */
-			double vc = motion_curve_limit(prev, &p);
-			p.vcap = fmin(p.vcap, vc);
-			if (m->qn) { struct plan *q = &m->pl[QI(m, m->qn - 1)]; q->vcap = fmin(q->vcap, vc); }   /* replanned from i-1 below */
+			p.vcap = fmin(p.vcap, motion_curve_limit(prev, &p, p.len));
+			if (m->qn) { struct plan *q = &m->pl[QI(m, m->qn - 1)]; q->vcap = fmin(q->vcap, motion_curve_limit(q, &p, q->len)); }   /* replanned from i-1 below */
 		}
 		memcpy(m->plan_end, op->end, sizeof m->plan_end);
 		m->qdist += p.len;

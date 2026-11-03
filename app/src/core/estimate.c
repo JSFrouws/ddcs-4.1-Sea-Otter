@@ -123,9 +123,8 @@ static void est_op(est_t *e, const gc_op_t *op)
 		double vj = pv ? motion_corner_limit(pv, &s.p) : 0;
 		s.vj2 = vj * vj;
 		if (pv && motion_is_chord(pv, &s.p)) {               /* on a curve, neither chord may exceed v²/r (as motion_push) */
-			double vc = motion_curve_limit(pv, &s.p);
-			s.p.vcap = fmin(s.p.vcap, vc);
-			if (e->n) { seg_t *w = &e->w[e->n - 1]; w->p.vcap = fmin(w->p.vcap, vc); for (int k = 0; k < EST_NLV; k++) { double v = vrun(&w->p, k); w->vr2[k] = v * v; } }
+			s.p.vcap = fmin(s.p.vcap, motion_curve_limit(pv, &s.p, s.p.len));
+			if (e->n) { seg_t *w = &e->w[e->n - 1]; w->p.vcap = fmin(w->p.vcap, motion_curve_limit(&w->p, &s.p, w->p.len)); for (int k = 0; k < EST_NLV; k++) { double v = vrun(&w->p, k); w->vr2[k] = v * v; } }
 		}
 		for (int k = 0; k < EST_NLV; k++) { double v = vrun(&s.p, k); s.vr2[k] = v * v; }
 		e->w[e->n++] = s;
