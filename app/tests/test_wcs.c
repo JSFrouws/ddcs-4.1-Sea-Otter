@@ -107,7 +107,7 @@ void test_wcs(void)
 	ui_view_origin(8, 60, 600, 400, &ox0, &oy0);
 	ui_key(K_XP); ui_key(K_YP);
 	ui_view_origin(8, 60, 600, 400, &ox1, &oy1);
-	CHECK(ox1 == ox0 + 40 && oy1 == oy0 - 40);
+	CHECK(ox1 == ox0 - 40 && oy1 == oy0 + 40);               /* the camera moves +X +Y: the origin slides left and down */
 	ui_key(K_SHIFT); ui_key(K_F4);                     /* Shift + F4 = fit / reset (Select is the WCS menu on Run) */
 	ui_view_origin(8, 60, 600, 400, &ox1, &oy1);
 	CHECK(ox1 == ox0 && oy1 == oy0 && U.view.panx == 0);
