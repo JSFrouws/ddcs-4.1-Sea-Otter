@@ -99,6 +99,7 @@ extern const char *const CMD_NAMES[C__N];
 
 void ctl_init(bus_t *bus, bool sim, const char *cfg_path, const char *wd_path);
 void ctl_tick(double dt);
+void ctl_motion_only(double dt);   /* stream the planned motion + FPGA heartbeat, nothing else (from inside a long seek) */
 /* C_MACRO arms a macro: arg path = its file (or its name). See core/macro.h */
 const char *can(cmd_t c, const arg_t *a, src_t src);   /* NULL = allowed, else why not */
 bool act(cmd_t c, const arg_t *a, src_t src);

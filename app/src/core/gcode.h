@@ -58,5 +58,9 @@ int gc_next(gc_t *g, gc_op_t *op);
 /* Interpret up to (not including) line `line` without emitting motion: rebuilds the
  * modal state and position for a resume. Returns 0, or -1 on error. */
 int gc_seek(gc_t *g, int line);
+/* Long seeks call this every 1024 lines (main sets it: it streams the motion already
+ * planned). A multi-part job seeks to its tool segment at every part switch - 59 000 lines,
+ * 1.3 s on the controller - while the previous part's last moves are still running. */
+extern void (*gc_yield)(void);
 
 #endif

@@ -522,9 +522,21 @@ static void agent_checks(void)
 	}
 }
 
+static uint64_t hb;
+
+/* Inside a long seek (gc_yield, via main): the queued motion keeps streaming to the FPGA and
+ * the watchdog stays fed. Nothing that could feed the program or change state runs here - the
+ * caller is the program feeder itself. Measured before (2026-11-03, 3-part propeller job): the
+ * switch to the next part's second tool froze the loop 1.36 s while the last part was moving
+ * at 6.7 mm/s; the FPGA ran out its 50 ms queue and stopped dead, then restarted at 8 mm/s. */
+void ctl_motion_only(double dt)
+{
+	if ((C.m != M_ESTOP && C.m != M_OFF) || C.mo.stopping) motion_tick(&C.mo, dt);
+	if (now_ms() - hb >= 20) { hb = now_ms(); fpga_heartbeat(&C.fp); }
+}
+
 void ctl_tick(double dt)
 {
-	static uint64_t hb;
 	inputs();
 	if (C.mo.soft_stop) {                               /* a jog braked to a standstill at its limit */
 		ctl_toast(false, "%c stopped at its limit", AXIS_CH[C.mo.soft_stop - 1]);

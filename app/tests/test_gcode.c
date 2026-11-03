@@ -1,4 +1,6 @@
 /* G-code interpreter: modal state, coordinate systems, arcs, errors, seek. */
+#include <stdio.h>
+#include <math.h>
 #include <string.h>
 #include "t.h"
 #include "core/gcode.h"
@@ -13,6 +15,9 @@ static int run(const char *src, gc_op_t *ops, int max, gc_t *g, const double *st
 	return r < 0 ? -1 : n;
 }
 
+static int yields;
+static void count_yield(void) { yields++; }
+
 void test_gcode(void)
 {
 	SUITE("gcode interpreter");
@@ -20,6 +25,23 @@ void test_gcode(void)
 	workdata_defaults(&WD);
 	gc_t g;
 	gc_op_t o[64];
+
+	/* a long seek yields every 1024 lines (2026-11-03: a 59 000-line seek at a job part switch
+	 * froze the loop 1.3 s with the motion running), and still lands on the line */
+	{
+		static char big[5000 * 16 + 1];
+		size_t k = 0;
+		for (int i = 0; i < 5000; i++) k += (size_t)sprintf(big + k, "G1 X%d F600\n", i);
+		static const double zero[NAXES];
+		gc_begin(&g, big, k, zero);
+		yields = 0; gc_yield = count_yield;
+		CHECK(gc_seek(&g, 4500) == 0);
+		gc_yield = NULL;
+		printf("  seek to line 4500: %d yields\n", yields);
+		CHECK(yields >= 4);
+		gc_op_t op; int r = gc_next(&g, &op);                 /* line 4500 (0-based) is X4500, plus the G54 offset */
+		CHECK(r > 0 && op.line == 4500 && fabs(op.end[0] - 4500 - WD.wcs[WD.active].off[0]) < 1e-9);
+	}
 
 	/* G54 offset applied, G53 bypasses it, G91 relative, inch units */
 	memset(&WD.wcs[0], 0, sizeof WD.wcs[0]);

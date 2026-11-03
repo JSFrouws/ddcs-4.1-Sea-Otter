@@ -118,6 +118,22 @@ static void motion_slice(void)
 }
 static void slice_if_due(void) { if (now_ms() >= g_next) motion_slice(); }
 
+/* the same slice, motion only: called from inside a long G-code seek, which runs inside a
+ * full slice (the feeder) - so no ctl_tick here */
+static void motion_only_if_due(void)
+{
+	uint64_t t = now_ms();
+	if (t < g_next) return;
+	uint32_t real = t <= g_last_tick ? 0u : (uint32_t)(t - g_last_tick);
+	uint32_t el = real > 40u ? 40u : real ? real : 1u;
+	if (real > PERF.gap_ms_max) PERF.gap_ms_max = real;
+	if (C.m == M_RUN || C.mo.active) { PERF.motion_ms += el; if (real > el) PERF.lost_ms += real - el; }
+	g_last_tick = t;
+	g_next = t + TICK_MS;
+	ctl_motion_only(el / 1000.0);
+	if (g_sim) sim_step(real);
+}
+
 
 int main(int argc, char **argv)
 {
@@ -216,6 +232,7 @@ int main(int argc, char **argv)
 	signal(SIGINT, on_sig); signal(SIGTERM, on_sig); signal(SIGPIPE, SIG_IGN);
 	g_sim = sim;
 	ui_yield = slice_if_due;
+	gc_yield = motion_only_if_due;
 	uint64_t last_scan = 0, last_render = 0, last_save = now_ms(), sig = 0;
 	uint32_t keys_prev = 0, keys_cand = 0;
 	while (!quit) {

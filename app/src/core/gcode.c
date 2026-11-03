@@ -317,9 +317,13 @@ int gc_next(gc_t *g, gc_op_t *op)
 	}
 }
 
+void (*gc_yield)(void);
+
 int gc_seek(gc_t *g, int line)
 {
+	unsigned n = 0;
 	while (g->line + 1 < line) {
+		if (gc_yield && (++n & 1023) == 0) gc_yield();
 		size_t before = g->cur;
 		int r = next_block(g, false);
 		if (r < 0) return -1;
