@@ -128,7 +128,22 @@ double motion_corner_limit(const struct plan *A, const struct plan *B)
  * whatever the radius: a 2 mm hole at full feed asked the drives for twice their
  * acceleration. The effective radius of the polyline is chord / turn angle; the sideways
  * acceleration is taken at the slowest axis involved. motion_push also caps both chords'
- * own speed with it, or the planner would accelerate inside a chord and brake at its end. */
+ * own speed with it, or the planner would accelerate inside a chord and brake at its end -
+ * but only between CHORDS (motion_is_chord: a gentle turn). Capping the segment at a real
+ * corner throttled a 44 mm rapid to 3.6 mm/s because it followed a 0.4 mm Z move at 90
+ * degrees (measured on the machine, 2026-11-03); a corner is the junction rules' business. */
+#define CHORD_MAX_TURN 0.6                   /* rad: 0.64 is the turn between chords of an r = 0.1 mm arc */
+static double turn_angle(const struct plan *A, const struct plan *B)
+{
+	double dot = 0;
+	for (int a = 0; a < NAXES; a++) dot += A->u[a] * B->u[a];
+	return acos(CLAMP(dot, -1.0, 1.0));
+}
+bool motion_is_chord(const struct plan *A, const struct plan *B)
+{
+	double th = turn_angle(A, B);
+	return th > 1e-6 && th < CHORD_MAX_TURN;
+}
 double motion_curve_limit(const struct plan *A, const struct plan *B)
 {
 	double dot = 0, amin = 1e9;
@@ -158,7 +173,7 @@ bool motion_push(motion_t *m, const gc_op_t *op)
 		if (!motion_plan_setup(&p, op, m->plan_end)) return true;          /* zero length: nothing to do */
 		const struct plan *prev = m->qn ? &m->pl[QI(m, m->qn - 1)] : (m->active && m->op.kind == OP_LINE ? &m->cur : NULL);
 		p.vj = prev && prev->line ? motion_corner_limit(prev, &p) : 0;
-		if (prev && prev->line) {                                   /* on a curve, neither chord may exceed v²/r */
+		if (prev && prev->line && motion_is_chord(prev, &p)) {     /* on a curve, neither chord may exceed v²/r */
 			double vc = motion_curve_limit(prev, &p);
 			p.vcap = fmin(p.vcap, vc);
 			if (m->qn) { struct plan *q = &m->pl[QI(m, m->qn - 1)]; q->vcap = fmin(q->vcap, vc); }   /* replanned from i-1 below */

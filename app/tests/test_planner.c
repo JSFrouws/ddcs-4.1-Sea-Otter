@@ -127,6 +127,16 @@ void test_planner(void)
 		CHECK_NEAR(C.mo.pos[0], c[0], 1e-9); CHECK_NEAR(C.mo.pos[1], c[1], 1e-9);
 	}
 
+	/* a long rapid after a short Z move at a right angle is NOT a curve: it must reach full
+	 * speed (the curve cap throttled such a rapid to 3.6 mm/s on the machine, 2026-11-03) */
+	memcpy(t, C.mo.pos, sizeof t);
+	t[2] += 0.4; motion_move_to(&C.mo, t, 0, true);
+	t[0] += 44; motion_move_to(&C.mo, t, 0, true);
+	r = run_path(NULL);
+	printf("  0.4 mm Z then 44 mm X rapid: peak %.1f of %.1f mm/s\n", r.vmax, vcap);
+	CHECK(r.vmax > 0.95 * vcap);
+	CHECK_NEAR(C.mo.pos[0], t[0], 1e-9);
+
 	/* braking ahead: a long move into a reversal brakes in time, within the acceleration limit */
 	memcpy(t, C.mo.pos, sizeof t);
 	double xr = t[0] + 40;
