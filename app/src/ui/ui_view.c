@@ -19,11 +19,12 @@ bool ui_view_key(pkey_t k)
 		else goto common;
 		return true;
 	}
-	/* 2D: pan in pixels, 40 per press (the picture follows the key: X+ moves it right, Y+ up) */
-	if (k == K_XM) U.view.panx -= 40;
-	else if (k == K_XP) U.view.panx += 40;
-	else if (k == K_YP) U.view.pany += 40;
-	else if (k == K_YM) U.view.pany -= 40;
+	/* 2D: pan in pixels, 40 per press. The keys move the CAMERA, not the part (owner,
+	 * 2026-11-03): X+ looks further to the right, so the picture slides left; Y+ looks up */
+	if (k == K_XM) U.view.panx += 40;
+	else if (k == K_XP) U.view.panx -= 40;
+	else if (k == K_YP) U.view.pany -= 40;
+	else if (k == K_YM) U.view.pany += 40;
 	else goto common;
 	return true;
 common:
