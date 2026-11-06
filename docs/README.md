@@ -11,9 +11,9 @@ material (boot logs, scans, dumps, captures) in its native format under `raw/`.
 | [api-reference.md](api-reference.md) | **The implemented HTTP API**, endpoint by endpoint, incl. all settings keys |
 | [boot-logo.md](boot-logo.md) | **The boot logo**: format (1024 x 600 24-bit BMP), how to replace it, image-generator prompts in several colour styles |
 | [io-map.md](io-map.md) | **Start here for I/O**: every connector pin and panel control → SoC GPIO / FPGA register, with status |
-| [hardware-setup.md](hardware-setup.md) | How the unit is wired: on the machine in the garage (since 2026-10-31), and the earlier desk setup |
+| [hardware-setup.md](hardware-setup.md) | How the unit is wired: on a three-axis machine (since 2026-10-31), and the earlier bench setup |
 | [board-internals.md](board-internals.md) | **What is inside the DDCS V4.1**: the i.MX283 CPU module, the AGM 16K FPGA and its config flash, RAM/eMMC, power stages, RS-422 step/dir drivers, opto inputs, ULN2003 outputs, the 0–10 V spindle DAC — read from photos of the boards |
-| [network.md](network.md) | Ethernet access: IP settings, port scan results, login attempts, the garage wifi bridge (OpenWrt + relayd) |
+| [network.md](network.md) | Ethernet access: IP settings, port scan results, login attempts |
 | [smb-shares.md](smb-shares.md) | The unit's Samba shares (`SYSDISK` = app folder, `CNCDISK` = G-code) |
 | [motiondev-ko.md](motiondev-ko.md) | Unit's stock driver vs. our register map + the modversions CRC fix |
 | [app-analysis.md](app-analysis.md) | ddcsv4.out: driver load, filesystem layout, system() calls, routes to a shell |
@@ -29,7 +29,7 @@ material (boot logs, scans, dumps, captures) in its native format under `raw/`.
 | [connector-pinouts.md](connector-pinouts.md) | Full silkscreen pinouts: 37-pin axis/IO connector, HMI/RS232 (unused), and the dedicated 15-pin MPG port (the pendant's real port) |
 | [mpg-pendant-io.md](mpg-pendant-io.md) | **RESOLVED**: pendant axis/X1-X10-X100/E-stop = opto inputs in FPGA reg `0x3D` (bit map), dead-man gates them, wheel `0x0E` ungated. Needs COM+/COM- fed |
 | [fpga-outputs.md](fpga-outputs.md) | **CONFIRMED by multimeter**: OUT1-3 = FPGA reg `0x3E` bits 0-2; axis select `0x00` 0-3 = X/Y/Z/A; DIR = bit 1 of move command `0x04`; pulse polarity = per-axis `0x02` bit 2; all 8 axis pins measured; jog sequence; `iotrace.so` app-trace shim + `motionw` writer |
-| [machine-settings.md](machine-settings.md) | The real garage CNC's saved `setting` file, fully decoded (steps/mm, travel/soft limits, home config, shared limit+home wiring, spindle, network) — now the replacement app's defaults |
+| [machine-settings.md](machine-settings.md) | A real machine's saved `setting` file, fully decoded (steps/mm, travel/soft limits, home config, shared limit+home wiring, spindle, network) — now the replacement app's defaults |
 | [ui-requirements.md](ui-requirements.md) | Structured requirements for a replacement operator UI (from Eding/LinuxCNC/PlanetCNC/Mach4/GRBL-sender research) |
 | [workflow-and-resume.md](workflow-and-resume.md) | Select → simulate → dry-run (TryCut) → run pipeline, live visualization, and the "remember work done" + resume-from-line strategy |
 | [architecture.md](architecture.md) | Proposed build: reuse driver + mockup, `MotionBackend` abstraction, new G-code interpreter, resume log |

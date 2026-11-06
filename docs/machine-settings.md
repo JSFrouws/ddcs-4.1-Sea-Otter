@@ -4,7 +4,7 @@ _2026-10-17. Source: `setting` and `setting-bk` from
 [raw/sysdisk-2026-10-15/](raw/sysdisk-2026-10-15/) (the SYSDISK backup taken
 2026-10-15, SHA256SUMS included). Decoder:
 [../tools/decode_settings.py](../tools/decode_settings.py) (stdlib, read-only).
-This is the **real garage CNC's saved configuration** — not the desk bench
+This is a **real machine's saved configuration** — not the desk bench
 setup described in [hardware-setup.md](hardware-setup.md), which only has
 the MPG and 24V power wired for driver bring-up. `setting` is what the
 machine actually runs; `setting-bk` is the factory default the app ships
@@ -76,7 +76,7 @@ versus what's still factory default.
   **is** wired, to port `1`. This matches [hardware-setup.md](hardware-setup.md)
   noting the 37-pin I/O connector is "mostly unplugged" — but that note was
   about the *desk* setup; this settings file being the *real machine's*
-  saved config with probe=unassigned suggests the garage machine has never
+  saved config with probe=unassigned suggests that machine has never
   had a probe wired either, independent of the desk bench state.
 - **Home order: Z, X, Y, A** (`#225 = "ZXYA"`) — Z retracts clear before any
   XY motion, exactly the order already assumed in operator-ux.md's Home

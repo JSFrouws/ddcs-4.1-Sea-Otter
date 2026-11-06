@@ -158,8 +158,8 @@ deliberate confirm).
 ## Limit policy — not overly protective
 
 Hard limits are wired to `IN01–IN13` ([connector-pinouts.md](connector-pinouts.md)); each
-input is assigned in Settings to `X+ / X− / X± (shared) / Y… / home / probe`. On the real
-garage machine this isn't a hypothetical: the saved config
+input is assigned in Settings to `X+ / X− / X± (shared) / Y… / home / probe`. On a real
+machine this isn't a hypothetical: the saved config
 ([machine-settings.md](machine-settings.md)) shows X, Y and Z **each use one shared input
 for +limit, −limit, *and* home** (IN02/IN03/IN04) — confirming §5 below is the common
 case here, not an edge case.

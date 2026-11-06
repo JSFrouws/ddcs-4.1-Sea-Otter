@@ -335,7 +335,7 @@ static void get_program(const http_req_t *q, http_resp_t *r, bool lines)
 
 /* The screen for the browser panel, run-length encoded: (count, RGB565) pairs. The raw frame
  * is 1.2 MB and the panel polled it 8x a second whether it had changed or not - ~1 MB/s over
- * the garage wifi and half the CPU of a single-core controller while idle (2026-11-01). A
+ * a wifi link and half the CPU of a single-core controller while idle (2026-11-01). A
  * UI frame is mostly flat colour, so RLE is 20-100x smaller; a frame that encodes no smaller
  * (a dense wireframe) goes raw. Encoded once per frame_no and cached; the encoder yields to
  * motion slices between row bands like a draw does. */

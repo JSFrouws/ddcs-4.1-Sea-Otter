@@ -82,7 +82,7 @@ it with a wire from IN02 to COM− during a jog. **Answered 2026-10-31, see belo
 
 ### 2026-10-31: the FPGA's own limit function froze every axis (local-193 → local-195)
 
-First run in the garage, with the NC limit/home switches connected (closed at rest, so
+First run on the machine, with the NC limit/home switches connected (closed at rest, so
 IN02–04 read closed; `limits.level_high` = 1, the I/O screen showed "ok"). Jogs of 0.5 mm on
 X, Y and Z were accepted and sent (`bursts` 545 → 560), but **no FPGA counter moved**; every
 jog ended in a position-check re-sync of 240–250 steps. Single `fpgabus` reads at rest:

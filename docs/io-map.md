@@ -76,8 +76,8 @@ Details: [mpg-pendant-io.md](mpg-pendant-io.md).
 Details: [fpga-outputs.md](fpga-outputs.md) (outputs, axis pins, move command,
 `0x02`).
 
-**Defect on this unit (2026-10-31, garage): the X DIR output is dead.** The user
-measured that XD only swings between about −3 V and +0.77 V, even with nothing
+**Defect on this unit (2026-10-31): the X DIR output is dead.** Measured:
+XD only swings between about −3 V and +0.77 V, even with nothing
 connected, so it can't drive a direction input. The X drive is now wired to the **A
 connector (AP±/AD±, pins 35/17, 36/18)**. In Sea Otter, `axis.X.output = "A"` and
 `axis.A.output = "-"` select this. The X axis' `dir_invert`/`pulse_high` follow it to the A
@@ -122,9 +122,9 @@ The *meaning* of `0x30` vs `0x100` (limit vs home?) follows from the app's input
 settings and hasn't been cross-checked. Raw log:
 [raw/2026-10-18_inputs/in_fpga.txt](raw/2026-10-18_inputs/in_fpga.txt).
 
-### On the machine (garage, 2026-10-31): the FPGA's limit function halts the axis
+### On the machine (2026-10-31): the FPGA's limit function halts the axis
 
-The unit is now installed on the CNC in the garage, with the limit switches connected:
+The unit is now installed on a machine, with the limit switches connected:
 **NC switches (closed at rest) on IN02 / IN03 / IN04 = X / Y / Z**, one shared switch per
 axis for limit and home. At rest, `0x37` read `0xFFF1` (IN02–04 closed), and
 `0x1E`/`0x1F`/`0x20` = `0x0030` while `0x21` (A) = 0.
@@ -135,8 +135,7 @@ the axis, so NC switches froze all three axes. This settles the open question in
 [fpga-motion.md](fpga-motion.md): yes, the FPGA halts an axis on its limit input, by
 itself. On the desk it never showed because the inputs were open.
 
-Current Sea Otter workaround (uncommitted, 2026-10-31, session "WiFi naar CNC-router in
-garage"): limit and home ports are **not** handed to the FPGA (`limit_port_pos/neg = 0`,
+Sea Otter's fix (2026-10-31): limit and home ports are **not** handed to the FPGA (`limit_port_pos/neg = 0`,
 `home_port = 0` in `ctl_apply_axis_config()`). Limits and homing run entirely in software
 (`limits.level_high = 1` for NC). Verified: X/Y/Z jogs step exactly, with 0 faults.
 

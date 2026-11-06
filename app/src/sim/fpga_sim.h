@@ -65,7 +65,7 @@ typedef struct {
 
 extern fpga_sim_t SIM;
 
-void sim_reset_machine(void);         /* this garage machine: 2000 steps/mm, switches as wired */
+void sim_reset_machine(void);         /* the test machine: 2000 steps/mm, switches as wired */
 void sim_step(uint32_t ms);           /* advance pulse generation */
 uint16_t sim_read(uint8_t addr);
 void sim_write(uint8_t addr, uint16_t v);

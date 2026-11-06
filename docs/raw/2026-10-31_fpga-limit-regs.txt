@@ -1,4 +1,4 @@
-# 2026-10-31, unit on the machine (garage), app local-193 running, at rest after jogs that did not step.
+# 2026-10-31, unit on the machine, app local-193 running, at rest after jogs that did not step.
 # One read each with /ddcsv4/fpgabus <reg> (0.3 s apart). NC limit switches on IN02-04, closed at rest.
 [0] FPGA reg 0x00 = 0x0bc0 (3008)
 [0] FPGA reg 0x01 = 0x0000 (0)
