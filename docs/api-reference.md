@@ -159,7 +159,7 @@ Everything in one snapshot. Poll it (e.g. every 0.5–1 s).
 | `macro` | The macro armed or running (empty: none; `program` is then the macro) |
 | `tool` | `{"loaded":3,"changeTo":4,"confirm":false}`: the tool in, the tool an M6 asks for (0 = no change going on), and whether the first `run/start` of a tool change was given (the return move is shown on the panel; the next `run/start` goes) |
 | `jobPart` | Multi-part job: the work offset the feeder is on (`"G55"`), empty otherwise |
-| `estimate` | `{"seconds":754,"remaining":true,"feed":120,"exact":true}`: the run time at the current feed override (`feed`, %), for every JOB part, from where the machine stands, rounded up. `remaining` true = the time left (running, on hold, tool change), false = the whole program. `exact` false = the first, model figure (×1.05 + 1 s on purpose), true = from the replay through the motion control (within ~0.5 % on the controller). −1 = not known (no program, feed 0 %), −2 = still being worked out. Tool changes by hand not included |
+| `estimate` | `{"seconds":754,"remaining":true,"feed":120,"exact":true}`: the run time at the current feed override (`feed`, %), for every JOB part, from where the machine stands, rounded up. `remaining` true = the time left (running, on hold, tool change), false = the whole program. `exact` false = the first, model figure (×1.05 + 1 s on purpose), true = from the replay through the motion control (within ~0.5 % on the controller). **Sentinels, never times:** −1 = not known (no program, feed 0 %), −2 = still being worked out (a few seconds after a load); show them as "…" / "–", not as a negative duration. Tool changes by hand not included |
 | `inputs` | IN01–IN18 as read, bit 0 = IN01 (1 = high). What each one is: the I/O screen, or the settings |
 | `pendant` | `{"raw":1023,"held":false,"axis":-1,"mult":1,"estop":true,"wheel":0}`: register 0x3D, dead-man, axis switch (−1 OFF), multiplier, E-stop, wheel counts since start. `raw` 0x3FF = every line high: pendant unplugged, loose cable or no power (it then reads as E-stop pressed) |
 | `drives` | `{"on":true,"enableOut":"OUT3","enableOn":"low"}`: drives on (not OFF), the drive-enable output and its level while on |
@@ -183,7 +183,7 @@ The program files Sea Otter can load: `{"source":"local","dir":"/local","files":
 
 ### GET `program`
 The loaded program: `{"loaded":true,"name":"part.nc","lines":4928,"error":"","warning":"","estimateS":1260,"box":{"min":[x,y,z],"max":[x,y,z],"axes":"XYZ"},"tools":[{"line":3,"tool":1},…],"resumeLine":0,"workDone":812,"macro":false}`.
-`estimateS` = the whole program at 100 % feed, margin included (the live figure is `estimate` in `status`).
+`estimateS` = the whole program at 100 % feed, margin included (the live figure is `estimate` in `status`). **−1 = not worked out yet**: for a few seconds after a load (a 64 000-line program: ~3 s on the controller) the estimate runs in the background; poll again. Never a time - show it as "…", not as a negative duration.
 `box` = the cutting moves in work coordinates; `box.axes` = the axes the program moves
 (e.g. `"XY"`): for an axis not in it the numbers are only the start the load assumed (work
 zero, safe Z) - nothing checks or moves it. `tools` = the M6 tool changes (1-based line).
