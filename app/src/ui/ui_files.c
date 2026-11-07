@@ -82,7 +82,7 @@ static void load(bool sim)
 	char path[320];
 	snprintf(path, sizeof path, "%s/%s", UI_SRC_DIRS[U.src], U.files[U.files_idx]);
 	arg_t a = { .path = path };
-	if (act(C_LOAD, &a, SRC_PANEL) && C.prog.loaded) {
+	if (act(C_LOAD, &a, SRC_PANEL) && C.load_ok) {
 		if (sim) C.armed = ARM_SIM;
 		U.screen = SCR_RUN; U.prog_line = 0;
 	}

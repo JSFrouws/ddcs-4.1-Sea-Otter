@@ -204,8 +204,8 @@ static void upload(const http_req_t *q, http_resp_t *r)
 	arg_t a = { .path = name, .text = q->body, .len = q->body_len };
 	if (can(C_LOAD, &a, SRC_API)) { refuse(r, C_LOAD, &a); return; }
 	act(C_LOAD, &a, SRC_API);
-	if (C.prog.loaded && f) snprintf(C.prog.path, sizeof C.prog.path, "%.250s", path);   /* it is a file now (restart memory) */
-	if (!C.prog.loaded) { char e[160]; json_escape(e, sizeof e, C.prog.err); resp_text(r, 400, "application/json", "{\"error\":\"gcode\",\"detail\":\"%s\",\"line\":%d}", e, C.prog.err_line + 1); return; }
+	if (C.load_ok && f) snprintf(C.prog.path, sizeof C.prog.path, "%.250s", path);   /* it is a file now (restart memory) */
+	if (!C.load_ok) { char e[160]; json_escape(e, sizeof e, C.load_err); resp_text(r, 400, "application/json", "{\"error\":\"gcode\",\"detail\":\"%s\",\"line\":%d}", e, C.load_err_line + 1); return; }
 	ui_scan_files();
 	resp_text(r, 200, "application/json", "{\"ok\":true,\"name\":\"%s\",\"lines\":%d,\"saved\":%s}", name, C.prog.nlines, f ? "true" : "false");
 }
@@ -309,7 +309,7 @@ static void get_program(const http_req_t *q, http_resp_t *r, bool lines)
 {
 	jbuf_t j = { malloc(4096), 0, 4096 };
 	char nm[300], er[260], wn[260];
-	json_escape(nm, sizeof nm, C.prog.name); json_escape(er, sizeof er, C.prog.err); json_escape(wn, sizeof wn, C.prog.warn);
+	json_escape(nm, sizeof nm, C.prog.name); json_escape(er, sizeof er, C.load_err); json_escape(wn, sizeof wn, C.prog.warn);
 	if (!lines) {
 		jb(&j, "{\"loaded\":%s,\"name\":\"%s\",\"lines\":%d,\"error\":\"%s\",\"warning\":\"%s\",\"estimateS\":%.0f,"
 			"\"box\":{\"min\":[%.3f,%.3f,%.3f],\"max\":[%.3f,%.3f,%.3f],\"axes\":\"%s%s%s\"},\"tools\":[",
@@ -604,8 +604,8 @@ void api_handle(const http_req_t *q, http_resp_t *r)
 		a.path = path;
 		if (can(C_LOAD, &a, SRC_API)) { refuse(r, C_LOAD, &a); return; }
 		act(C_LOAD, &a, SRC_API);
-		char e[200]; json_escape(e, sizeof e, C.prog.err);
-		resp_text(r, C.prog.loaded ? 200 : 400, "application/json", "{\"ok\":%s,\"lines\":%d,\"detail\":\"%s\"}", C.prog.loaded ? "true" : "false", C.prog.nlines, C.prog.loaded ? "" : e); return;
+		char e[200]; json_escape(e, sizeof e, C.load_err);
+		resp_text(r, C.load_ok ? 200 : 400, "application/json", "{\"ok\":%s,\"lines\":%d,\"detail\":\"%s\"}", C.load_ok ? "true" : "false", C.prog.nlines, C.load_ok ? "" : e); return;
 	}
 	if (!strcmp(p, "run/start")) { run_start(b, r); return; }
 	if (!strcmp(p, "run/pause")) { doit(r, C_PAUSE, NULL); return; }

@@ -542,11 +542,26 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		break;
 	case C_LOAD: {
 		macro_end();
-		int r = a->text ? program_load_text(&C.prog, a->path ? a->path : "upload.nc", a->text, a->len)
-		                : program_load(&C.prog, a->path);
+		/* parsed into a scratch program first: a program that does not load leaves the one
+		 * before it loaded, with its resume point (test manager 2026-11-07) */
+		static program_t np;
+		int r = a->text ? program_load_text(&np, a->path ? a->path : "upload.nc", a->text, a->len)
+		                : program_load(&np, a->path);
+		C.load_ok = r == 0;
+		if (r) {
+			snprintf(C.load_err, sizeof C.load_err, "%s", np.err);
+			C.load_err_line = np.err_line;
+			program_free(&np);
+			if (C.prog.loaded) ctl_toast(true, "Load failed: %s - %s is still loaded", C.load_err, C.prog.name);
+			else ctl_toast(true, "Load failed: %s", C.load_err);
+			break;
+		}
+		C.load_err[0] = 0; C.load_err_line = -1;
+		program_free(&C.prog);
+		C.prog = np;
+		memset(&np, 0, sizeof np);
 		C.resume_line = -1; C.work_done = -1;
-		if (r) ctl_toast(true, "Load failed: %s", C.prog.err);
-		else ctl_toast(false, "Loaded %s - %d lines%s%s", C.prog.name, C.prog.nlines, C.prog.warn[0] ? " - " : "", C.prog.warn);
+		ctl_toast(false, "Loaded %s - %d lines%s%s", C.prog.name, C.prog.nlines, C.prog.warn[0] ? " - " : "", C.prog.warn);
 		break;
 	}
 	case C_OVERRIDE:

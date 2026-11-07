@@ -183,7 +183,8 @@ The program files Sea Otter can load: `{"source":"local","dir":"/local","files":
 
 ### GET `program`
 The loaded program: `{"loaded":true,"name":"part.nc","lines":4928,"error":"","warning":"","estimateS":1260,"box":{"min":[x,y,z],"max":[x,y,z],"axes":"XYZ"},"tools":[{"line":3,"tool":1},…],"resumeLine":0,"workDone":812,"macro":false}`.
-`estimateS` = the whole program at 100 % feed, margin included (the live figure is `estimate` in `status`). **−1 = not worked out yet**: for a few seconds after a load (a 64 000-line program: ~3 s on the controller) the estimate runs in the background; poll again. Never a time - show it as "…", not as a negative duration.
+`error` = why the last load failed ("" after a good one); a failed load or upload leaves
+the program before it loaded, with its resume point. `estimateS` = the whole program at 100 % feed, margin included (the live figure is `estimate` in `status`). **−1 = not worked out yet**: for a few seconds after a load (a 64 000-line program: ~3 s on the controller) the estimate runs in the background; poll again. Never a time - show it as "…", not as a negative duration.
 `box` = the cutting moves in work coordinates; `box.axes` = the axes the program moves
 (e.g. `"XY"`): for an axis not in it the numbers are only the start the load assumed (work
 zero, safe Z) - nothing checks or moves it. `tools` = the M6 tool changes (1-based line).

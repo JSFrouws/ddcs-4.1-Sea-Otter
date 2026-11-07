@@ -930,6 +930,10 @@ void test_machine(void)
 
 	/* --- program errors are reported with the line --- */
 	arg_t bad = { .path = "bad.nc", .text = "G0 X1\nG84 X2\n", .len = 13 };
+	char before[128]; snprintf(before, sizeof before, "%s", C.prog.name);
+	bool was = C.prog.loaded; int rl = C.resume_line = 7;
 	act(C_LOAD, &bad, SRC_PANEL);
-	CHECK(!C.prog.loaded && C.prog.err_line == 1);
+	CHECK(!C.load_ok && C.load_err_line == 1 && strstr(C.load_err, "G84"));
+	/* ... and the program before it stays loaded, with its resume point */
+	CHECK(C.prog.loaded == was && !strcmp(C.prog.name, before) && C.resume_line == rl);
 }

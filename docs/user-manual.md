@@ -113,7 +113,8 @@ Every other key works as usual, F2 Pause and F3 Reset included.
    loops. Codes that change nothing on this machine are **accepted with a warning**
    (amber, on the Files page and in the load message). Only codes that would cut something
    different if ignored, or are unsafe, **refuse the load**: the message gives the line and
-   the reason. The full list is in **§ 10 Supported G-code**.
+   the reason. The full list is in **§ 10 Supported G-code**. A file that does not load leaves
+   the program loaded before it (and its resume point) as it was.
    The Files page then shows the program's box (cutting moves, work coordinates; `-` for an
    axis the program never moves) and whether **every** move, rapids included, stays inside
    the soft limits - the same check Start makes.
