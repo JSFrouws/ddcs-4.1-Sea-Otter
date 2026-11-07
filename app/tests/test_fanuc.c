@@ -31,6 +31,93 @@ static int lines(const char *src, double (*p)[3], int max)
 }
 
 static bool warned(const char *s) { return strstr(g.warn, s) != NULL; }
+static bool failed(const char *src, const char *msg);
+
+/* the OP_LINE ends of the last run pass through these X Y points in this order (other points
+ * between them allowed) */
+static bool passes(int n, const double (*pts)[2], int np)
+{
+	int k = 0;
+	for (int i = 0; i < n && k < np; i++)
+		if (o[i].kind == OP_LINE && fabs(o[i].end[0] - pts[k][0]) < 1e-6 && fabs(o[i].end[1] - pts[k][1]) < 1e-6) k++;
+	if (k < np) printf("  passes: reached %d of %d (next %.3f %.3f)\n", k, np, pts[k][0], pts[k][1]);
+	return k == np;
+}
+
+/* G41 / G42 compensated (Settings > G-code: compensate), tool 1 = Ø2 (r 1) */
+static void test_cutter_comp(void)
+{
+	WD.tool[0].dia = 2; WD.tool[1].dia = 0;
+	int n;
+	/* outside of a 10 mm square, travelled clockwise, tool left (G41): corners rounded r 1 */
+	const char *sq = "G0 X0 Y-5\nG41 D1 G1 X0 Y0 F100\nY10\nX10\nY0\nX0\nG40 G0 X0 Y-5\nM30\n";
+	n = run(sq);
+	static const double out[][2] = { { 0, -5 }, { -1, 0 }, { -1, 10 }, { 0, 11 }, { 10, 11 }, { 11, 10 }, { 11, 0 }, { 10, -1 }, { 0, -1 }, { 0, -5 } };
+	CHECK(n > 10 && passes(n, out, ARRAY_LEN(out)));
+	{
+		bool round = true;                                   /* the corner arcs stay 1 mm from their corner */
+		for (int i = 0; i < n; i++) if (o[i].kind == OP_LINE && o[i].arc) {
+			double cx = o[i].end[0] > 5 ? 10 : 0, cy = o[i].end[1] > 5 ? 10 : 0;
+			round &= fabs(hypot(o[i].end[0] - cx, o[i].end[1] - cy) - 1) < 1e-9;
+		}
+		CHECK(round && o[n - 1].kind == OP_END);
+	}
+	/* inside (G42 on the same path): the corners end where the offset lines meet */
+	n = run("G0 X0 Y-5\nG42 D1 G1 X0 Y0 F100\nY10\nX10\nY0\nX0\nG40 G0 X0 Y-5\n");
+	static const double in[][2] = { { 1, 0 }, { 1, 9 }, { 9, 9 }, { 9, 1 }, { 0, 1 }, { 0, -5 } };
+	CHECK(passes(n, in, ARRAY_LEN(in)));
+	for (int i = 0; i < n; i++) CHECK(!o[i].arc);           /* no corner arcs inside */
+	/* an arc: the offset circle (r 10 + 1), tangent joins need no corner */
+	n = run("G0 X-10 Y-5\nG41 D1 G1 X-10 Y0 F100\nG2 X10 Y0 I10 J0\nG1 Y-5\nG40 G0 X20\n");
+	{
+		bool on = true; int arcs = 0;
+		for (int i = 0; i < n; i++) if (o[i].arc) { arcs++; on &= fabs(hypot(o[i].end[0], o[i].end[1]) - 11) < 1e-9; }
+		static const double ar[][2] = { { -11, 0 }, { 11, 0 }, { 11, -5 }, { 20, -5 } };
+		CHECK(arcs > 10 && on && passes(n, ar, ARRAY_LEN(ar)));
+	}
+	/* an M5 between two cuts comes after the first cut, before the corner */
+	n = run("G0 X0 Y-5\nG41 D1 G1 X0 Y0 F100\nY10\nM5\nX10\nG40 X10 Y20\n");
+	{
+		int at_cut = -1, at_m5 = -1, at_corner = -1;
+		for (int i = 0; i < n; i++) {
+			if (o[i].kind == OP_LINE && fabs(o[i].end[0] + 1) < 1e-9 && fabs(o[i].end[1] - 10) < 1e-9 && at_cut < 0) at_cut = i;
+			if (o[i].kind == OP_SPINDLE && at_m5 < 0) at_m5 = i;
+			if (o[i].arc && at_corner < 0) at_corner = i;
+		}
+		CHECK(at_cut >= 0 && at_m5 > at_cut && at_corner > at_m5);
+	}
+	/* refused: a slot narrower than the tool (gouge), an inside arc smaller than the tool,
+	 * an arc as the entry, a tool without a diameter, M6 / cycles with comp on, other planes */
+	CHECK(failed("G0 X0 Y-5\nG42 D1 G1 X0 Y0 F100\nY10\nX1\nY0\nG40 X1 Y-5\n", "gouge"));
+	CHECK(failed("G0 X0 Y0\nG41 D1 G1 X5 Y0 F100\nG3 X5.6 Y0 I0.3 J0\nG40 X10\n", "not larger than the tool radius"));
+	CHECK(failed("G0 X0 Y0\nG41 D1\nG2 X10 Y0 I5 J0\n", "first move after G41"));
+	CHECK(failed("G41 D2 G1 X1 F100\n", "diameter 0"));
+	CHECK(failed("G41 D1 G1 X1 Y1 F100\nT2 M6\n", "M6"));
+	CHECK(failed("G41 D1 G1 X1 Y1 F100\nG81 X2 Y2 Z-1 R1\n", "canned cycles"));
+	CHECK(failed("G18 G41 D1\n", "G17"));
+	/* D0: no offset; Z-only moves under comp stay at the compensated point */
+	n = run("G41 D0 G1 X5 Y0 F100\nG40\n");
+	CHECK(n == 1 && o[0].end[0] == 5 && o[0].end[1] == 0);
+	n = run("G0 X0 Y-5\nG41 D1 G1 X0 Y0 F100\nY10\nZ-1\nX10\nG40 X10 Y20\n");
+	{
+		bool zok = false;
+		for (int i = 0; i < n; i++) if (o[i].kind == OP_LINE && o[i].end[2] == -1 && fabs(o[i].end[0] + 1) < 1e-9 && fabs(o[i].end[1] - 10) < 1e-9) zok = true;
+		CHECK(zok);
+	}
+	/* program end without G40: the last cut still goes out, then the end */
+	n = run("G0 X0 Y-5\nG41 D1 G1 X0 Y0 F100\nY10\nM30\n");
+	CHECK(n >= 4 && o[n - 1].kind == OP_END && fabs(o[n - 2].end[0] + 1) < 1e-9 && fabs(o[n - 2].end[1] - 10) < 1e-9);
+	/* resume inside a compensated section: the tool stands where the next cut starts */
+	gc_begin(&g, sq, strlen(sq), zero);
+	CHECK(gc_seek(&g, 3) == 0 && fabs(g.pos[0] + 1) < 1e-9 && fabs(g.pos[1]) < 1e-9 && g.cc == 41);
+	gc_op_t op;
+	CHECK(gc_next(&g, &op) == 1 && op.kind == OP_LINE && fabs(op.end[0] + 1) < 1e-9 && fabs(op.end[1] - 10) < 1e-9);
+	/* mirrored in X: the side turns, so G41 still cuts outside of the mirrored square */
+	n = run("G51.1 X0\nG0 X0 Y-5\nG41 D1 G1 X0 Y0 F100\nY10\nX10\nY0\nX0\nG40 G0 X0 Y-5\n");
+	static const double mo[][2] = { { 1, 0 }, { 1, 10 }, { 0, 11 }, { -10, 11 }, { -11, 10 } };
+	CHECK(passes(n, mo, ARRAY_LEN(mo)));
+	WD.tool[0].dia = 0;
+}
 static bool failed(const char *src, const char *msg) { return run(src) < 0 && strstr(g.err, msg) != NULL; }
 
 void test_fanuc(void)
@@ -180,12 +267,14 @@ void test_fanuc(void)
 	CHECK(failed("G43 H99 Z1\n", "no such tool"));
 	SET.gc_tlo = 0;
 
-	/* --- G41/G42: refused, or ignored on purpose --- */
-	CHECK(failed("G0 X0\nG41 D1 X5\n", "cutter comp") && g.err_line == 1);
+	/* --- G41/G42: refused, or ignored on purpose (settings); compensated: below --- */
+	SET.gc_cutcomp = 0;
+	CHECK(failed("G0 X0\nG41 D1 X5\n", "refused") && g.err_line == 1);
 	SET.gc_cutcomp = 1;
 	n = lines("G41 D1 G1 X5 F100\nG40 X6\n", p, 64);
 	CHECK(n == 2 && p[0][0] == 5 && warned("G41/G42 ignored"));
-	SET.gc_cutcomp = 0;
+	SET.gc_cutcomp = 2;
+	test_cutter_comp();
 
 	/* --- G28 / G29 / G30: via the point, then home; bare G28: Z first --- */
 	for (int a = 0; a < NAXES; a++) SET.ax[a].home_pos = a == AX_Z ? 0 : -1;

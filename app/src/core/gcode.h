@@ -6,7 +6,8 @@
  *              G27 G28 G29 G30, G53, G93/G94/G95 (inverse time, per minute, per revolution)
  *   transforms G68/G69 rotation, G51/G50 scaling, G51.1/G50.1 mirror, G16/G15 polar
  *   offsets    G54-G59, G52 (local shift), G92/G92.1/G92.2/G92.3, G10 L2/L20 (work offsets),
- *              G10 L1/L10/L12 (tool table), G43/G44 Hn/G49 (Settings > G-code), G20/G21
+ *              G10 L1/L10/L12 (tool table), G43/G44 Hn/G49 (Settings > G-code), G20/G21,
+ *              G41/G42 Dn / G40 cutter radius compensation in G17 (Settings > G-code)
  *   cycles     G73 G76 G81 G82 G83 G85 G86 G89 with G98/G99, R Z Q P, K/L repeats, G80
  *   program    M0 M1 M2 M30 M60, M3 M4 M5, M6, M7 M8 M9 M10 M11, M98/M99 (O subprograms in
  *              the same file, P and L repeats), M97 (local, by N), N, O, %, ( ) ;, block
@@ -36,6 +37,17 @@ typedef struct {
 	double value;        /* S rpm, dwell s, tool number */
 	int ival;            /* spindle 0/3/4, coolant mask (1 flood, 2 mist, 4 aux), pause kind */
 } gc_op_t;
+
+/* cutter compensation: an element of the path (programmed, or compensated on its way out) */
+typedef struct {
+	uint8_t kind;                 /* 0 line, 1 arc, 2 another op (held in order), 3 a move without X/Y */
+	bool rapid, cw, stop, full;
+	double s[NAXES], e[NAXES];    /* machine coordinates */
+	double c0, c1;                /* arc centre (X Y) */
+	double feed;
+	int line;
+	gc_op_t op;                   /* kind 2 */
+} gc_ccel_t;
 
 #define GC_DEPTH 8           /* M98 / M97 / G65 nesting */
 #define GC_MAX_JUMPS 1000000 /* GOTO / loop / call jumps per run: more = an endless loop */
@@ -86,6 +98,18 @@ typedef struct {
 	bool emit_now, bad, keep_warned;
 	uint8_t named;                /* bit a: a move of the program sets axis a (the load box shows only those) */
 	bool shift;
+	/* G41 / G42 (Settings > G-code: compensate), XY plane: one move of lookahead */
+	int cc;                       /* 41 / 42 while compensating (after a mirror: the side as cut), 0 off */
+	double cc_r;                  /* tool radius, mm */
+	bool cc_entry;                /* the next X/Y move is the entry move */
+	bool cc_pend, cc_p_entry;     /* a programmed element waits for the next one (its corner); it is the entry */
+	gc_ccel_t cc_p;
+	double cc_ps[2];              /* its compensated start */
+	double cc_prog[NAXES];        /* the programmed (uncompensated) position */
+	double cc_apos[NAXES];        /* where the compensated output queued so far ends */
+	gc_ccel_t cc_q[24]; int cc_qn, cc_qi;   /* compensated output, drained in order by gc_next */
+	gc_ccel_t cc_hold[16]; int cc_hn;       /* ops after the waiting element: they follow it */
+	bool cc_in_exec;              /* executing a block: push() keeps the order behind the queue */
 	/* coordinate transforms in the work frame, applied to program positions (and arc centres)
 	 * in this order: G51.1 mirror, G51 scale, G68 rotation. G16: plane words are radius/angle */
 	bool xf;                      /* any of mirror / scale / rotation is on */

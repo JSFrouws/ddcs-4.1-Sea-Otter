@@ -929,7 +929,7 @@ void test_machine(void)
 	SET.api = true;
 
 	/* --- program errors are reported with the line --- */
-	arg_t bad = { .path = "bad.nc", .text = "G0 X1\nG42 X2\n", .len = 13 };
+	arg_t bad = { .path = "bad.nc", .text = "G0 X1\nG84 X2\n", .len = 13 };
 	act(C_LOAD, &bad, SRC_PANEL);
 	CHECK(!C.prog.loaded && C.prog.err_line == 1);
 }

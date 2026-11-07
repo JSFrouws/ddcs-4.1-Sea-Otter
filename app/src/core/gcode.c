@@ -527,6 +527,16 @@ static bool hasm(const words_t *w, int code) { for (int i = 0; i < w->nm; i++) i
 static gc_op_t *push(gc_t *g, op_kind_t k)
 {
 	gc_op_t *o = &g->q[g->qn++];
+	if (g->cc_in_exec && (g->cc_pend || g->cc_qn > g->cc_qi)) {
+		/* cutter comp: a move is waiting for its corner, or compensated output is queued -
+		 * this op must come after it (an M5 must not stop the spindle before the last cut) */
+		g->qn--;
+		gc_ccel_t *h = NULL;
+		if (g->cc_pend && g->cc_hn < 16) h = &g->cc_hold[g->cc_hn++];
+		else if (!g->cc_pend && g->cc_qn < 24) h = &g->cc_q[g->cc_qn++];
+		if (h) { memset(h, 0, sizeof *h); h->kind = 2; o = &h->op; }
+		else { g->qn++; if (!g->bad) { snprintf(g->err, sizeof g->err, "cutter comp: too many blocks without X/Y moves"); g->bad = true; } }
+	}
 	memset(o, 0, sizeof *o);
 	o->kind = k; o->line = g->line; o->feed = g->bfeed;
 	memcpy(o->end, g->pos, sizeof o->end);
@@ -658,8 +668,10 @@ static int move_feed(gc_t *g, const words_t *w, double len)
 	return 0;
 }
 
-static int start_arc(gc_t *g, const words_t *w, const double t[NAXES], bool cw)
+/* the centre of the arc this block programs (machine X Y of its plane); cw may turn under a mirror */
+static int arc_centre(gc_t *g, const words_t *w, const double t[NAXES], bool *cwp, double *c0p, double *c1p)
 {
+	bool cw = *cwp;
 	int a0 = g->plane == 17 ? AX_X : g->plane == 18 ? AX_Z : AX_Y;
 	int a1 = g->plane == 17 ? AX_Y : g->plane == 18 ? AX_X : AX_Z;
 	int a2 = g->plane == 17 ? AX_Z : g->plane == 18 ? AX_Y : AX_X;
@@ -709,14 +721,27 @@ static int start_arc(gc_t *g, const words_t *w, const double t[NAXES], bool cw)
 			c0 = w->v[ci - 'A'] * k + off(g, a0); c1 = w->v[cj - 'A'] * k + off(g, a1);
 		} else { c0 = s0 + w->v[ci - 'A'] * k; c1 = s1 + w->v[cj - 'A'] * k; }
 	}
+	*cwp = cw; *c0p = c0; *c1p = c1;
+	(void)a2;
+	return 0;
+}
+
+/* start cutting the arc from the current position to t about (c0, c1). full: -1 = an end within
+ * 0.01 mm of the start is a full circle (CAM rounding), 0 = never, 1 = always. w = NULL: the feed
+ * (g->bfeed) is already set */
+static int arc_begin(gc_t *g, const words_t *w, const double t[NAXES], double c0, double c1, bool cw, int plane, int full)
+{
+	int a0, a1, a2;
+	plane_axes(plane, &a0, &a1, &a2);
+	double s0 = g->pos[a0], s1 = g->pos[a1], e0 = t[a0], e1 = t[a1];
 	double r = hypot(s0 - c0, s1 - c1);
 	if (r < 1e-6) return fail(g, "arc with zero radius");
 	if (fabs(hypot(e0 - c0, e1 - c1) - r) > 0.05 + r * 1e-3) return fail(g, "arc end not on the circle");
 	double st = atan2(s1 - c1, s0 - c0), en = atan2(e1 - c1, e0 - c0), sw = en - st;
-	double eps = 0.01 / r;      /* end within 0.01 mm of the start = a full circle, whichever way CAM rounding went */
+	double eps = full < 0 ? 0.01 / r : full > 0 ? 1e9 : -1e-12;   /* -1: end within 0.01 mm of the start = a full circle, whichever way CAM rounding went */
 	if (cw && sw > -eps) sw -= 2 * M_PI;
 	if (!cw && sw < eps) sw += 2 * M_PI;
-	if (move_feed(g, w, hypot(r * sw, t[a2] - g->pos[a2])) < 0) return -1;
+	if (w && move_feed(g, w, hypot(r * sw, t[a2] - g->pos[a2])) < 0) return -1;
 	double step = 2 * acos(fmax(-1.0, 1 - TOL / r));
 	int n = (int)ceil(fabs(sw) / fmax(step, 1e-3));
 	g->arc.on = true; g->arc.n = CLAMP(n, 1, 4000); g->arc.i = 0;
@@ -728,6 +753,13 @@ static int start_arc(gc_t *g, const words_t *w, const double t[NAXES], bool cw)
 	g->arc.line = g->line;
 	g->arc_seq++;
 	return 0;
+}
+
+static int start_arc(gc_t *g, const words_t *w, const double t[NAXES], bool cw)
+{
+	double c0, c1;
+	if (arc_centre(g, w, t, &cw, &c0, &c1) < 0) return -1;
+	return arc_begin(g, w, t, c0, c1, cw, g->plane, -1);
 }
 
 static void arc_chord(gc_t *g)
@@ -802,6 +834,335 @@ static void hole_step(gc_t *g)
 	}
 }
 
+
+/* ---- cutter radius compensation: G41 (tool left of the path) / G42 (right), G17 ----
+ * One element of lookahead, as LinuxCNC: a programmed line / arc waits until the next one is
+ * known, then goes out offset by the radius. Outside corners get an arc about the corner
+ * point, inside corners end both offset paths at their intersection. An inside corner the
+ * tool cannot reach without cutting back into the part (an offset element that would run
+ * backwards) refuses the program, with its line - it never gouges. Entry: the first X/Y move
+ * after G41/G42 goes straight to the offset end of that move; exit: after G40 the next move
+ * goes straight from the offset point to its programmed end. Everything programmed between
+ * two cut moves (M codes, dwells, Z moves) is held and comes out after the first one. */
+
+typedef struct { bool arc; double p[2], d[2], c[2], R; } ccoff_t;
+
+static void cc_tan(const gc_ccel_t *e, bool at_end, double t[2])
+{
+	if (e->kind == 1) {
+		const double *q = at_end ? e->e : e->s;
+		double ux = q[0] - e->c0, uy = q[1] - e->c1, l = hypot(ux, uy);
+		ux /= l; uy /= l;
+		if (e->cw) { t[0] = uy; t[1] = -ux; } else { t[0] = -uy; t[1] = ux; }
+	} else {
+		double dx = e->e[0] - e->s[0], dy = e->e[1] - e->s[1], l = hypot(dx, dy);
+		t[0] = dx / l; t[1] = dy / l;
+	}
+}
+
+static void cc_nrm(int side, const double t[2], double n[2])
+{
+	if (side == 41) { n[0] = -t[1]; n[1] = t[0]; } else { n[0] = t[1]; n[1] = -t[0]; }
+}
+
+static void cc_offset(const gc_t *g, const gc_ccel_t *e, ccoff_t *o)
+{
+	double t[2], n[2];
+	cc_tan(e, false, t);
+	cc_nrm(g->cc, t, n);
+	o->arc = e->kind == 1;
+	o->p[0] = e->s[0] + g->cc_r * n[0]; o->p[1] = e->s[1] + g->cc_r * n[1];
+	o->d[0] = t[0]; o->d[1] = t[1];
+	o->c[0] = e->c0; o->c[1] = e->c1;
+	o->R = o->arc ? hypot(o->p[0] - e->c0, o->p[1] - e->c1) : 0;
+}
+
+/* where the two offset curves cross: up to 2 points */
+static int cc_isect(const ccoff_t *a, const ccoff_t *b, double X[2][2])
+{
+	if (!a->arc && !b->arc) {
+		double den = a->d[0] * b->d[1] - a->d[1] * b->d[0];
+		if (fabs(den) < 1e-12) return 0;
+		double qx = b->p[0] - a->p[0], qy = b->p[1] - a->p[1];
+		double u = (qx * b->d[1] - qy * b->d[0]) / den;
+		X[0][0] = a->p[0] + u * a->d[0]; X[0][1] = a->p[1] + u * a->d[1];
+		return 1;
+	}
+	if (a->arc && b->arc) {
+		double dx = b->c[0] - a->c[0], dy = b->c[1] - a->c[1], d = hypot(dx, dy);
+		if (d < 1e-12 || d > a->R + b->R + 1e-9 || d < fabs(a->R - b->R) - 1e-9) return 0;
+		double l = (a->R * a->R - b->R * b->R + d * d) / (2 * d), hh = sqrt(fmax(0, a->R * a->R - l * l));
+		double mx = a->c[0] + l * dx / d, my = a->c[1] + l * dy / d;
+		X[0][0] = mx - hh * dy / d; X[0][1] = my + hh * dx / d;
+		X[1][0] = mx + hh * dy / d; X[1][1] = my - hh * dx / d;
+		return 2;
+	}
+	const ccoff_t *L = a->arc ? b : a, *C = a->arc ? a : b;
+	double fx = L->p[0] - C->c[0], fy = L->p[1] - C->c[1];
+	double B = fx * L->d[0] + fy * L->d[1], CC = fx * fx + fy * fy - C->R * C->R, disc = B * B - CC;
+	if (disc < -1e-12) return 0;
+	double sq = sqrt(fmax(0, disc));
+	for (int i = 0; i < 2; i++) { double u = -B + (i ? sq : -sq); X[i][0] = L->p[0] + u * L->d[0]; X[i][1] = L->p[1] + u * L->d[1]; }
+	return 2;
+}
+
+/* distance along the offset of element e from its offset start to X (arcs: in its direction) */
+static double cc_param(const gc_ccel_t *e, const ccoff_t *o, const double X[2])
+{
+	if (!o->arc) return (X[0] - o->p[0]) * o->d[0] + (X[1] - o->p[1]) * o->d[1];
+	double a0 = atan2(o->p[1] - o->c[1], o->p[0] - o->c[0]), a1 = atan2(X[1] - o->c[1], X[0] - o->c[0]);
+	double da = e->cw ? a0 - a1 : a1 - a0;
+	while (da < -1e-9) da += 2 * M_PI;
+	while (da >= 2 * M_PI - 1e-9) da -= 2 * M_PI;
+	return da * o->R;
+}
+
+static double cc_len(const gc_ccel_t *e, const ccoff_t *o)
+{
+	if (!o->arc) return hypot(e->e[0] - e->s[0], e->e[1] - e->s[1]);
+	if (e->full) return 2 * M_PI * o->R;
+	double a0 = atan2(e->s[1] - e->c1, e->s[0] - e->c0), a1 = atan2(e->e[1] - e->c1, e->e[0] - e->c0);
+	double da = e->cw ? a0 - a1 : a1 - a0;
+	while (da <= 1e-12) da += 2 * M_PI;
+	while (da > 2 * M_PI) da -= 2 * M_PI;
+	return da * o->R;
+}
+
+static gc_ccel_t *cc_out(gc_t *g)
+{
+	if (g->cc_qn >= 24) { fail(g, "cutter comp: output queue full"); return NULL; }
+	gc_ccel_t *e = &g->cc_q[g->cc_qn++];
+	memset(e, 0, sizeof *e);
+	return e;
+}
+
+/* the waiting element goes out from its compensated start to cend, then what was held */
+static int cc_emit_pending(gc_t *g, const double cend[2])
+{
+	gc_ccel_t *p = &g->cc_p, *o = cc_out(g);
+	if (!o) return -1;
+	*o = *p;
+	memcpy(o->s, g->cc_apos, sizeof o->s);
+	o->e[0] = cend[0]; o->e[1] = cend[1];
+	if (p->kind == 1) {
+		double sw = hypot(cend[0] - g->cc_ps[0], cend[1] - g->cc_ps[1]);
+		bool same = sw < 1e-9;
+		if (same && !p->full) o->kind = 0;                /* trimmed to nothing */
+		else o->full = same && p->full;
+		if (!same && p->full) o->full = false;
+	}
+	memcpy(g->cc_apos, o->e, sizeof g->cc_apos);
+	for (int i = 0; i < g->cc_hn; i++) {               /* held: at the compensated end */
+		gc_ccel_t *h = cc_out(g);
+		if (!h) return -1;
+		*h = g->cc_hold[i];
+		if (h->kind == 3) { h->e[0] = cend[0]; h->e[1] = cend[1]; memcpy(g->cc_apos, h->e, sizeof g->cc_apos); }
+	}
+	g->cc_hn = 0;
+	g->cc_pend = false;
+	return 0;
+}
+
+/* comp ends (G40, program end, a side change): the waiting element ends offset at its own end */
+static int cc_end(gc_t *g)
+{
+	if (g->cc_pend) {
+		double t[2], n[2], cend[2];
+		cc_tan(&g->cc_p, true, t);
+		cc_nrm(g->cc, t, n);
+		cend[0] = g->cc_p.e[0] + g->cc_r * n[0]; cend[1] = g->cc_p.e[1] + g->cc_r * n[1];
+		if (cc_emit_pending(g, cend) < 0) return -1;
+	}
+	g->cc = 0; g->cc_entry = false;
+	return 0;
+}
+
+/* the waiting element meets `next` at the programmed point P */
+static int cc_join(gc_t *g, const gc_ccel_t *next)
+{
+	gc_ccel_t *pe = &g->cc_p;
+	double tin[2], tout[2], nin[2], nout[2], r = g->cc_r;
+	cc_tan(pe, true, tin); cc_tan(next, false, tout);
+	cc_nrm(g->cc, tin, nin); cc_nrm(g->cc, tout, nout);
+	double P[2] = { pe->e[0], pe->e[1] };
+	double Ein[2] = { P[0] + r * nin[0], P[1] + r * nin[1] }, Sout[2] = { P[0] + r * nout[0], P[1] + r * nout[1] };
+	double cross = tin[0] * tout[1] - tin[1] * tout[0], dot = tin[0] * tout[0] + tin[1] * tout[1];
+	double turn = g->cc == 41 ? cross : -cross;         /* > 0: the tool is on the inside of the turn */
+	double cend[2], nstart[2];
+	bool corner = false;
+	if (hypot(Ein[0] - Sout[0], Ein[1] - Sout[1]) < 1e-6) {
+		memcpy(cend, Ein, sizeof cend); memcpy(nstart, Sout, sizeof nstart);
+	} else if (turn > 0 || (fabs(cross) < 1e-12 && dot > 0)) {
+		ccoff_t a, b;
+		cc_offset(g, pe, &a); cc_offset(g, next, &b);
+		double X[2][2];
+		int nx = cc_isect(&a, &b, X), best = -1;
+		double bd = 1e18;
+		for (int i = 0; i < nx; i++) { double d = hypot(X[i][0] - P[0], X[i][1] - P[1]); if (d < bd) { bd = d; best = i; } }
+		if (best < 0) return fail(g, "cutter comp: no corner for this tool radius (line %d)", next->line + 1);
+		double *x = X[best];
+		if (g->cc_p_entry) {
+			if ((x[0] - g->cc_ps[0]) * tin[0] + (x[1] - g->cc_ps[1]) * tin[1] < -1e-6)
+				return fail(g, "cutter comp: entry move too short for the tool radius (line %d)", pe->line + 1);
+		} else if (cc_param(pe, &a, x) < cc_param(pe, &a, g->cc_ps) - 1e-6 || cc_param(pe, &a, x) > cc_len(pe, &a) + 1e-6)
+			return fail(g, "cutter comp: tool too big for the inside corner, it would gouge (line %d)", pe->line + 1);
+		if (cc_param(next, &b, x) > cc_len(next, &b) + 1e-6 || cc_param(next, &b, x) < -1e-6)
+			return fail(g, "cutter comp: move too short for the tool radius, it would gouge (line %d)", next->line + 1);
+		memcpy(cend, x, sizeof cend); memcpy(nstart, x, sizeof nstart);
+	} else {                                              /* outside: round the corner */
+		memcpy(cend, Ein, sizeof cend); memcpy(nstart, Sout, sizeof nstart);
+		corner = true;
+	}
+	if (cc_emit_pending(g, cend) < 0) return -1;
+	if (corner) {
+		gc_ccel_t *c = cc_out(g);
+		if (!c) return -1;
+		c->kind = 1; c->cw = g->cc == 41; c->c0 = P[0]; c->c1 = P[1];
+		memcpy(c->s, g->cc_apos, sizeof c->s);
+		memcpy(c->e, g->cc_apos, sizeof c->e);
+		c->e[0] = Sout[0]; c->e[1] = Sout[1];
+		c->feed = next->feed; c->line = next->line; c->rapid = next->rapid;
+		memcpy(g->cc_apos, c->e, sizeof g->cc_apos);
+	}
+	g->cc_p = *next;
+	g->cc_ps[0] = nstart[0]; g->cc_ps[1] = nstart[1];
+	g->cc_p_entry = false;
+	g->cc_pend = true;
+	return 0;
+}
+
+/* a programmed element under comp (or the exit move) */
+static int cc_add(gc_t *g, const gc_ccel_t *el, bool emit)
+{
+	bool xy = el->kind == 1 ? true : hypot(el->e[0] - el->s[0], el->e[1] - el->s[1]) > 1e-9;
+	if (!xy) {                                            /* Z (or A) only: at the compensated point */
+		gc_ccel_t h = *el;
+		h.kind = 3;
+		if (g->cc_pend) { if (g->cc_hn >= 16) return fail(g, "cutter comp: too many blocks without X/Y moves"); g->cc_hold[g->cc_hn++] = h; return 0; }
+		gc_ccel_t *o = cc_out(g);
+		if (!o) return -1;
+		*o = h; o->e[0] = g->cc_apos[0]; o->e[1] = g->cc_apos[1];
+		memcpy(g->cc_apos, o->e, sizeof g->cc_apos);
+		return 0;
+	}
+	if (!g->cc) {                                         /* the exit move after G40: straight there */
+		if (el->kind == 1) return fail(g, "the move after G40 must be a line (line %d)", el->line + 1);
+		gc_ccel_t *o = cc_out(g);
+		if (!o) return -1;
+		*o = *el; memcpy(o->s, g->cc_apos, sizeof o->s);
+		memcpy(g->cc_apos, o->e, sizeof g->cc_apos);
+		return 0;
+	}
+	if (!g->cc_pend) {                                    /* the entry move */
+		if (el->kind == 1) return fail(g, "the first move after G41/G42 must be a line (line %d)", el->line + 1);
+		g->cc_p = *el; g->cc_p_entry = true; g->cc_pend = true; g->cc_entry = false;
+		g->cc_ps[0] = g->cc_apos[0]; g->cc_ps[1] = g->cc_apos[1];
+		(void)emit;
+		return 0;
+	}
+	return cc_join(g, el);
+}
+
+/* G41 / G42 / G40 in this block */
+static int cc_switch(gc_t *g, const words_t *w, int code, bool emit)
+{
+	if (code == 40) return g->cc ? cc_end(g) : 0;
+	if (g->plane != 17) return fail(g, "cutter comp only in G17 (XY)");
+	int d = w->has[W('D')] ? (int)w->v[W('D')] : g->tool ? g->tool : WD.loaded_tool;
+	if (d < 0 || d > NTOOLS) return fail(g, "D%d: no such tool (T1-T%d)", d, NTOOLS);
+	double r = d ? g->tl_dia[d - 1] / 2 : 0;
+	if (d && r <= 0) return fail(g, "D%d: tool diameter 0 in the Tools table", d);
+	if (g->cc && g->cc_pend && cc_end(g) < 0) return -1;   /* switching sides: end the old one first */
+	if (r <= 0) { g->cc = 0; return 0; }                  /* D0: no offset */
+	bool flip = (g->mir[AX_X] != g->mir[AX_Y]) ^ ((g->sc[AX_X] < 0) != (g->sc[AX_Y] < 0));
+	if (!g->cc_pend && g->cc_qn <= g->cc_qi) { memcpy(g->cc_prog, g->pos, sizeof g->cc_prog); memcpy(g->cc_apos, g->pos, sizeof g->cc_apos); }
+	g->cc = flip ? 83 - code : code;
+	g->cc_r = r;
+	g->cc_entry = true;
+	(void)emit;
+	return 0;
+}
+
+/* the motion of a block while comp is on (or its output is still queued) */
+static int cc_motion(gc_t *g, const words_t *w, bool stop, bool emit)
+{
+	if (g->plane != 17 && (g->motion == 2 || g->motion == 3)) return fail(g, "arcs outside G17 with cutter comp on");
+	if (g->cc_qn <= g->cc_qi && !g->cc_pend) memcpy(g->cc_apos, g->pos, sizeof g->cc_apos);
+	double real[NAXES], t[NAXES];
+	memcpy(real, g->pos, sizeof real);
+	memcpy(g->pos, g->cc_prog, sizeof g->pos);            /* positions are the programmed ones */
+	gc_ccel_t el;
+	memset(&el, 0, sizeof el);
+	memcpy(el.s, g->pos, sizeof el.s);
+	int r = target(g, w, false, t);
+	if (r == 0) {
+		el.line = g->line; el.stop = stop; el.rapid = g->motion == 0;
+		memcpy(el.e, t, sizeof el.e);
+		if (g->motion == 2 || g->motion == 3) {
+			bool cw = g->motion == 2;
+			double c0, c1;
+			r = arc_centre(g, w, t, &cw, &c0, &c1);
+			if (r == 0) {
+				el.kind = 1; el.cw = cw; el.c0 = c0; el.c1 = c1;
+				double rad = hypot(el.s[0] - c0, el.s[1] - c1);
+				if (rad < 1e-6) r = fail(g, "arc with zero radius");
+				el.full = hypot(t[0] - el.s[0], t[1] - el.s[1]) < 0.01;
+				if (r == 0) {
+					ccoff_t tmp; gc_ccel_t probe = el; probe.full = el.full;
+					double len = rad * 2 * M_PI;
+					if (!el.full) { tmp.arc = true; tmp.R = rad; len = cc_len(&probe, &tmp); }
+					r = move_feed(g, w, len);
+				}
+			}
+		} else if (g->motion == 1) {
+			double d = 0;
+			for (int a = 0; a < NAXES; a++) d += (t[a] - el.s[a]) * (t[a] - el.s[a]);
+			r = move_feed(g, w, sqrt(d));
+		}
+		el.feed = g->bfeed;
+	}
+	memcpy(g->pos, real, sizeof g->pos);
+	if (r < 0) return -1;
+	memcpy(g->cc_prog, t, sizeof g->cc_prog);
+	if (el.kind == 1 && g->cc) {                         /* the offset circle must exist */
+		double t2[2], n2[2];
+		cc_tan(&el, false, t2); cc_nrm(g->cc, t2, n2);
+		double R1 = hypot(el.s[0] - el.c0, el.s[1] - el.c1);
+		bool inward = n2[0] * (el.c0 - el.s[0]) + n2[1] * (el.c1 - el.s[1]) > 0;   /* the tool on the inside of the arc */
+		if (inward && g->cc_r >= R1 - 1e-3)
+			return fail(g, "cutter comp: arc radius %.3f not larger than the tool radius %.3f (line %d)", R1, g->cc_r, el.line + 1);
+	}
+	if (cc_add(g, &el, emit) < 0) return -1;
+	(void)emit;
+	return 0;
+}
+
+/* the next compensated element into the op stream */
+static int cc_drain_one(gc_t *g)
+{
+	gc_ccel_t el = g->cc_q[g->cc_qi++];
+	if (el.kind == 2) { g->q[g->qn++] = el.op; return 0; }
+	g->bfeed = el.feed;
+	if (el.kind == 1) {
+		if (arc_begin(g, NULL, el.e, el.c0, el.c1, el.cw, 17, el.full ? 1 : 0) < 0) return -1;
+		g->arc.line = el.line; g->arc.stop = el.stop;
+		return 0;
+	}
+	gc_op_t *o = push(g, OP_LINE);
+	o->rapid = el.rapid; o->line = el.line;
+	memcpy(o->end, el.e, sizeof o->end);
+	memcpy(g->pos, el.e, sizeof g->pos);
+	if (el.stop) push(g, OP_DWELL)->line = el.line;
+	return 0;
+}
+
+/* seek: no ops, the positions only */
+static void cc_drain_seek(gc_t *g)
+{
+	for (; g->cc_qi < g->cc_qn; g->cc_qi++) if (g->cc_q[g->cc_qi].kind != 2) memcpy(g->pos, g->cc_q[g->cc_qi].e, sizeof g->pos);
+	g->cc_qi = g->cc_qn = 0;
+}
+
 /* ---- one block ---- */
 
 enum { NM_NONE, NM_G4, NM_G10, NM_G27, NM_G28, NM_G29, NM_G30, NM_G52, NM_G92, NM_G921, NM_G922, NM_G923,
@@ -820,7 +1181,7 @@ static int scale_factor(gc_t *g, char L, double v, double *out)
 
 static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 {
-	int nonmodal = NM_NONE, newmotion = -1, newcycle = -1, tlc = -1;
+	int nonmodal = NM_NONE, newmotion = -1, newcycle = -1, tlc = -1, cc_new = 0;
 	bool g9 = false, g53 = false, g80 = false;
 	for (int i = 0; i < w->ng; i++) {
 		int c = w->g[i];
@@ -843,7 +1204,7 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 		case 511: nonmodal = NM_G511; break;
 		case 680: nonmodal = NM_G68; break;
 		case 690: g->rot_deg = 0; xf_update(g); break;
-		case 400: g->ccomp = 40; break;
+		case 400: g->ccomp = 40; cc_new = 40; break;
 		case 120: case 130: return fail(g, "G%d circle pocket not supported", c / 10);
 		case 170: case 180: case 190: g->plane = c / 10; break;
 		case 200: g->inches = true; break;
@@ -857,10 +1218,15 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 			return fail(g, "G%g probing not supported (no probe input)", c / 10.0);
 		case 320: case 330: case 331: return fail(g, "G%g threading not supported (no spindle encoder)", c / 10.0);
 		case 410: case 420: case 411: case 421:
-			if (SET.gc_cutcomp != 1)
-				return fail(g, "G41/G42 cutter comp not supported: post 'in computer', or 'wear' + Settings > G-code");
-			g->ccomp = c / 10;
-			warnf(g, "G41/G42 ignored: path cut as programmed (CAM wear mode)");
+			if (SET.gc_cutcomp == 0)
+				return fail(g, "G41/G42 refused (Settings > G-code > G41/G42)");
+			if (SET.gc_cutcomp == 1) {
+				g->ccomp = c / 10;
+				warnf(g, "G41/G42 ignored: path cut as programmed (CAM wear mode)");
+				break;
+			}
+			if (c % 10) return fail(g, "G%g (dynamic compensation) not supported - use G41/G42 with D", c / 10.0);
+			g->ccomp = c / 10; cc_new = c / 10;
 			break;
 		case 430: case 440: case 490: tlc = c / 10; break;
 		case 431: case 434: return fail(g, "G%g not supported", c / 10.0);
@@ -963,6 +1329,14 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 	for (int a = 0; a < NAXES; a++) any_axis |= axis_word(w, a);
 	double t[NAXES];
 
+	if (cc_new && cc_switch(g, w, cc_new, emit) < 0) return -1;
+	if (g->cc || g->cc_pend) {
+		if (hasm(w, 6)) return fail(g, "tool change (M6) with cutter comp on: G40 first");
+		if (nonmodal >= NM_G10 && nonmodal != NM_G10) return fail(g, "this code with cutter comp on is not supported: G40 first");
+		if (nonmodal == NM_G10 && (int)w->v[W('L')] == 20) return fail(g, "G10 L20 with cutter comp on: G40 first");
+		if (g->cycle) return fail(g, "canned cycles with cutter comp on: G40 first");
+		if (g53) return fail(g, "G53 with cutter comp on: G40 first");
+	}
 	if (nonmodal == NM_G16 || nonmodal == NM_G51 || nonmodal == NM_G501 || nonmodal == NM_G511 || nonmodal == NM_G68) {
 		/* transforms: the axis words in this block are centres (program coordinates; an
 		 * omitted one is the current position), not a move */
@@ -1115,6 +1489,7 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 		return 0;
 	}
 	if (!any_axis) return 0;
+	if (g->cc || g->cc_qn > g->cc_qi) return cc_motion(g, w, g9 || g->exact, emit);
 	if (target(g, w, g53, t) < 0) return -1;
 	if (!emit) {                       /* seek: just track position */
 		memcpy(g->pos, t, sizeof t);
@@ -1227,6 +1602,7 @@ static int next_block(gc_t *g, bool emit)
 	size_t lstart = g->cur;
 	if (!read_line(g, buf, sizeof buf)) {
 		if (g->sp > 0) { fail(g, "end of file inside a subprogram (no M99)"); g->err_line = g->line; return -1; }
+		if (g->cc_pend) { cc_end(g); return 1; }          /* the last compensated move */
 		return 0;
 	}
 	g->emit_now = emit;
@@ -1250,13 +1626,19 @@ static int next_block(gc_t *g, bool emit)
 		g->prog_no = (int)w.v[W('O')];
 	}
 	if (w.nwords || w.stmt) g->started = true;
+	g->cc_in_exec = true;
 	if (exec_block(g, &w, emit, &call65) < 0 || g->bad) goto bad;
-	if (call65) { if (call(g, 65, &w) < 0) goto bad; return 1; }
+	if (call65) { g->cc_in_exec = false; if (call(g, 65, &w) < 0) goto bad; return 1; }
 	if (emit) {
 		if (hasm(&w, 0) || hasm(&w, 60)) gc_pause(g, PAUSE_M0);
 		if (hasm(&w, 1)) gc_pause(g, PAUSE_M1);
 	}
-	if (hasm(&w, 2) || hasm(&w, 30)) { if (emit) push(g, OP_END); g->cur = g->len; g->sp = 0; g->lvl = 0; return 1; }
+	if (hasm(&w, 2) || hasm(&w, 30)) {
+		if (emit) push(g, OP_END);
+		if (g->cc_pend || g->cc) cc_end(g);
+		g->cc_in_exec = false;
+		g->cur = g->len; g->sp = 0; g->lvl = 0; return 1;
+	}
 	/* flow: at most one of these per block */
 	if (w.end_m) {
 		if (!g->dos[g->sp][w.end_m].on) { fail(g, "END%d without WHILE ... DO%d", w.end_m, w.end_m); goto bad; }
@@ -1273,8 +1655,11 @@ static int next_block(gc_t *g, bool emit)
 	} else if (hasm(&w, 99)) {
 		if (ret(g, &w) < 0) goto bad;
 	}
+	g->cc_in_exec = false;
+	if (g->bad) goto bad;
 	return 1;
 bad:
+	g->cc_in_exec = false;
 	g->err_line = g->line;
 	return -1;
 }
@@ -1286,6 +1671,8 @@ int gc_next(gc_t *g, gc_op_t *op)
 		g->qi = g->qn = 0;
 		if (g->arc.on) { arc_chord(g); continue; }
 		if (g->hole.on) { hole_step(g); continue; }
+		if (g->cc_qi < g->cc_qn) { if (cc_drain_one(g) < 0) { g->err_line = g->line; return -1; } continue; }
+		g->cc_qi = g->cc_qn = 0;
 		int r = next_block(g, true);
 		if (r <= 0) return r;
 	}
@@ -1301,6 +1688,7 @@ int gc_seek(gc_t *g, int line)
 		size_t before = g->cur;
 		int r = next_block(g, false);
 		if (r < 0) return -1;
+		cc_drain_seek(g);
 		if (r == 0 || (g->cur == before && !g->flow) || g->cur >= g->len) break;
 	}
 	return 0;

@@ -153,7 +153,7 @@ void test_gcode(void)
 	CHECK(gc_seek(&g, 3) == 0 && g.pos[0] == 6 && g.pos[2] == 12 && g.cycle == 81 && g.cy_z == -3);
 
 	/* errors carry their line */
-	CHECK(run("G0 X1\nG41 X2\n", o, 64, &g, NULL) < 0 && g.err_line == 1);
+	CHECK(run("G0 X1\nG12 X2\n", o, 64, &g, NULL) < 0 && g.err_line == 1);
 	CHECK(run("G0 X1\nG2 X20 Y0 R5\n", o, 64, &g, NULL) < 0 && g.err_line == 1);
 	CHECK(run("G0 X1 Q\n", o, 64, &g, NULL) < 0);
 

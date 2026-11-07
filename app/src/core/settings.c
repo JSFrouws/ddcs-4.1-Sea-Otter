@@ -25,7 +25,7 @@ static const char *const OUT_PORTS[] = { "-", "OUT1", "OUT2", "OUT3", NULL };
 static const char *const AXIS_OUTS[] = { "-", "X (XP/XD)", "Y (YP/YD)", "Z (ZP/ZD)", "A (AP/AD)", NULL };
 static const char *const DWELLS[] = { "Seconds (G4 P1.5 = 1.5 s)", "Milliseconds (Fanuc: G4 P1500 = 1.5 s)", NULL };
 static const char *const TLOS[] = { "Ignore: Z is touched off per tool", "Apply the Tools table length", NULL };
-static const char *const CUTCOMPS[] = { "Refuse the program", "Ignore: path already compensated (CAM wear mode)", NULL };
+static const char *const CUTCOMPS[] = { "Refuse the program", "Ignore: path already compensated (CAM wear mode)", "Compensate: radius = Tools table diameter / 2", NULL };
 static const char *const LEVELS[] = { "low", "high", NULL };
 static const char *const FOLLOW[] = { "Exact: every click is moved", "Velocity: stops with the wheel, surplus dropped", NULL };
 
@@ -125,7 +125,7 @@ const setting_desc_t SETTINGS[] = {
 	{ "macro.tc_z", "Tool change", "Tool change Z (machine)", "mm", ST_DBL, O(tc[2]), -9999, 9999, DEC_POS, 0, 1, 0 },
 	{ "gcode.dwell_p", "G-code", "G4 P / drilling cycle P in", "", ST_ENUM, O(gc_dwell_ms), 0, 1, 0, DWELLS, 1, 0 },
 	{ "gcode.tool_length", "G-code", "G43 / G44 tool length", "", ST_ENUM, O(gc_tlo), 0, 1, 0, TLOS, 1, 0 },
-	{ "gcode.cutter_comp", "G-code", "G41 / G42 cutter compensation", "", ST_ENUM, O(gc_cutcomp), 0, 1, 0, CUTCOMPS, 1, 0 },
+	{ "gcode.cutter_comp", "G-code", "G41 / G42 cutter compensation", "", ST_ENUM, O(gc_cutcomp), 0, 2, 0, CUTCOMPS, 1, 0 },
 	{ "gcode.block_delete", "G-code", "Block delete: skip lines that start with /", "", ST_BOOL, O(gc_block_delete), 0, 1, 0, 0, 1, 0 },
 	{ "macro.warm_rpm", "Macros", "Warm-up spindle speed", "rpm", ST_DBL, O(warm_rpm), 0, 60000, 0, 0, 1, 0 },
 	{ "macro.warm_s", "Macros", "Warm-up time", "s", ST_DBL, O(warm_s), 1, 3600, 0, 0, 1, 0 },
@@ -165,6 +165,7 @@ void settings_defaults(settings_t *s)
 	s->park[0] = 380; s->park[1] = 180; s->park[2] = -5;      /* back corner, Z up (inside the soft limits) */
 	s->tc[0] = 200; s->tc[1] = 20; s->tc[2] = -5;            /* front middle, Z up */
 	s->warm_rpm = 8000; s->warm_s = 120;
+	s->gc_cutcomp = 2;           /* G41/G42 compensate (Fanuc meaning) */
 	s->tc_mode = 0; s->tc_where = 0; s->tc_return_pct = 50;   /* user 2026-10-22: by hand, back at half rapid */
 	s->graceful_stop = true;   /* user 2026-10-18: brake at max deceleration, never lose steps */
 	s->queue_ms = 50;   /* 2026-11-01: the FPGA's block queue, decoded and driven (docs/block-mode.md) */

@@ -487,8 +487,8 @@ The controller serves a browser panel and the API on port 8080
 ## 9. Known limits (2026-11-07)
 - Not yet tested with a probe (probing is not configured).
 - Loading a very large file (64 000 lines) takes ~4 s, and the panel freezes for that time.
-- Not supported (the program is refused): tapping (G84/G74), cutter radius compensation
-  (G41/G42, unless set to *ignore*), probing (G31/G38), threading. See § 10.
+- Not supported (the program is refused): tapping (G84/G74), probing (G31/G38),
+  threading. See § 10.
 - The position readout shows G54–G59 coordinates; a G92 / G52 shift made by a running
   program is not added to it.
 
@@ -551,8 +551,23 @@ coordinates, in this order: mirror, scale, rotation; drilling cycles follow them
 | G52 X Y Z | local shift on top of G54–G59; `G52 X0 Y0 Z0` cancels |
 | G92 / G92.1 / G92.2 / G92.3 | shift so the position reads the values / cancel and forget / cancel (kept for G92.3) / restore. Only inside the program: never kept for the next run |
 | G43 Hn / G44 / G49 | *Settings › G-code › G43*: **Ignore** (default: you touch off Z for every tool; warns) or **Apply** the Tools table length (G43 adds it, G44 subtracts it; no H = the tool of the last T) |
-| G40 | accepted |
-| G41 / G42 | *Settings › G-code › G41/G42*: **Refuse** (default), or **Ignore**: only for programs posted with compensation *wear* / *in computer*, where the path already is the tool centre |
+| G41 Dn / G42 Dn, G40 | cutter radius compensation, tool left / right of the path (*Settings › G-code › G41/G42*; see below) |
+
+**Cutter radius compensation (G41 / G42).** *Settings › G-code › G41/G42*:
+- **Compensate** (default): the path is offset by the tool radius. `D` = the tool number in
+  the Tools table (its diameter / 2); no `D` = the tool in the spindle; `D0` = no offset.
+  XY plane (G17) only. Outside corners are rounded with an arc about the programmed corner;
+  inside corners end where the two offset paths meet. The first X/Y move after G41/G42 (a
+  line) goes straight to the offset end of that move; after G40 the next move goes straight
+  from the offset point to its programmed end. Anything programmed between two cuts (M
+  codes, dwells, Z moves) comes after the first of them, at its offset end point.
+  **Refused, never gouged**: an inside corner or a slot too tight for the tool, an inside arc
+  not larger than the tool radius, an arc as the first move, a tool with diameter 0, and M6,
+  drilling cycles, G28/G30/G53/G92/G10 L20 or a transform change while it is on (G40 first).
+  A mirror (G51.1) swaps the side, so the tool stays outside a mirrored outside contour.
+- **Ignore**: for programs posted with compensation *wear* / *in computer*, where the path
+  already is the tool centre (warns).
+- **Refuse**: such programs do not load.
 
 **Drilling cycles.** G98 goes back to the start height, G99 to R. R, Z, Q and P stay in force
 for the next holes. In G91, R is from the start height and Z from R. `K` or `L` repeats the
@@ -605,7 +620,8 @@ from line** goes to the first time the program reaches that line, and a multi-pa
 cuts the whole program per part (not per tool). More than 1 000 000 jumps in one run count
 as an endless loop and stop it.
 
-**Refused** (would cut wrong or be unsafe if ignored): G41/G42 (unless set to ignore),
+**Refused** (would cut wrong or be unsafe if ignored): G41/G42 when set to refuse (or a
+corner the tool cannot reach, see above),
 G12/G13 circle pockets, G31/G38.x probing, G32/G33 threading, G54.1 / G59.1–G59.3 (only
 G54–G59 exist), G66, G74/G84 tapping (no spindle synchronised to the feed: a tap would break),
 G87/G88, G96 constant surface speed, G5 spline, G7/G7.1, LinuxCNC o-word subroutines.
