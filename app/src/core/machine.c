@@ -315,6 +315,21 @@ static void tc_resume(void)
 	if (!shifted) ctl_toast(false, "T%d in - back to the program", C.tc_tool);
 }
 
+/* before a program has run: the start the load (and the preview) assume */
+void ctl_run_start_assumed(void)
+{
+	C.run_start_wcs = WD.active;
+	memset(C.run_start, 0, sizeof C.run_start);
+	C.run_start[AX_Z] = SET.safe_z;
+	C.run_start[AX_A] = C.mo.pos[AX_A] - WD.wcs[WD.active].off[AX_A];
+}
+
+/* the machine position of the program's start for part (WCS) w */
+void ctl_run_start_at(int w, double out[NAXES])
+{
+	for (int a = 0; a < NAXES; a++) out[a] = C.run_start[a] + WD.wcs[w].off[a];
+}
+
 static void start_program(src_t src)
 {
 	C.run_from = C.resume_line > 0 ? C.resume_line : 0;   /* the view shows what was skipped */
@@ -332,6 +347,15 @@ static void start_program(src_t src)
 		if (C.resume_line > 0 && ctl_wcs_in_job(keep)) C.job_idx = keep;
 		if (C.resume_line > 0 && SET.job_order == 0) while (C.job_seg < C.prog.ntc && C.prog.tc_line[C.job_seg] <= C.resume_line) C.job_seg++;
 		C.gc.force_wcs = C.job_idx;
+	}
+	if (C.resume_line <= 0) {                         /* a fresh run: this is the program's start */
+		C.run_start_wcs = C.job_idx >= 0 ? C.job_idx : WD.active;
+		for (int a = 0; a < NAXES; a++) C.run_start[a] = C.mo.pos[a] - WD.wcs[C.run_start_wcs].off[a];
+	} else if (C.prog.incremental) {
+		/* a resume in a program with G91: rebuild its state from where it STARTED (on this
+		 * part), not from where the stop left the axes - the incremental moves are relative to
+		 * it (test manager 2026-11-07: 0.5-0.9 mm off after a stop + Start) */
+		ctl_run_start_at(C.job_idx >= 0 ? C.job_idx : C.run_start_wcs, C.gc.pos);
 	}
 	C.mo.dry = C.armed == ARM_SIM;
 	if (C.armed == ARM_SIM) { const char *w = program_outside(); if (w) ctl_toast(true, "Simulating anyway - %s", w); }
@@ -397,6 +421,7 @@ static void macro_end(void)
 	C.prog = C.saved_prog;
 	memset(&C.saved_prog, 0, sizeof C.saved_prog);
 	C.resume_line = C.saved_resume; C.work_done = C.saved_done; C.armed = C.saved_armed;
+	memcpy(C.run_start, C.saved_run_start, sizeof C.run_start); C.run_start_wcs = C.saved_run_start_wcs;
 	C.macro_on = false;
 }
 
@@ -475,6 +500,7 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		if (!macro_load(m.path, m.name, &p)) break;
 		C.saved_prog = C.prog; C.prog = p;
 		C.saved_resume = C.resume_line; C.saved_done = C.work_done; C.saved_armed = C.armed;
+		memcpy(C.saved_run_start, C.run_start, sizeof C.run_start); C.saved_run_start_wcs = C.run_start_wcs;
 		C.resume_line = -1; C.work_done = -1; C.armed = ARM_RUN;
 		snprintf(C.macro_name, sizeof C.macro_name, "%s", m.name);
 		snprintf(C.macro_path, sizeof C.macro_path, "%s", m.path);
@@ -559,6 +585,7 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 		C.load_err[0] = 0; C.load_err_line = -1;
 		program_free(&C.prog);
 		C.prog = np;
+		ctl_run_start_assumed();
 		memset(&np, 0, sizeof np);
 		C.resume_line = -1; C.work_done = -1;
 		ctl_toast(false, "Loaded %s - %d lines%s%s", C.prog.name, C.prog.nlines, C.prog.warn[0] ? " - " : "", C.prog.warn);

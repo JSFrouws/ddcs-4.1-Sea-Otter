@@ -65,6 +65,10 @@ typedef struct {
 	int resume_line, work_done;
 	/* the last load: a failed one leaves the program before it (and its resume point) loaded */
 	bool load_ok; char load_err[136]; int load_err_line;
+	/* where the program started, in work coordinates of run_start_wcs (a G91 program's moves
+	 * are relative to it: a resume and every job part rebuild the state from there). Until a
+	 * run starts: what the load assumes (work zero, safe Z) */
+	double run_start[NAXES]; int run_start_wcs;
 	int run_from;                   /* the line the running program started (or resumed) at */
 	uint64_t rewind_ask;            /* Reset pressed once to go back to line 1: when (it needs a second press) */
 	int touch_axis, touch_dir;     /* last touch-off (same key again = 0) */
@@ -84,6 +88,7 @@ typedef struct {
 	char macro_name[48], macro_path[256];
 	program_t saved_prog;
 	int saved_resume, saved_done, saved_armed;
+	double saved_run_start[NAXES]; int saved_run_start_wcs;   /* the program's start, kept over a macro */
 	char stop_cause[96];            /* why the drives are off / E-stop is active, shown on the panel */
 	char driver_warn[200];          /* set at start-up when motiondev.ko is not the tested one */
 	int32_t fpos[NAXES];            /* FPGA position counters (latched every 20 ms) */
@@ -107,6 +112,8 @@ const char *can(cmd_t c, const arg_t *a, src_t src);   /* NULL = allowed, else w
 bool act(cmd_t c, const arg_t *a, src_t src);
 bool ctl_busy(void);                                   /* RUN HOLD HOMING MOVE PROBING */
 void ctl_toast(bool bad, const char *fmt, ...);
+void ctl_run_start_assumed(void);                     /* run_start = what the load assumes */
+void ctl_run_start_at(int wcs, double out[NAXES]);    /* the program's start on part wcs (machine) */
 bool ctl_axis_range(int axis, double *lo, double *hi);   /* soft + bench limits in force; false = none */
 double ctl_trycut_z(void);                             /* TryCut: clearance level above the work plane */
 double ctl_work(int axis);                             /* work position, active WCS */

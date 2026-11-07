@@ -147,6 +147,16 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 				seen |= 1 << (p->text[i + 2] - '4');
 		}
 		p->code_wcs = (uint8_t)seen;
+		/* G91 (not G91.1) anywhere outside comments */
+		for (size_t i = 0; i + 2 < p->len; i++) {
+			char c = p->text[i];
+			if (c == '(') { while (i < p->len && p->text[i] != ')' && p->text[i] != '\n') i++; continue; }
+			if (c == ';') { while (i < p->len && p->text[i] != '\n') i++; continue; }
+			if ((c == 'G' || c == 'g') && p->text[i + 1] == '9' && p->text[i + 2] == '1'
+				&& (i + 3 >= p->len || !(p->text[i + 3] >= '0' && p->text[i + 3] <= '9')) && (i + 3 >= p->len || p->text[i + 3] != '.')
+				&& (i == 0 || !((p->text[i - 1] >= 'A' && p->text[i - 1] <= 'Z') || (p->text[i - 1] >= 'a' && p->text[i - 1] <= 'z'))))
+				p->incremental = true;
+		}
 		p->multi_wcs = (seen & (seen - 1)) != 0;
 		if (seen && !p->multi_wcs) for (int k = 0; k < NWCS; k++) if (seen == 1 << k) p->pv_wcs0 = k;   /* its one WCS */
 	}

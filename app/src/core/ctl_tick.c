@@ -109,6 +109,7 @@ void ctl_apply_axis_config(void)
  * second late" pendant (trace 2026-11-01: 73 stalls in one session). The kernel flushes
  * within its commit interval (5 s); only ctl_save (idle, 30 s) and exit sync. */
 static char resume_path[256]; static int resume_at;   /* the program line from the position file */
+static double resume_start[NAXES]; static int resume_start_wcs = -1;   /* ... and where it started */
 
 static int load_pos(double p[NAXES], int *homed)
 {
@@ -123,6 +124,9 @@ static int load_pos(double p[NAXES], int *homed)
 	int n = fscanf(f, "%lf %lf %lf %lf %d %d", &p[0], &p[1], &p[2], &p[3], &rest, homed);
 	resume_path[0] = 0; resume_at = 0;
 	if (n == 6 && fscanf(f, " prog %d %255[^\n]", &resume_at, resume_path) != 2) resume_path[0] = 0;
+	resume_start_wcs = -1;
+	if (resume_path[0] && fscanf(f, " start %lf %lf %lf %lf %d", &resume_start[0], &resume_start[1], &resume_start[2], &resume_start[3], &resume_start_wcs) != 5)
+		resume_start_wcs = -1;
 	fclose(f);
 	if (n < 4) { memcpy(p, photo, sizeof photo); return 0; }
 	if (n < 6) { *homed = 0; rest = 1; }                 /* an older file: position only */
@@ -143,6 +147,7 @@ static void pos_write(bool rest, bool sync)
 	if (pg->loaded && pg->path[0] == '/') {
 		int line = C.macro_on ? C.saved_resume : (C.m == M_RUN || C.m == M_HOLD || C.m == M_TOOL) ? C.mo.line : C.resume_line;
 		fprintf(f, "prog %d %s\n", line > 0 ? line : 0, pg->path);
+		if (!C.macro_on) fprintf(f, "start %.4f %.4f %.4f %.4f %d\n", C.run_start[0], C.run_start[1], C.run_start[2], C.run_start[3], C.run_start_wcs);
 	}
 	fflush(f); if (sync) fsync(fileno(f)); fclose(f);
 	rename(tmp, path);                                   /* never a half-written file */
@@ -211,6 +216,8 @@ void ctl_init(bus_t *bus, bool sim, const char *cfg_path, const char *wd_path)
 	} else if (SET.retain_homed && was_homed) ctl_toast(true, "Not homed: the power went off while the machine was moving");
 	/* the program it was on, and roughly where (never started by itself) */
 	if (resume_path[0] && program_load(&C.prog, resume_path) == 0) {
+		ctl_run_start_assumed();
+		if (resume_start_wcs >= 0 && resume_start_wcs < NWCS) { memcpy(C.run_start, resume_start, sizeof C.run_start); C.run_start_wcs = resume_start_wcs; }
 		if (resume_at > 0 && resume_at < C.prog.nlines) {
 			C.resume_line = resume_at; C.work_done = resume_at - 1;
 			ctl_toast(false, "Back after a restart: %s, Start continues near line %d - check it first", C.prog.name, resume_at + 1);
@@ -269,13 +276,17 @@ static void start_part(int s, int n)
 	motion_queued_end(&C.mo, p);
 	p[AX_Z] = fmax(p[AX_Z], fmax(WD.wcs[from].off[AX_Z], WD.wcs[n].off[AX_Z]) + SET.safe_z);
 	move_if(p, 0, true);
-	gc_begin(&C.gc, C.prog.text, C.prog.len, p);
+	/* a program with G91 starts on every part where it started on the first one (relative to
+	 * that part's zero); a G90 one from here, as before */
+	double st[NAXES];
+	if (C.prog.incremental) ctl_run_start_at(n, st); else memcpy(st, p, sizeof st);
+	gc_begin(&C.gc, C.prog.text, C.prog.len, st);
 	C.gc.force_wcs = n; C.gc.apply_g10 = C.run_mode != ARM_SIM;
 	int line = seg_first_line(s) + (s > 0 && !new_tool ? 1 : 0);
 	if (line > 0) {
 		gc_seek(&C.gc, line);
 		if (!new_tool || SET.tc_mode == 2) approach(C.gc.pos, from, n);   /* else the tool change goes there */
-	}
+	} else if (C.prog.incremental) approach(st, from, n);
 	C.job_idx = n; C.job_seg = s;
 	if (new_tool) ctl_toast(false, "Next tool (T%d): parts again from G%d", C.prog.tc_tool[s - 1], 54 + n);
 	else ctl_toast(false, "Next part: G%d%s", 54 + n, C.prog.ntc ? " (same tool)" : "");

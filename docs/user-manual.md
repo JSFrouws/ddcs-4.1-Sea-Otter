@@ -115,6 +115,10 @@ Every other key works as usual, F2 Pause and F3 Reset included.
    different if ignored, or are unsafe, **refuse the load**: the message gives the line and
    the reason. The full list is in **§ 10 Supported G-code**. A file that does not load leaves
    the program loaded before it (and its resume point) as it was.
+   A program written in G91 (incremental) moves relative to where it starts: Start after a
+   stop, resume-from-line and every part of a multi-part job rebuild it from that start
+   (on each part relative to its zero). Before it has run, that is work zero at safe Z,
+   as the preview shows it.
    The Files page then shows the program's box (cutting moves, work coordinates; `-` for an
    axis the program never moves) and whether **every** move, rapids included, stays inside
    the soft limits - the same check Start makes.

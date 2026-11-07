@@ -21,7 +21,8 @@ typedef struct {
 	 * word it writes, else the one it starts in (active at load). */
 	int pv_wcs0;
 	uint8_t code_wcs;            /* bit k = the program writes G(54+k) itself: that WCS is fixed in the job */
-	bool multi_wcs;              /* it writes two or more: no multi-part job (they would mix), it runs once */
+	bool multi_wcs;
+	bool incremental;            /* it writes G91: its positions depend on where it starts */              /* it writes two or more: no multi-part job (they would mix), it runs once */
 	float lo[3], hi[3];          /* bounding box of cutting moves (view), work coordinates of each move's own WCS */
 	uint8_t moved;               /* bit a: the program moves axis a (else its box is only the assumed start: not shown, not checked) */
 	float mlo[3], mhi[3];        /* ... of every move, rapids included (soft/bench limit check) */
