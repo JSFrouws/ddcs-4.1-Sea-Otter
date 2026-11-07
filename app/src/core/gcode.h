@@ -4,6 +4,7 @@
  *
  *   motion     G0 G1 G2 G3 (IJK or R; G17/G18/G19; G90.1/G91.1), G4 (P or X), G9, G61/G64,
  *              G27 G28 G29 G30, G53, G93/G94/G95 (inverse time, per minute, per revolution)
+ *   transforms G68/G69 rotation, G51/G50 scaling, G51.1/G50.1 mirror, G16/G15 polar
  *   offsets    G54-G59, G52 (local shift), G92/G92.1/G92.2/G92.3, G10 L2/L20 (work offsets),
  *              G10 L1/L10/L12 (tool table), G43/G44 Hn/G49 (Settings > G-code), G20/G21
  *   cycles     G73 G76 G81 G82 G83 G85 G86 G89 with G98/G99, R Z Q P, K/L repeats, G80
@@ -84,7 +85,14 @@ typedef struct {
 	double loc[GC_DEPTH + 1][33], com[100], keep[500];   /* #1-#33, #100-#199, #500-#999; NAN = vacant */
 	bool emit_now, bad, keep_warned;
 	uint8_t named;                /* bit a: a move of the program sets axis a (the load box shows only those) */
-	bool shift;                   /* any G52 / G92 / tool length offset is non-zero (off() adds them) */
+	bool shift;
+	/* coordinate transforms in the work frame, applied to program positions (and arc centres)
+	 * in this order: G51.1 mirror, G51 scale, G68 rotation. G16: plane words are radius/angle */
+	bool xf;                      /* any of mirror / scale / rotation is on */
+	bool mir[NAXES]; double mir_c[NAXES];
+	double sc[NAXES], sc_c[NAXES];
+	int rot_a0, rot_a1; double rot_c0, rot_c1, rot_deg;
+	bool polar; double pol_r, pol_a;                   /* any G52 / G92 / tool length offset is non-zero (off() adds them) */
 	char cmt[64];                 /* the block's comment: the message of #3000 / #3006 */
 	char err[112]; int err_line;
 	char warn[200]; int warn_line, warn_more;

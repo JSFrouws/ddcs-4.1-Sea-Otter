@@ -78,8 +78,70 @@ void test_fanuc(void)
 	CHECK(warned("G5.1 ignored") && warned("G8 ignored") && warned("M19 ignored") && warned("M48 ignored"));
 	CHECK(failed("G0 X1\nG12.1\n", "not supported") && g.err_line == 1);
 	CHECK(failed("G54.1 P1\n", "only G54-G59"));
-	CHECK(failed("G68 X0 Y0 R30\n", "rotation"));
-	CHECK(failed("G16\n", "polar"));
+	CHECK(failed("G68 X0 Y0\n", "needs R"));
+	CHECK(failed("G91 G16\n", "G91"));
+
+	/* --- G68 rotation --- */
+	n = lines("G68 X0 Y0 R90\nG0 X10 Y0\nG1 X10 Y5 F100\nG69\nG0 X1 Y0\n", p, 64);
+	CHECK(n == 3);
+	CHECK_NEAR(p[0][0], 0, 1e-9); CHECK_NEAR(p[0][1], 10, 1e-9);
+	CHECK_NEAR(p[1][0], -5, 1e-9); CHECK_NEAR(p[1][1], 10, 1e-9);
+	CHECK_NEAR(p[2][0], 1, 1e-9); CHECK_NEAR(p[2][1], 0, 1e-9);
+	n = lines("G68 X10 Y0 R180\nG0 X20 Y0 Z3\n", p, 64);       /* about its centre; Z untouched */
+	CHECK(n == 1 && fabs(p[0][0]) < 1e-9 && fabs(p[0][1]) < 1e-9 && p[0][2] == 3);
+	n = lines("G0 X0 Y0\nG68 X0 Y0 R90\nG91 G1 X5 F100\nX5\nG90 G69\n", p, 64);   /* G91 moves in the rotated frame */
+	CHECK(n == 3 && fabs(p[1][0]) < 1e-9 && fabs(p[1][1] - 5) < 1e-9 && fabs(p[2][1] - 10) < 1e-9);
+	n = run("G68 X0 Y0 R90\nG0 X10 Y0\nG3 X0 Y10 I-10 J0 F100\n");   /* the arc turns with it */
+	{
+		bool on = true, quad = true;
+		for (int i = 1; i < n; i++) { on &= fabs(hypot(o[i].end[0], o[i].end[1]) - 10) < 1e-9; quad &= o[i].end[0] < 1e-9 && o[i].end[1] > -1e-9; }
+		CHECK(n > 5 && on && quad && fabs(o[n - 1].end[0] + 10) < 1e-9 && fabs(o[n - 1].end[1]) < 1e-9);
+	}
+	n = lines("G0 Z5\nG68 X0 Y0 R90\nG81 X10 Y0 Z-1 R1 F100\n", p, 64);    /* a hole lands rotated */
+	CHECK(n == 5 && fabs(p[2][0]) < 1e-9 && fabs(p[2][1] - 10) < 1e-9 && p[3][2] == -1);
+	CHECK(failed("G68 X0 Y0 R30\nG92 X0\n", "G92 while"));
+	CHECK(failed("G68 X0 Y0 R30\nG18 G2 X1 Z1 R5\n", "another plane"));
+	{                                                         /* resume restores the rotation */
+		const char *src = "G68 X0 Y0 R90\nG0 X10\nG0 X20\n";
+		gc_begin(&g, src, strlen(src), zero);
+		CHECK(gc_seek(&g, 2) == 0 && g.rot_deg == 90 && fabs(g.pos[1] - 10) < 1e-9);
+		gc_op_t op;
+		CHECK(gc_next(&g, &op) == 1 && fabs(op.end[1] - 20) < 1e-9 && fabs(op.end[0]) < 1e-9);
+	}
+
+	/* --- G51 scaling, G50 --- */
+	n = lines("G51 X0 Y0 P2\nG0 X5 Y3\nG50\nG0 X5 Y3\n", p, 64);
+	CHECK(n == 2 && p[0][0] == 10 && p[0][1] == 6 && p[1][0] == 5 && p[1][1] == 3);
+	n = lines("G51 X10 Y0 P2000\nG0 X15 Y1\n", p, 64);         /* Fanuc 0.001 units, about X10 */
+	CHECK(n == 1 && fabs(p[0][0] - 20) < 1e-9 && fabs(p[0][1] - 2) < 1e-9 && warned("factor 2"));
+	CHECK(failed("G51 X0 Y0 P50\n", "unclear"));
+	n = lines("G51 X0 Y0 I2 J1 K1\nG0 X1 Y1\n", p, 64);
+	CHECK(n == 1 && p[0][0] == 2 && p[0][1] == 1);
+	CHECK(failed("G51 X0 Y0 I2 J1\nG0 X10 Y0\nG3 X0 Y10 I-10 J0\n", "ellipse"));
+	n = run("G51 X0 Y0 P0.5\nG0 X10 Y0\nG3 X0 Y10 R10 F100\n");    /* R scales too */
+	CHECK(n > 3 && fabs(hypot(o[n / 2].end[0], o[n / 2].end[1]) - 5) < 1e-9 && fabs(o[n - 1].end[1] - 5) < 1e-9);
+	CHECK(failed("G51 X0 Y0 Z0 P2\nG0 Z5\nG81 X1 Y1 Z-1 R1 F100\n", "Z mirrored, scaled"));
+
+	/* --- G51.1 mirror, G50.1: also turns an arc's direction --- */
+	n = lines("G51.1 X10\nG0 X15 Y2\nG50.1 X0\nG0 X15 Y2\n", p, 64);
+	CHECK(n == 2 && p[0][0] == 5 && p[0][1] == 2 && p[1][0] == 15);
+	n = run("G51.1 X0\nG0 X10 Y0\nG3 X0 Y10 I-10 J0 F100\n");
+	{
+		bool quad = true;
+		for (int i = 1; i < n; i++) quad &= o[i].end[0] < 1e-9 && o[i].end[1] > -1e-9 && fabs(hypot(o[i].end[0], o[i].end[1]) - 10) < 1e-9;
+		CHECK(n > 5 && quad && fabs(o[0].end[0] + 10) < 1e-9 && fabs(o[n - 1].end[1] - 10) < 1e-9);
+	}
+	CHECK(failed("G51.1\n", "needs the axis"));
+
+	/* --- G16 polar: X = radius, Y = angle (G90, origin = work zero) --- */
+	n = lines("G17 G90 G16\nG0 X10 Y90\nG1 Y180 F100\nG15\nG0 X1 Y1\n", p, 64);
+	CHECK(n == 3);
+	CHECK_NEAR(p[0][0], 0, 1e-9); CHECK_NEAR(p[0][1], 10, 1e-9);
+	CHECK_NEAR(p[1][0], -10, 1e-9); CHECK_NEAR(p[1][1], 0, 1e-9);
+	CHECK(p[2][0] == 1 && p[2][1] == 1);
+	n = lines("G16\nG0 X5 Y0\nG3 X5 Y90 R5 F100\n", p, 64);
+	CHECK(n > 3 && fabs(p[n - 1][0]) < 1e-9 && fabs(p[n - 1][1] - 5) < 1e-9);
+	CHECK(failed("G16\nG0 X5 Y0\nG3 X5 Y90 I-5 J0\n", "need R"));
 	CHECK(failed("G96 S200\n", "G96"));
 	CHECK(failed("G31 X10\n", "probing"));
 	CHECK(failed("G84 X0 Z-5 R1\n", "tapping"));

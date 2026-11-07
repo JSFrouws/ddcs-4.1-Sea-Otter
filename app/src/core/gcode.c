@@ -26,6 +26,7 @@ void gc_begin(gc_t *g, const char *text, size_t len, const double mpos[NAXES])
 	g->line = -1;
 	g->force_wcs = -1;
 	g->prog_no = -1; g->seq_no = -1;
+	for (int a = 0; a < NAXES; a++) g->sc[a] = 1;
 	for (int i = 0; i < NWCS; i++) memcpy(g->wcs_off[i], WD.wcs[i].off, sizeof g->wcs_off[i]);
 	for (int i = 0; i < NTOOLS; i++) { g->tl_len[i] = WD.tool[i].len; g->tl_dia[i] = WD.tool[i].dia; }
 	for (int l = 0; l <= GC_DEPTH; l++) for (int i = 0; i < 33; i++) g->loc[l][i] = VACANT;
@@ -185,8 +186,9 @@ static double getvar(gc_t *g, int n)
 		case 4013: return 97;
 		case 4014: return 54 + wcs_idx(g);
 		case 4015: return g->exact ? 61 : 64;
-		case 4016: return 69;
-		case 4017: return 15;
+		case 4011: return g->sc[AX_X] != 1 || g->sc[AX_Y] != 1 || g->sc[AX_Z] != 1 ? 51 : 50;
+		case 4016: return g->rot_deg != 0 ? 68 : 69;
+		case 4017: return g->polar ? 16 : 15;
 		case 4109: return g->feedmode == 93 ? g->invf : g->feedmode == 95 ? g->feed_rev / inch(g) : g->feed / inch(g);
 		case 4111: return 0;
 		case 4114: return g->seq_no;
@@ -547,19 +549,99 @@ static void move(gc_t *g, const double t[NAXES], bool rapid, bool emit)
 }
 
 static bool axis_word(const words_t *w, int a) { return w->has[AXL[a] - 'A']; }
+static bool any_axis_word(const words_t *w) { for (int a = 0; a < NAXES; a++) if (axis_word(w, a)) return true; return false; }
 
-/* target in machine coordinates for this block */
-static void target(gc_t *g, const words_t *w, bool g53, double t[NAXES])
+/* ---- coordinate transforms (work frame): mirror, then scale, then rotate ---- */
+
+static void plane_axes(int plane, int *a0, int *a1, int *a2)
+{
+	*a0 = plane == 17 ? AX_X : plane == 18 ? AX_Z : AX_Y;
+	*a1 = plane == 17 ? AX_Y : plane == 18 ? AX_X : AX_Z;
+	if (a2) *a2 = plane == 17 ? AX_Z : plane == 18 ? AX_Y : AX_X;
+}
+
+static void xf_update(gc_t *g)
+{
+	g->xf = g->rot_deg != 0;
+	for (int a = 0; a < NAXES; a++) g->xf |= g->mir[a] || g->sc[a] != 1;
+}
+
+static void xf_fwd(const gc_t *g, double p[NAXES])
 {
 	for (int a = 0; a < NAXES; a++) {
-		t[a] = g->pos[a];
+		if (g->mir[a]) p[a] = 2 * g->mir_c[a] - p[a];
+		if (g->sc[a] != 1) p[a] = g->sc_c[a] + g->sc[a] * (p[a] - g->sc_c[a]);
+	}
+	if (g->rot_deg != 0) {
+		double r = g->rot_deg * M_PI / 180, cs = cos(r), sn = sin(r);
+		double d0 = p[g->rot_a0] - g->rot_c0, d1 = p[g->rot_a1] - g->rot_c1;
+		p[g->rot_a0] = g->rot_c0 + cs * d0 - sn * d1;
+		p[g->rot_a1] = g->rot_c1 + sn * d0 + cs * d1;
+	}
+}
+
+static void xf_inv(const gc_t *g, double p[NAXES])
+{
+	if (g->rot_deg != 0) {
+		double r = g->rot_deg * M_PI / 180, cs = cos(r), sn = sin(r);
+		double d0 = p[g->rot_a0] - g->rot_c0, d1 = p[g->rot_a1] - g->rot_c1;
+		p[g->rot_a0] = g->rot_c0 + cs * d0 + sn * d1;
+		p[g->rot_a1] = g->rot_c1 - sn * d0 + cs * d1;
+	}
+	for (int a = 0; a < NAXES; a++) {
+		if (g->sc[a] != 1) p[a] = g->sc_c[a] + (p[a] - g->sc_c[a]) / g->sc[a];
+		if (g->mir[a]) p[a] = 2 * g->mir_c[a] - p[a];
+	}
+}
+
+/* the current position in program coordinates (work frame, before the transforms) */
+static void prog_pos(const gc_t *g, double p[NAXES])
+{
+	for (int a = 0; a < NAXES; a++) p[a] = (g->pos[a] - off(g, a));
+	if (g->xf) xf_inv(g, p);
+}
+
+/* target in machine coordinates for this block; -1 = error */
+static int target(gc_t *g, const words_t *w, bool g53, double t[NAXES])
+{
+	if (g53 || (!g->xf && !g->polar)) {
+		for (int a = 0; a < NAXES; a++) {
+			t[a] = g->pos[a];
+			if (!axis_word(w, a)) continue;
+			g->named |= (uint8_t)(1 << a);
+			double v = w->v[AXL[a] - 'A'] * unit(g, a);
+			if (g53) t[a] = v;
+			else if (g->absolute) t[a] = v + off(g, a);
+			else t[a] = g->pos[a] + v;
+		}
+		return 0;
+	}
+	double cur[NAXES], p[NAXES];
+	prog_pos(g, cur);
+	memcpy(p, cur, sizeof p);
+	int a0, a1;
+	plane_axes(g->plane, &a0, &a1, NULL);
+	bool moved = false;
+	for (int a = 0; a < NAXES; a++) {
 		if (!axis_word(w, a)) continue;
+		moved = true;
 		g->named |= (uint8_t)(1 << a);
 		double v = w->v[AXL[a] - 'A'] * unit(g, a);
-		if (g53) t[a] = v;
-		else if (g->absolute) t[a] = v + off(g, a);
-		else t[a] = g->pos[a] + v;
+		if (g->polar && (a == a0 || a == a1)) {               /* G16: first plane word = radius, second = angle */
+			if (!g->absolute) return fail(g, "G16 polar coordinates in G91 not supported");
+			if (a == a0) g->pol_r = v; else g->pol_a = w->v[AXL[a] - 'A'];
+			continue;
+		}
+		p[a] = g->absolute ? v : cur[a] + v;
 	}
+	if (g->polar && (axis_word(w, a0) || axis_word(w, a1))) {
+		p[a0] = g->pol_r * cos(g->pol_a * M_PI / 180);
+		p[a1] = g->pol_r * sin(g->pol_a * M_PI / 180);
+	}
+	if (!moved) { memcpy(t, g->pos, sizeof(double) * NAXES); return 0; }
+	if (g->xf) xf_fwd(g, p);
+	for (int a = 0; a < NAXES; a++) t[a] = axis_word(w, a) || (g->polar && (a == a0 || a == a1)) || g->xf ? p[a] + off(g, a) : g->pos[a];
+	return 0;
 }
 
 /* the feed of a cutting move of length len (mm/min); -1 = error */
@@ -583,7 +665,38 @@ static int start_arc(gc_t *g, const words_t *w, const double t[NAXES], bool cw)
 	int a2 = g->plane == 17 ? AX_Z : g->plane == 18 ? AX_Y : AX_X;
 	double k = inch(g);
 	double s0 = g->pos[a0], s1 = g->pos[a1], e0 = t[a0], e1 = t[a1], c0, c1;
-	if (w->has['R' - 'A']) {
+	if (g->xf || g->polar) {
+		/* the centre in program coordinates, then through the transforms like any point; a
+		 * mirror (or a negative scale) of one plane axis turns the direction around */
+		if (g->polar && !w->has['R' - 'A']) return fail(g, "arcs in G16 polar mode need R");
+		if (g->sc[a0] != g->sc[a1] && (g->sc[a0] != 1 || g->sc[a1] != 1) && fabs(g->sc[a0]) != fabs(g->sc[a1]))
+			return fail(g, "arc under unequal scaling of %c and %c (an ellipse) not supported", AXL[a0], AXL[a1]);
+		if (g->rot_deg != 0 && !((g->rot_a0 == a0 && g->rot_a1 == a1)))
+			return fail(g, "arc in G%d with the rotation (G68) in another plane not supported", g->plane);
+		double ps[NAXES], pe[NAXES], pc[NAXES];
+		prog_pos(g, ps);
+		memcpy(pe, t, sizeof pe);
+		for (int a = 0; a < NAXES; a++) pe[a] -= off(g, a);
+		xf_inv(g, pe);
+		memcpy(pc, ps, sizeof pc);
+		bool flip = (g->mir[a0] != g->mir[a1]) ^ ((g->sc[a0] < 0) != (g->sc[a1] < 0));
+		if (w->has['R' - 'A']) {
+			double r = w->v['R' - 'A'] * k, dx = pe[a0] - ps[a0], dy = pe[a1] - ps[a1], d = hypot(dx, dy);
+			if (d < 1e-9 || fabs(r) * 2 < d - 1e-6) return fail(g, "arc radius too small");
+			double h = sqrt(fmax(0, r * r - d * d / 4)) * ((cw ^ (r < 0)) ? -1 : 1);
+			pc[a0] = ps[a0] + dx / 2 - h * dy / d; pc[a1] = ps[a1] + dy / 2 + h * dx / d;
+		} else {
+			const char ci = g->plane == 17 ? 'I' : g->plane == 18 ? 'K' : 'J';
+			const char cj = g->plane == 17 ? 'J' : g->plane == 18 ? 'I' : 'K';
+			if (g->arc_abs) {
+				if (!w->has[ci - 'A'] || !w->has[cj - 'A']) return fail(g, "G90.1 arc needs both centre words (%c %c)", ci, cj);
+				pc[a0] = w->v[ci - 'A'] * k; pc[a1] = w->v[cj - 'A'] * k;
+			} else { pc[a0] = ps[a0] + w->v[ci - 'A'] * k; pc[a1] = ps[a1] + w->v[cj - 'A'] * k; }
+		}
+		xf_fwd(g, pc);
+		c0 = pc[a0] + off(g, a0); c1 = pc[a1] + off(g, a1);
+		cw ^= flip;
+	} else if (w->has['R' - 'A']) {
 		double r = w->v['R' - 'A'] * k, dx = e0 - s0, dy = e1 - s1, d = hypot(dx, dy);
 		if (d < 1e-9 || fabs(r) * 2 < d - 1e-6) return fail(g, "arc radius too small");
 		double h = sqrt(fmax(0, r * r - d * d / 4)) * ((cw ^ (r < 0)) ? -1 : 1);
@@ -691,7 +804,19 @@ static void hole_step(gc_t *g)
 
 /* ---- one block ---- */
 
-enum { NM_NONE, NM_G4, NM_G10, NM_G27, NM_G28, NM_G29, NM_G30, NM_G52, NM_G92, NM_G921, NM_G922, NM_G923 };
+enum { NM_NONE, NM_G4, NM_G10, NM_G27, NM_G28, NM_G29, NM_G30, NM_G52, NM_G92, NM_G921, NM_G922, NM_G923,
+	NM_G16, NM_G51, NM_G501, NM_G511, NM_G68 };
+
+/* a G51 / G51.1 factor: plain (P1.5) below 10; Fanuc 0.001 units (P1500) from 1000; between: refused */
+static int scale_factor(gc_t *g, char L, double v, double *out)
+{
+	double m = fabs(v);
+	if (m < 10) *out = v;
+	else if (m >= 1000) { *out = v / 1000; warnf(g, "G51 %c%g read as factor %g (Fanuc 0.001 units)", L, v, *out); }
+	else return fail(g, "G51 %c%g: factor unclear (write it as %g or %g)", L, v, v / 1000, v);
+	if (*out == 0) return fail(g, "G51 scale factor 0");
+	return 0;
+}
 
 static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 {
@@ -709,10 +834,17 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 		case 70: case 71: return fail(g, "G%g not supported (lathe / cylindrical mode)", c / 10.0);
 		case 90: g9 = true; break;
 		case 100: nonmodal = NM_G10; break;
-		case 110: case 150: case 670: case 690: case 500: case 501: case 970: break;
+		case 110: case 670: case 970: break;
+		case 150: g->polar = false; break;
+		case 160: nonmodal = NM_G16; break;
+		case 500: for (int a = 0; a < NAXES; a++) g->sc[a] = 1; xf_update(g); break;
+		case 501: nonmodal = NM_G501; break;
+		case 510: nonmodal = NM_G51; break;
+		case 511: nonmodal = NM_G511; break;
+		case 680: nonmodal = NM_G68; break;
+		case 690: g->rot_deg = 0; xf_update(g); break;
 		case 400: g->ccomp = 40; break;
 		case 120: case 130: return fail(g, "G%d circle pocket not supported", c / 10);
-		case 160: return fail(g, "G16 polar coordinates not supported");
 		case 170: case 180: case 190: g->plane = c / 10; break;
 		case 200: g->inches = true; break;
 		case 210: g->inches = false; break;
@@ -732,8 +864,6 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 			break;
 		case 430: case 440: case 490: tlc = c / 10; break;
 		case 431: case 434: return fail(g, "G%g not supported", c / 10.0);
-		case 510: return fail(g, "G51 scaling not supported");
-		case 511: return fail(g, "G51.1 mirroring not supported");
 		case 520: nonmodal = NM_G52; break;
 		case 530: g53 = true; break;
 		case 540: case 550: case 560: case 570: case 580: case 590: g->wcs = c / 10 - 54; break;
@@ -744,7 +874,6 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 		case 640: g->exact = false; break;
 		case 650: *call65 = true; break;
 		case 660: return fail(g, "G66 modal macro call not supported");
-		case 680: return fail(g, "G68 coordinate rotation not supported");
 		case 730: case 760: case 810: case 820: case 830: case 850: case 860: case 890: newcycle = c / 10; break;
 		case 740: case 840: case 841: case 842: case 843:
 			return fail(g, "tapping G%g not supported (needs a spindle synced to the feed)", c / 10.0);
@@ -834,10 +963,55 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 	for (int a = 0; a < NAXES; a++) any_axis |= axis_word(w, a);
 	double t[NAXES];
 
+	if (nonmodal == NM_G16 || nonmodal == NM_G51 || nonmodal == NM_G501 || nonmodal == NM_G511 || nonmodal == NM_G68) {
+		/* transforms: the axis words in this block are centres (program coordinates; an
+		 * omitted one is the current position), not a move */
+		double cur[NAXES];
+		prog_pos(g, cur);
+		int a0, a1;
+		plane_axes(g->plane, &a0, &a1, NULL);
+		double cen[NAXES];
+		for (int a = 0; a < NAXES; a++) cen[a] = axis_word(w, a) ? w->v[AXL[a] - 'A'] * unit(g, a) : cur[a];
+		if (nonmodal == NM_G16) {
+			if (!g->absolute) return fail(g, "G16 polar coordinates in G91 not supported");
+			g->polar = true;
+			g->pol_r = hypot(cur[a0], cur[a1]);
+			g->pol_a = atan2(cur[a1], cur[a0]) * 180 / M_PI;
+		} else if (nonmodal == NM_G51) {
+			if (g->rot_deg != 0) return fail(g, "G51 while G68 is on: cancel the rotation first (G69)");
+			bool per = w->has[W('I')] || w->has[W('J')] || w->has[W('K')];
+			if (!per && !w->has[W('P')]) return fail(g, "G51 needs P (or I J K)");
+			static const char IJK[3] = { 'I', 'J', 'K' };
+			for (int a = 0; a < 3; a++) {
+				double f = 1;
+				if (per) { if (w->has[IJK[a] - 'A'] && scale_factor(g, IJK[a], w->v[IJK[a] - 'A'], &f) < 0) return -1; }
+				else if (scale_factor(g, 'P', w->v[W('P')], &f) < 0) return -1;
+				g->sc[a] = f; g->sc_c[a] = cen[a];
+			}
+		} else if (nonmodal == NM_G511 || nonmodal == NM_G501) {
+			if (g->rot_deg != 0 || g->sc[AX_X] != 1 || g->sc[AX_Y] != 1 || g->sc[AX_Z] != 1)
+				if (nonmodal == NM_G511) return fail(g, "G51.1 while G51 / G68 is on: set the mirror first");
+			for (int a = 0; a < NAXES; a++) {
+				if (nonmodal == NM_G501) { if (axis_word(w, a) || !any_axis_word(w)) g->mir[a] = false; continue; }
+				if (axis_word(w, a)) { g->mir[a] = true; g->mir_c[a] = cen[a]; }
+			}
+			if (nonmodal == NM_G511 && !any_axis_word(w)) return fail(g, "G51.1 needs the axis to mirror (X / Y / Z)");
+		} else {                                             /* G68 */
+			if (!w->has[W('R')]) return fail(g, "G68 needs R (the angle)");
+			g->rot_a0 = a0; g->rot_a1 = a1;
+			if (g->rot_deg == 0 || g->absolute) { g->rot_c0 = cen[a0]; g->rot_c1 = cen[a1]; }
+			g->rot_deg = (g->absolute ? 0 : g->rot_deg) + w->v[W('R')];   /* G91: R adds to the angle */
+			if (g->rot_deg == 0) g->rot_deg = 1e-300;                     /* "on, at 0": keeps the frame */
+		}
+		xf_update(g);
+		return 0;
+	}
+
 	switch (nonmodal) {
 	case NM_G10: {                                           /* G10 L2 / L20 Pn: work offsets; L1 / L10-L13: tools */
 		int l = (int)w->v[W('L')], p = (int)w->v[W('P')];
 		if (l == 2 || l == 20) {
+			if (l == 20 && (g->xf || g->polar)) return fail(g, "G10 L20 while G68 / G51 / G51.1 / G16 is on not supported");
 			int idx = p ? p - 1 : g->wcs;
 			if (idx < 0 || idx >= NWCS) return fail(g, "G10 P%d out of range (P1-P%d)", p, NWCS);
 			for (int a = 0; a < NAXES; a++) {
@@ -861,6 +1035,7 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 	}
 	case NM_G92:                                             /* the current position reads the given values */
 		if (!any_axis) return fail(g, "G92 needs an axis word");
+		if (g->xf || g->polar) return fail(g, "G92 while G68 / G51 / G51.1 / G16 is on not supported");
 		for (int a = 0; a < NAXES; a++) {
 			if (!axis_word(w, a)) continue;
 			g->g92[a] = 0; reshift(g);
@@ -879,7 +1054,7 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 	case NM_G28: case NM_G30:                                /* via the named point, then those axes home */
 		if (nonmodal == NM_G30) warnf(g, "G30 goes to the home position (no 2nd reference point)");
 		if (any_axis) {
-			target(g, w, false, t);
+			if (target(g, w, false, t) < 0) return -1;
 			move(g, t, true, emit);
 			memcpy(g->mid, t, sizeof g->mid); g->mid_set = true;
 			for (int a = 0; a < NAXES; a++) if (axis_word(w, a)) { t[a] = SET.ax[a].home_pos; g->named |= (uint8_t)(1 << a); }
@@ -899,19 +1074,21 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 		memcpy(t, g->pos, sizeof t);
 		for (int a = 0; a < NAXES; a++) if (axis_word(w, a)) t[a] = g->mid[a];
 		move(g, t, true, emit);
-		target(g, w, false, t);
+		if (target(g, w, false, t) < 0) return -1;
 		move(g, t, true, emit);
 		return 0;
 	case NM_G27:
 		warnf(g, "G27 moves to the point but does not check it is home");
 		if (!any_axis) return 0;
-		target(g, w, false, t);
+		if (target(g, w, false, t) < 0) return -1;
 		move(g, t, true, emit);
 		return 0;
 	}
 
 	if (g->cycle) {
 		if (g->feedmode == 93) return fail(g, "canned cycles in G93 (inverse time) not supported");
+		if (g->mir[AX_Z] || g->sc[AX_Z] != 1 || (g->rot_deg != 0 && (g->rot_a0 == AX_Z || g->rot_a1 == AX_Z)))
+			return fail(g, "canned cycles with Z mirrored, scaled or rotated not supported");
 		double zoff = off(g, AX_Z);
 		if (!prev_cycle) { g->cy_init = g->cy_r = g->cy_z = g->pos[AX_Z]; g->cy_q = g->cy_p = 0; }
 		/* R, Z, Q, P stay in force for the following holes; in G91, R is from the start level
@@ -925,7 +1102,7 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 		if (reps <= 0) return 0;                             /* K0: the data only */
 		if (g->cy_z >= g->cy_r - 1e-9) return fail(g, "G%d: hole bottom Z not below R", g->cycle);
 		g->named |= 1 << AX_Z;
-		target(g, w, false, t);                                 /* only its X/Y are used */
+		if (target(g, w, false, t) < 0) return -1;              /* only its X/Y are used */
 		double inc[2] = { 0, 0 };
 		if (!g->absolute) { inc[0] = t[AX_X] - g->pos[AX_X]; inc[1] = t[AX_Y] - g->pos[AX_Y]; }
 		if (!emit) {
@@ -938,7 +1115,7 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 		return 0;
 	}
 	if (!any_axis) return 0;
-	target(g, w, g53, t);
+	if (target(g, w, g53, t) < 0) return -1;
 	if (!emit) {                       /* seek: just track position */
 		memcpy(g->pos, t, sizeof t);
 		return 0;

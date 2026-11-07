@@ -488,8 +488,7 @@ The controller serves a browser panel and the API on port 8080
 - Not yet tested with a probe (probing is not configured).
 - Loading a very large file (64 000 lines) takes ~4 s, and the panel freezes for that time.
 - Not supported (the program is refused): tapping (G84/G74), cutter radius compensation
-  (G41/G42, unless set to *ignore*), probing (G31/G38), rotation, scaling, polar
-  coordinates. See § 10.
+  (G41/G42, unless set to *ignore*), probing (G31/G38), threading. See § 10.
 - The position readout shows G54–G59 coordinates; a G92 / G52 shift made by a running
   program is not added to it.
 
@@ -529,7 +528,18 @@ says why. An unknown G code refuses; an unknown M code warns.
 | G28.1, G30.1 | warn (G28/G30 always go to the home position) |
 | G5 P…, G5.1 Q…, G8 P…, G187 | high-precision / smoothing modes: warn |
 | G60, G61.1, G62, G63 | warn |
-| G15, G40, G49, G50, G50.1, G67, G69, G80, G97 | cancel codes: accepted |
+| G40, G49, G67, G80, G97 | cancel codes: accepted |
+
+**Coordinate transforms** (applied to every programmed point and arc centre, in work
+coordinates, in this order: mirror, scale, rotation; drilling cycles follow them in X/Y)
+
+| Code | Here |
+|---|---|
+| G68 X Y R / G69 | rotate the current plane (G17: about X Y; G18: Z X; G19: Y Z) by R degrees counter-clockwise; an omitted centre = the current position; in G91, R adds to the angle. G69 cancels. Arcs in another plane than the rotation are refused |
+| G51 X Y Z P / I J K, G50 | scale about X Y Z (omitted = current position) by P (all of X Y Z) or I J K per axis. A factor below 10 is taken as written (P1.5); 1000 or more as Fanuc 0.001 units (P1500 = 1.5, warns); 10–999 is refused as unclear. A negative factor mirrors. Arcs with unequal X/Y factors (an ellipse) are refused. G50 cancels |
+| G51.1 X Y Z, G50.1 | mirror about the given coordinate(s) (arcs turn direction); G50.1 X0 cancels X, G50.1 alone all |
+| G16 / G15 | polar coordinates (G90 only): the first plane word is the radius, the second the angle in degrees, from the work zero; arcs with R only. G15 cancels |
+| | Refused while a transform is on: G92, G10 L20, canned cycles with Z scaled / mirrored / rotated, G51 under G68 and G51.1 under G51 / G68 (set them in the order mirror, scale, rotate) |
 
 **Offsets and tools**
 
@@ -596,6 +606,6 @@ cuts the whole program per part (not per tool). More than 1 000 000 jumps in one
 as an endless loop and stop it.
 
 **Refused** (would cut wrong or be unsafe if ignored): G41/G42 (unless set to ignore),
-G12/G13 circle pockets, G16 polar, G31/G38.x probing, G32/G33 threading, G51 scaling, G51.1
-mirror, G54.1 / G59.1–G59.3 (only G54–G59 exist), G66, G68 rotation, G74/G84 tapping,
+G12/G13 circle pockets, G31/G38.x probing, G32/G33 threading, G54.1 / G59.1–G59.3 (only
+G54–G59 exist), G66, G74/G84 tapping (no spindle synchronised to the feed: a tap would break),
 G87/G88, G96 constant surface speed, G5 spline, G7/G7.1, LinuxCNC o-word subroutines.
