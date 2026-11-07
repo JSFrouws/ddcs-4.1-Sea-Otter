@@ -23,6 +23,7 @@ typedef struct {
 	uint8_t code_wcs;            /* bit k = the program writes G(54+k) itself: that WCS is fixed in the job */
 	bool multi_wcs;              /* it writes two or more: no multi-part job (they would mix), it runs once */
 	float lo[3], hi[3];          /* bounding box of cutting moves (view), work coordinates of each move's own WCS */
+	uint8_t moved;               /* bit a: the program moves axis a (else its box is only the assumed start: not shown, not checked) */
 	float mlo[3], mhi[3];        /* ... of every move, rapids included (soft/bench limit check) */
 	double est_s;                /* run time at 100 %, margin included (core/estimate.h); 0 until est_cum is there */
 	float *est_cum;              /* seconds before each line, per override level: [line * EST_NLV + level];

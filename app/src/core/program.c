@@ -103,6 +103,7 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 		}
 		memcpy(last, op.end, sizeof last);
 	}
+	p->moved = g.named & 7;
 	if (p->lo[0] > p->hi[0]) for (int a = 0; a < 3; a++) p->lo[a] = p->hi[a] = 0;
 	if (p->mlo[0] > p->mhi[0]) for (int a = 0; a < 3; a++) p->mlo[a] = p->mhi[a] = 0;   /* no moves at all */
 	/* goto points: sections if the program has them, else the retracts to its usual safe height */

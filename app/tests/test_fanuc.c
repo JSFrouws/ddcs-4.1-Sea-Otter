@@ -6,6 +6,7 @@
 #include <string.h>
 #include "t.h"
 #include "core/gcode.h"
+#include "core/program.h"
 
 static gc_t g;
 static gc_op_t o[256];
@@ -260,6 +261,21 @@ void test_fanuc(void)
 	CHECK(n == 1 && p[0][0] == 4);
 	n = lines("G0 X#501\n", p, 64);
 	CHECK(n == 0 && warned("#500-#999"));
+
+	/* the axes a program names (the load box shows and checks only those - a program without
+	 * Z must not report the assumed start height as its Z, test manager 2026-11-07) */
+	run("G0 X1 Y2\nG1 X3 F100\n");
+	CHECK(g.named == 3);
+	run("G0 X1\nG81 X2 Z-1 R1 F100\n");
+	CHECK(g.named == 5);
+	run("G28\n");
+	CHECK(g.named == 0x0F);
+	{
+		program_t pg; memset(&pg, 0, sizeof pg);
+		const char *src = "G0 X1 Y2\nG1 X3 F100\n";
+		CHECK(program_load_text(&pg, "noz.nc", src, strlen(src)) == 0 && pg.moved == 3);
+		program_free(&pg);
+	}
 
 	/* inch units in macro positions and words */
 	n = lines("G20 G0 X1\n#1 = #5041\nG0 Y#1\n", p, 64);

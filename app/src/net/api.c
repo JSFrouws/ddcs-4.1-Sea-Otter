@@ -102,7 +102,7 @@ static void status(http_resp_t *r)
 	double est_t_now = est_now(&est_left);
 	static const char *const OUTN[] = { "-", "OUT1", "OUT2", "OUT3" }, *const AXO[] = { "-", "X", "Y", "Z", "A" };
 	resp_text(r, 200, "application/json",
-		"{\"state\":\"%s\",\"homed\":%s,\"machine\":{\"x\":%s,\"y\":%s,\"z\":%s,\"a\":%s},"
+		"{\"state\":\"%s\",\"moving\":%s,\"homed\":%s,\"machine\":{\"x\":%s,\"y\":%s,\"z\":%s,\"a\":%s},"
 		"\"work\":{\"x\":%s,\"y\":%s,\"z\":%s,\"a\":%s},\"wcs\":\"G%d\",\"program\":{\"name\":\"%s\",\"loaded\":%s,\"lines\":%d,\"line\":%d},"
 		"\"overrides\":{\"feed\":%d,\"rapid\":%d,\"spindle\":%d,\"feedApplied\":%.1f},\"spindle\":{\"on\":%s,\"rpm\":%.0f},\"coolant\":%d,"
 		"\"limit\":{\"axis\":\"%c\",\"dir\":%d},\"limits\":{\"x\":%d,\"y\":%d,\"z\":%d,\"a\":%d},\"armed\":\"%s\",\"remoteStart\":%s,\"countdown\":%d,\"screen\":%d,\"leds\":%u,"
@@ -111,7 +111,7 @@ static void status(http_resp_t *r)
 		"\"perf\":{\"loops\":%u,\"tickUs\":%u,\"tickUsMax\":%u,\"renderUs\":%u,\"renderUsMax\":%u,\"drawUs\":%u,\"presentUs\":%u,\"gapMsMax\":%u,\"motionMs\":%llu,\"lostMs\":%llu,\"replanIters\":%u,\"stalls\":%u},\"tool\":{\"loaded\":%d,\"changeTo\":%d,\"confirm\":%s},\"jobPart\":\"%s\",\"estimate\":{\"seconds\":%.0f,\"remaining\":%s,\"feed\":%d,\"exact\":%s},\"inputs\":%u,\"pendant\":{\"raw\":%u,\"held\":%s,\"axis\":%d,\"mult\":%d,\"estop\":%s,\"wheel\":%d},"
 		"\"drives\":{\"on\":%s,\"enableOut\":\"%s\",\"enableOn\":\"%s\"},\"outputs\":%u,\"axisOutputs\":{\"x\":\"%s\",\"y\":\"%s\",\"z\":\"%s\",\"a\":\"%s\"},\"blockedBursts\":%u,"
 		"\"message\":\"%s\",\"hmiMessage\":%s,\"driverWarning\":\"%s\",\"macro\":\"%s\",\"backend\":\"%s\",\"frame\":%u}",
-		STATE_NAMES[C.m], C.homed ? "true" : "false", pos[0], pos[1], pos[2], pos[3], wp[0], wp[1], wp[2], wp[3], 54 + WD.active,
+		STATE_NAMES[C.m], motion_idle(&C.mo) ? "false" : "true", C.homed ? "true" : "false", pos[0], pos[1], pos[2], pos[3], wp[0], wp[1], wp[2], wp[3], 54 + WD.active,
 		nm, C.prog.loaded ? "true" : "false", C.prog.nlines, ctl_cur_line() + 1,
 		C.mo.feed_ov, rapid_override(C.mo.feed_ov), C.mo.spin_ov, C.mo.applied_pct, C.spindle ? "true" : "false", C.rpm, C.coolant,
 		C.limit_axis >= 0 ? AXIS_CH[C.limit_axis] : '-', C.limit_dir, C.lim_dir[0], C.lim_dir[1], C.lim_dir[2], C.lim_dir[3], (const char *[]){ "run", "tryCut", "simulate" }[C.armed],
@@ -312,9 +312,10 @@ static void get_program(const http_req_t *q, http_resp_t *r, bool lines)
 	json_escape(nm, sizeof nm, C.prog.name); json_escape(er, sizeof er, C.prog.err); json_escape(wn, sizeof wn, C.prog.warn);
 	if (!lines) {
 		jb(&j, "{\"loaded\":%s,\"name\":\"%s\",\"lines\":%d,\"error\":\"%s\",\"warning\":\"%s\",\"estimateS\":%.0f,"
-			"\"box\":{\"min\":[%.3f,%.3f,%.3f],\"max\":[%.3f,%.3f,%.3f]},\"tools\":[",
+			"\"box\":{\"min\":[%.3f,%.3f,%.3f],\"max\":[%.3f,%.3f,%.3f],\"axes\":\"%s%s%s\"},\"tools\":[",
 			C.prog.loaded ? "true" : "false", nm, C.prog.nlines, er, wn, C.prog.est_cum ? C.prog.est_s : -1.0,
-			C.prog.lo[0], C.prog.lo[1], C.prog.lo[2], C.prog.hi[0], C.prog.hi[1], C.prog.hi[2]);
+			C.prog.lo[0], C.prog.lo[1], C.prog.lo[2], C.prog.hi[0], C.prog.hi[1], C.prog.hi[2],
+			C.prog.moved & 1 ? "X" : "", C.prog.moved & 2 ? "Y" : "", C.prog.moved & 4 ? "Z" : "");
 		for (int i = 0; i < C.prog.ntc && i < PROG_MAX_TC; i++) jb(&j, "%s{\"line\":%d,\"tool\":%d}", i ? "," : "", C.prog.tc_line[i] + 1, C.prog.tc_tool[i]);
 		jb(&j, "],\"resumeLine\":%d,\"workDone\":%d,\"macro\":%s}", C.resume_line + 1, C.work_done + 1, C.macro_on ? "true" : "false");
 	} else {

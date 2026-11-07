@@ -44,7 +44,10 @@ void files_render(fb_t *fb)
 	}
 	if (!C.prog.loaded) return;
 	char lo[3][24], hi[3][24];
-	for (int a = 0; a < 3; a++) { fmt_pos(lo[a], sizeof lo[a], C.prog.lo[a]); fmt_pos(hi[a], sizeof hi[a], C.prog.hi[a]); }
+	for (int a = 0; a < 3; a++) {
+		if (!(C.prog.moved >> a & 1)) { snprintf(lo[a], sizeof lo[a], "-"); snprintf(hi[a], sizeof hi[a], "-"); continue; }   /* not programmed */
+		fmt_pos(lo[a], sizeof lo[a], C.prog.lo[a]); fmt_pos(hi[a], sizeof hi[a], C.prog.hi[a]);
+	}
 	if (!C.prog.est_cum) snprintf(b, sizeof b, "%d lines  ·  estimate …", C.prog.nlines);   /* still being worked out */
 	else snprintf(b, sizeof b, "%d lines  ·  estimate %d:%02d:%02d", C.prog.nlines, (int)C.prog.est_s / 3600, (int)C.prog.est_s / 60 % 60, (int)C.prog.est_s % 60);
 	gfx_text(fb, &font_14, px + 12, y, COL_TXT, b);
@@ -54,7 +57,9 @@ void files_render(fb_t *fb)
 	if (C.homed && SET.soft_limits)
 		for (int a = 0; a < 3; a++) {
 			double o = WD.wcs[WD.active].off[a];
-			if (C.prog.lo[a] + o < SET.ax[a].soft_min || C.prog.hi[a] + o > SET.ax[a].soft_max) inside = false;
+			/* every move, rapids too (as the Start check), and only axes the program moves */
+			if (!(C.prog.moved >> a & 1) || C.prog.mlo[a] > C.prog.mhi[a]) continue;
+			if (C.prog.mlo[a] + o < SET.ax[a].soft_min || C.prog.mhi[a] + o > SET.ax[a].soft_max) inside = false;
 		}
 	snprintf(b, sizeof b, C.homed ? (inside ? "Inside the soft limits on G%d" : "OUTSIDE the soft limits on G%d - check the work zero (Start still allowed)")
 		: "Not homed - soft-limit check skipped (G%d)", 54 + WD.active);

@@ -554,6 +554,7 @@ static void target(gc_t *g, const words_t *w, bool g53, double t[NAXES])
 	for (int a = 0; a < NAXES; a++) {
 		t[a] = g->pos[a];
 		if (!axis_word(w, a)) continue;
+		g->named |= (uint8_t)(1 << a);
 		double v = w->v[AXL[a] - 'A'] * unit(g, a);
 		if (g53) t[a] = v;
 		else if (g->absolute) t[a] = v + off(g, a);
@@ -881,9 +882,10 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 			target(g, w, false, t);
 			move(g, t, true, emit);
 			memcpy(g->mid, t, sizeof g->mid); g->mid_set = true;
-			for (int a = 0; a < NAXES; a++) if (axis_word(w, a)) t[a] = SET.ax[a].home_pos;
+			for (int a = 0; a < NAXES; a++) if (axis_word(w, a)) { t[a] = SET.ax[a].home_pos; g->named |= (uint8_t)(1 << a); }
 			move(g, t, true, emit);
 		} else {                                             /* no axis named: Z home first, then the rest */
+			g->named = 0x0F;
 			memcpy(t, g->pos, sizeof t);
 			t[AX_Z] = SET.ax[AX_Z].home_pos;
 			move(g, t, true, emit);
@@ -922,6 +924,7 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 		int reps = w->has[W('K')] ? (int)w->v[W('K')] : w->has[W('L')] ? (int)w->v[W('L')] : 1;
 		if (reps <= 0) return 0;                             /* K0: the data only */
 		if (g->cy_z >= g->cy_r - 1e-9) return fail(g, "G%d: hole bottom Z not below R", g->cycle);
+		g->named |= 1 << AX_Z;
 		target(g, w, false, t);                                 /* only its X/Y are used */
 		double inc[2] = { 0, 0 };
 		if (!g->absolute) { inc[0] = t[AX_X] - g->pos[AX_X]; inc[1] = t[AX_Y] - g->pos[AX_Y]; }

@@ -125,6 +125,7 @@ static const char *program_outside(void)
 			double lo, hi;
 			if (!ctl_axis_range(a, &lo, &hi)) continue;
 			if (C.prog.mlo[a] > C.prog.mhi[a]) continue;          /* no moves */
+			if (!(C.prog.moved >> a & 1) && !(C.armed == ARM_TRYCUT && a == AX_Z)) continue;   /* never moved: its box is only the assumed start */
 			double plo = C.prog.mlo[a] + off[a], phi = C.prog.mhi[a] + off[a];   /* rapids too */
 			if (C.armed == ARM_TRYCUT && a == AX_Z) plo = phi = off[AX_Z] + SET.safe_z;   /* TryCut flies at one Z */
 			if (phi > hi + 1e-6 || plo < lo - 1e-6) {

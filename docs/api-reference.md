@@ -94,6 +94,10 @@ Also served on the same port (not under `/api/v1/`):
 
 ## Machine states
 
+`moving` (status only) is true while anything moves or is queued, jogs and wheel moves
+included: a jog runs in state `IDLE`, so watch `moving` (or `queue`) to know when it has
+finished - `run/start` answers 409 "Wait for the jog to finish" until then.
+
 `state` is one of: `ESTOP`, `OFF` (drives off), `IDLE`, `MOVE` (goto / macro), `HOMING`,
 `PROBING`, `RUN`, `HOLD` (a program on hold, or a paused Goto 0: `run/start` continues either), `LIMIT`, `TOOL` (a program waits at an M6 for a tool change by
 hand: jog and touch-off allowed; `run/start` twice goes back and continues, `run/stop`
@@ -109,7 +113,7 @@ Everything in one snapshot. Poll it (e.g. every 0.5–1 s).
 
 ```json
 {
-  "state": "RUN", "homed": true,
+  "state": "RUN", "moving": true, "homed": true,
   "machine": {"x": 464.2070, "y": 251.9930, "z": -91.2010, "a": -1.0000},
   "work":    {"x": 0.0000,   "y": 114.2900, "z": 5.0000,   "a": -1.0000},
   "wcs": "G54",
@@ -178,9 +182,11 @@ The program files Sea Otter can load: `{"source":"local","dir":"/local","files":
 `local` is the CNCDISK network share (default), `usb` the USB stick. Extensions `.nc .ngc .tap .gcode .txt`.
 
 ### GET `program`
-The loaded program: `{"loaded":true,"name":"part.nc","lines":4928,"error":"","warning":"","estimateS":1260,"box":{"min":[x,y,z],"max":[x,y,z]},"tools":[{"line":3,"tool":1},…],"resumeLine":0,"workDone":812,"macro":false}`.
+The loaded program: `{"loaded":true,"name":"part.nc","lines":4928,"error":"","warning":"","estimateS":1260,"box":{"min":[x,y,z],"max":[x,y,z],"axes":"XYZ"},"tools":[{"line":3,"tool":1},…],"resumeLine":0,"workDone":812,"macro":false}`.
 `estimateS` = the whole program at 100 % feed, margin included (the live figure is `estimate` in `status`).
-`box` = the cutting moves in work coordinates. `tools` = the M6 tool changes (1-based line).
+`box` = the cutting moves in work coordinates; `box.axes` = the axes the program moves
+(e.g. `"XY"`): for an axis not in it the numbers are only the start the load assumed (work
+zero, safe Z) - nothing checks or moves it. `tools` = the M6 tool changes (1-based line).
 `resumeLine` / `workDone` = 0 when there is none.
 
 ### GET `program/lines?from=1&count=50`

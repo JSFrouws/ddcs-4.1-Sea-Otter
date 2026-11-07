@@ -83,6 +83,7 @@ typedef struct {
 	int lvl;                      /* macro (G65) level: which local variables */
 	double loc[GC_DEPTH + 1][33], com[100], keep[500];   /* #1-#33, #100-#199, #500-#999; NAN = vacant */
 	bool emit_now, bad, keep_warned;
+	uint8_t named;                /* bit a: a move of the program sets axis a (the load box shows only those) */
 	bool shift;                   /* any G52 / G92 / tool length offset is non-zero (off() adds them) */
 	char cmt[64];                 /* the block's comment: the message of #3000 / #3006 */
 	char err[112]; int err_line;

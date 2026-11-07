@@ -114,6 +114,9 @@ Every other key works as usual, F2 Pause and F3 Reset included.
    (amber, on the Files page and in the load message). Only codes that would cut something
    different if ignored, or are unsafe, **refuse the load**: the message gives the line and
    the reason. The full list is in **§ 10 Supported G-code**.
+   The Files page then shows the program's box (cutting moves, work coordinates; `-` for an
+   axis the program never moves) and whether **every** move, rapids included, stays inside
+   the soft limits - the same check Start makes.
 
 ### 3.3 Zero the workpiece
 1. Jog to the part's edge (Jog: arrow keys; **F4 Step** picks 0.01 / 0.1 / 1 / 10 mm or
