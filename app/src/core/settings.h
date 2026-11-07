@@ -61,7 +61,7 @@ typedef struct {
 	double tc_return_pct;
 	int gc_dwell_ms;           /* G4 P / cycle P: 0 seconds, 1 milliseconds (Fanuc) */
 	int gc_tlo;                /* G43/G44: 0 ignored (Z touched off per tool), 1 the Tools table length */
-	int gc_cutcomp;            /* G41/G42: 0 refuse the program, 1 ignore (path already compensated in CAM), 2 compensate (default) */
+	int gc_cutcomp;            /* G41/G42: 0 refuse the program, 1 ignore (path already compensated in CAM), 2 compensate; default 0 */
 	bool gc_block_delete;      /* skip blocks that start with / */
 	int job_order;             /* several JOB parts: 0 one tool at a time (all parts per tool), 1 one part at a time */      /* back to the program after the change: % of rapid */
 } settings_t;

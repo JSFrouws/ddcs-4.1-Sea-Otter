@@ -554,7 +554,11 @@ coordinates, in this order: mirror, scale, rotation; drilling cycles follow them
 | G41 Dn / G42 Dn, G40 | cutter radius compensation, tool left / right of the path (*Settings › G-code › G41/G42*; see below) |
 
 **Cutter radius compensation (G41 / G42).** *Settings › G-code › G41/G42*:
-- **Compensate** (default): the path is offset by the tool radius. `D` = the tool number in
+- **Refuse** (default): a program with G41/G42 does not load, and the message names this
+  setting. Choose once, knowing how your CAM posts compensation: many posts write G41/G42
+  with a D word on a path that is already offset (*computer* / *wear*). Compensating such a
+  program by the full tool radius would cut the part a tool radius wrong, without a warning.
+- **Compensate**: the path is offset by the tool radius. `D` = the tool number in
   the Tools table (its diameter / 2); no `D` = the tool in the spindle; `D0` = no offset.
   XY plane (G17) only. Outside corners are rounded with an arc about the programmed corner;
   inside corners end where the two offset paths meet. The first X/Y move after G41/G42 (a
@@ -565,9 +569,8 @@ coordinates, in this order: mirror, scale, rotation; drilling cycles follow them
   not larger than the tool radius, an arc as the first move, a tool with diameter 0, and M6,
   drilling cycles, G28/G30/G53/G92/G10 L20 or a transform change while it is on (G40 first).
   A mirror (G51.1) swaps the side, so the tool stays outside a mirrored outside contour.
-- **Ignore**: for programs posted with compensation *wear* / *in computer*, where the path
+- **Ignore**: for programs posted with compensation *computer* / *wear*, where the path
   already is the tool centre (warns).
-- **Refuse**: such programs do not load.
 
 **Drilling cycles.** G98 goes back to the start height, G99 to R. R, Z, Q and P stay in force
 for the next holes. In G91, R is from the start height and Z from R. `K` or `L` repeats the

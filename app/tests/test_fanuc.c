@@ -267,7 +267,11 @@ void test_fanuc(void)
 	CHECK(failed("G43 H99 Z1\n", "no such tool"));
 	SET.gc_tlo = 0;
 
-	/* --- G41/G42: refused, or ignored on purpose (settings); compensated: below --- */
+	/* --- G41/G42: refused (the default: chosen once by the operator), or ignored on purpose;
+	 * compensated: below --- */
+	settings_t keep = SET; settings_defaults(&SET);
+	CHECK(SET.gc_cutcomp == 0);
+	SET = keep;
 	SET.gc_cutcomp = 0;
 	CHECK(failed("G0 X0\nG41 D1 X5\n", "refused") && g.err_line == 1);
 	SET.gc_cutcomp = 1;

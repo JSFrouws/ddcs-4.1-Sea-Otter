@@ -165,7 +165,10 @@ void settings_defaults(settings_t *s)
 	s->park[0] = 380; s->park[1] = 180; s->park[2] = -5;      /* back corner, Z up (inside the soft limits) */
 	s->tc[0] = 200; s->tc[1] = 20; s->tc[2] = -5;            /* front middle, Z up */
 	s->warm_rpm = 8000; s->warm_s = 120;
-	s->gc_cutcomp = 2;           /* G41/G42 compensate (Fanuc meaning) */
+	/* G41/G42: refuse until the operator chooses (test manager 2026-11-07): many CAM posts write
+	 * G41/G42 + D on a path that is already offset, and compensating by the full table radius
+	 * would then cut a tool radius wrong without a warning */
+	s->gc_cutcomp = 0;
 	s->tc_mode = 0; s->tc_where = 0; s->tc_return_pct = 50;   /* user 2026-10-22: by hand, back at half rapid */
 	s->graceful_stop = true;   /* user 2026-10-18: brake at max deceleration, never lose steps */
 	s->queue_ms = 50;   /* 2026-11-01: the FPGA's block queue, decoded and driven (docs/block-mode.md) */
