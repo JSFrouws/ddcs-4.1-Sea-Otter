@@ -605,7 +605,9 @@ void api_handle(const http_req_t *q, http_resp_t *r)
 		if (can(C_LOAD, &a, SRC_API)) { refuse(r, C_LOAD, &a); return; }
 		act(C_LOAD, &a, SRC_API);
 		char e[200]; json_escape(e, sizeof e, C.load_err);
-		resp_text(r, C.load_ok ? 200 : 400, "application/json", "{\"ok\":%s,\"lines\":%d,\"detail\":\"%s\"}", C.load_ok ? "true" : "false", C.prog.nlines, C.load_ok ? "" : e); return;
+		if (C.load_ok) resp_text(r, 200, "application/json", "{\"ok\":true,\"lines\":%d,\"detail\":\"\"}", C.prog.nlines);
+		else resp_text(r, 400, "application/json", "{\"ok\":false,\"line\":%d,\"detail\":\"%s\"}", C.load_err_line + 1, e);   /* no "lines": the program that stayed loaded is another one */
+		return;
 	}
 	if (!strcmp(p, "run/start")) { run_start(b, r); return; }
 	if (!strcmp(p, "run/pause")) { doit(r, C_PAUSE, NULL); return; }

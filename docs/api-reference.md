@@ -254,7 +254,7 @@ A tool change in a program (M6) is handled as set in *Settings › Tool change*:
 | Method | Path | Body | Does |
 |---|---|---|---|
 | POST | `program/upload?name=part.nc` | the raw G-code text (not JSON) | Saves the file in `/local` (the CNCDISK share) and loads it. 400 with `detail` and `line` if it doesn't parse |
-| POST | `program/load` | `{"name":"part.nc"}` · `{"name":"part.nc","source":"usb"}` | Load a file that is already on the controller (`GET programs` lists them): the CNCDISK share (default) or the USB stick. 404 if the file isn't there, 400 with `detail` if it doesn't parse. 4 s for 64 000 lines; the panel freezes for that time |
+| POST | `program/load` | `{"name":"part.nc"}` · `{"name":"part.nc","source":"usb"}` | Load a file that is already on the controller (`GET programs` lists them): the CNCDISK share (default) or the USB stick. 404 if the file isn't there, 400 `{"ok":false,"line":n,"detail":"…"}` if it doesn't parse (the program loaded before stays loaded). 4 s for 64 000 lines; the panel freezes for that time |
 
 Example upload with curl:
 ```sh
