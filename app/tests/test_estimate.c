@@ -50,8 +50,9 @@ void test_estimate(void)
 		CHECK(C.prog.est_cum != NULL);                      /* ... within a few ticks for a small one */
 		double v = 10, A = SET.ax[AX_X].accel, J = SET.ax[AX_X].jerk, ae = A * v / (v + A * A / J);
 		/* the program first goes from its start (work zero, safe Z) to X0 Z5: 0 mm, then 100 mm */
-		/* the replayed executor: the formula plus a few 10 ms ticks (start, the end event) */
-		CHECK_NEAR(est_span(&C.prog, 0, C.prog.nlines, 100), 100 / v + v / ae + 0.03, 0.02);
+		/* the replayed executor: the formula plus a 10 ms tick or so (start, the end event; the
+		 * stop lands at constant deceleration since 2026-11-07, a little under the formula's) */
+		CHECK_NEAR(est_span(&C.prog, 0, C.prog.nlines, 100), 100 / v + v / ae + 0.01, 0.02);
 		CHECK_NEAR(est_span(&C.prog, 0, C.prog.nlines, 50), 2 * est_span(&C.prog, 0, C.prog.nlines, 100), 0.05);   /* below 100 %: x 1/override */
 		double t200 = est_span(&C.prog, 0, C.prog.nlines, 200), t150 = est_span(&C.prog, 0, C.prog.nlines, 150);
 		double vc = fmin(20, fmin(SET.ax[AX_X].max_speed, CAP_SPS / SET.ax[AX_X].steps_per_mm));   /* 200 % is above the FPGA's sustained rate */

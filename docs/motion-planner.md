@@ -37,7 +37,7 @@ speed at which no axis exceeds that:
 |---|---|
 | X-only line bending 10° towards Y | Y must jump from 0 to v·sin10° → keeps full speed (20 of 20 mm/s) |
 | 90° | X must drop to 0 and Y start → ~3.9 mm/s |
-| reversal | X needs 2·v → comes to a stop, as it physically must |
+| reversal | X needs 2·v → nearly stops (an exact 180° reversal stops; one with a sideways component, like `G0 X-5` then `G1 X5 Y5`, keeps a few mm/s) |
 
 A junction-deviation tolerance (`planner.junction_dev`, default 0.02 mm, 0 = off) adds the
 usual centripetal limit; the lower of the two applies.
@@ -63,7 +63,17 @@ the limits are the tightest of the axes involved, scaled by the direction.
   rounded bottoms (speed eases into the target instead of slamming at full ±A).
 - Braking starts when the jerk-aware stopping distance
   `(v² − ve²)/2A + (v + ve)·A/2J` (plus undoing any acceleration still in progress) reaches the
-  distance left.
+  distance left. From then on (since 2026-11-07) it **lands**: every tick it brakes at exactly
+  `(v² − ve²)/(2 · distance left)` (never above A), so the segment ends at its exit speed ON
+  its end point. The distance is integrated with the tick's average speed (exact for a
+  constant deceleration) and the segment ends in the tick where the speed reaches the exit
+  speed. Before, the jerk-shaped braking curve tapered to zero and was decided once per
+  10 ms tick: it fell below the exit speed, sped up and braked again (hunting on chains of
+  short segments), and a stop came to rest 5–15 µm short and crept up to the end point
+  from a negative acceleration. The last steps of an arc arrived ~80 ms late, as a burst of
+  their own (logic analyzer, 2026-11-07). A landing ends at its deceleration: the last tick
+  steps the remaining speed (≤ A·10 ms, a few mm/s, within the corner jump) to the exit
+  speed.
 - Planning across many segments uses each segment's **effective** acceleration
   `A·v/(v + A²/J)` (the average of a full S-curve speed change), so chains of tiny segments
   aren't charged a full jerk ramp per segment.

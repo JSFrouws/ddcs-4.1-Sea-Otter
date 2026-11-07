@@ -14,6 +14,8 @@ void test_ui(void);
 void test_planner(void);
 void test_estimate(void);
 void test_wcs(void);
+void test_fanuc(void);
+void test_stop_tail(void);
 
 static bus_t *bus;
 
@@ -62,7 +64,9 @@ int main(void)
 {
 	test_fpga();
 	test_gcode();
+	test_fanuc();
 	test_motion();
+	test_stop_tail();
 	test_planner();
 	test_estimate();
 	test_machine();

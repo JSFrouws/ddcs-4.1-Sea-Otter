@@ -170,3 +170,41 @@ void test_motion(void)
 	CHECK(axis_home_level_high(AX_Y) == SET.limit_level_high);
 	SET.ax[AX_Y].home_level_high = SET.limit_level_high; SET.limit_level_per_axis = false;
 }
+
+/* A stop at the end of a path (arc into M0, program end) comes to rest ON the end point: no
+ * block without motion and then a few last steps later (logic analyzer 2026-11-07: the last
+ * 2 steps of an arc came ~80 ms late, as a burst of their own). Checked on the commanded
+ * position per 10 ms block, from several feeds. */
+#include "core/gcode.h"
+void test_stop_tail(void)
+{
+	SUITE("stop tail: a stop lands in one go");
+	static const double feeds[] = { 120, 300, 600, 1200 };
+	int bad = 0, runs = 0;
+	for (size_t f = 0; f < ARRAY_LEN(feeds); f++) {
+		for (int kind = 0; kind < 2; kind++) {
+			fx_reset();
+			motion_t *m = &C.mo;
+			char src[160];
+			if (kind == 0) snprintf(src, sizeof src, "G91 G2 X5 Y-5 I0 J-5 F%g\nM0\n", feeds[f]);
+			else snprintf(src, sizeof src, "G91 G1 X3.3333 Y1.1 F%g\nG1 X-2.5 Y4.75\nM0\n", feeds[f]);
+			gc_t g; gc_op_t op;
+			gc_begin(&g, src, strlen(src), m->pos);
+			while (gc_next(&g, &op) > 0) if (op.kind == OP_LINE) motion_push(m, &op);
+			double last[NAXES]; memcpy(last, m->pos, sizeof last);
+			bool rested = false;
+			for (int i = 0; i < 2000 && !motion_idle(m); i++) {
+				fx_run(10);
+				double d = 0;
+				for (int a = 0; a < NAXES; a++) d += fabs(m->pos[a] - last[a]);
+				if (d < 1e-12 && i > 2) rested = true;
+				else if (d > 0 && rested) { bad++; printf("  feed %g kind %d: moved %.4f mm after resting\n", feeds[f], kind, d); break; }
+				memcpy(last, m->pos, sizeof last);
+			}
+			runs++;
+			CHECK_NEAR(m->pos[0], g.pos[0], 1e-9); CHECK_NEAR(m->pos[1], g.pos[1], 1e-9);
+		}
+	}
+	CHECK(bad == 0);
+	printf("  %d stops, %d with a late tail\n", runs, bad);
+}

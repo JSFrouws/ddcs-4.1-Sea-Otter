@@ -478,6 +478,10 @@ void test_machine(void)
 	/* --- soft limits after homing: a jog past the limit stops exactly AT it (the planner
 	 * brakes into the endpoint), the next one that way is refused --- */
 	SET.soft_limits = true;                          /* off by default since 2026-11-02 */
+	/* the soft limit 0.5 mm clear of the simulated switch (which sits ~0.02 mm inside 0): a stop
+	 * that lands exactly on 0 brushed the switch on its last micrometres (2026-11-07) */
+	double smin = SET.ax[AX_X].soft_min;
+	SET.ax[AX_X].soft_min = smin + 0.5;
 	arg_t sj = J(AX_X, -1, 55);
 	CHECK(can(C_JOG, &sj, SRC_PANEL) == NULL);      /* 50 - 55 = -5 < soft min 0: clamped, not refused */
 	CHECK(act(C_JOG, &sj, SRC_PANEL));
@@ -488,6 +492,7 @@ void test_machine(void)
 	CHECK(act(C_JOG, &back10, SRC_PANEL));
 	fx_until_idle(20000);
 	CHECK_NEAR(C.mo.pos[AX_X], SET.ax[AX_X].soft_min + 10, 1e-6);
+	SET.ax[AX_X].soft_min = smin;
 
 	/* --- config files: replaced in one step (never half-written by a power cut), and not
 	 * rewritten at all when nothing changed (flash wear) --- */

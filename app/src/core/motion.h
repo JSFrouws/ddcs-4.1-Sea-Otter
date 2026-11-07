@@ -44,6 +44,7 @@ typedef struct {
 	bool active; gc_op_t op;
 	double start[NAXES], u[NAXES], len, s, v, vmax, acc;
 	double dwell_left;
+	bool landing;                /* braking to a stop at the end of this segment (lands exactly on it) */
 	/* control */
 	bool hold, stopping;
 	bool dry;                    /* simulate: positions advance, nothing reaches the FPGA */

@@ -335,7 +335,7 @@ static bool next_op(motion_t *m)
 			m->qdist -= p.len;
 			if (m->qdist < 0) m->qdist = 0;
 			memcpy(m->start, m->pos, sizeof m->start);
-			m->cur = p; m->op = op; m->s = 0; m->active = true;
+			m->cur = p; m->op = op; m->s = 0; m->active = true; m->landing = false;
 			memcpy(m->u, p.u, sizeof m->u); m->len = p.len; m->vmax = p.vnom; m->acc = p.acc;
 			if (m->v > p.ve + 1e-9) m->v = p.ve;      /* the corner limit (an allowed instant change) */
 			return true;
@@ -361,7 +361,7 @@ static void scurve(motion_t *m, double want, double dt)
 	double dj = m->cur.jerk * dt;
 	if (m->a < want) m->a = fmin(want, m->a + dj); else m->a = fmax(want, m->a - dj);
 	m->v += m->a * dt;
-	if (m->v < 0) m->v = 0;
+	if (m->v < 0) { m->v = 0; if (m->a < 0) m->a = 0; }   /* at rest nothing decelerates any more */
 }
 
 static bool jog_coasting(const motion_t *m)
@@ -391,8 +391,20 @@ static void run_lines(motion_t *m, double dt)
 		double rem = c->len - m->s;
 		double A = c->acc, J = c->jerk;
 		double want;
-		if (!halt && m->v > vexit && rem - m->v * budget <= brake_dist(m->v, vexit, A, J, m->a))
-			want = -fmin(A, sqrt(2 * J * (m->v - vexit)));                              /* brake for what's coming */
+		/* Braking for the end of the segment (2026-11-07): once it has begun it continues at
+		 * exactly the deceleration that reaches the exit speed ON the end point ("landing").
+		 * Before, a jerk-shaped profile started on brake_dist - decided once per block, so up to
+		 * a block early - and tapered to zero: it fell below the exit speed, accelerated again
+		 * and braked again (hunting, slow chains of short segments), and at a stop it came to
+		 * rest 5-15 µm short and crept up to the end from a negative acceleration - the last
+		 * steps of an arc came ~80 ms late, as a burst of their own (logic analyzer). */
+		double v0 = m->v;
+		bool brake = !halt && m->v > vexit && (m->landing || rem - m->v * budget <= brake_dist(m->v, vexit, A, J, m->a));
+		if (!brake) m->landing = false;           /* hold, or the exit speed was raised (replan): not landing */
+		if (brake) {
+			if (rem > 1e-9) { m->landing = true; want = -fmin(A, (m->v * m->v - vexit * vexit) / (2 * rem)); }
+			else want = -fmin(A, sqrt(2 * J * (m->v - vexit)));                          /* brake for what's coming */
+		}
 		else if (m->v < vt - 1e-6) want = fmin(A, sqrt(2 * J * (vt - m->v)));                      /* rounded top */
 		else if (m->v > vt + 1e-6) want = -fmin(A, sqrt(2 * J * (m->v - vt)));                    /* hold / override lowered */
 		else want = 0;
@@ -401,6 +413,21 @@ static void run_lines(motion_t *m, double dt)
 		if (m->v < 1e-4 && (halt || vt < 1e-4)) {
 			m->v = 0; m->a = 0;
 			if (m->stopping) { m->active = false; m->stopping = false; m->hold = false; flush_queue(m); memcpy(m->plan_end, m->pos, sizeof m->plan_end); }
+			break;
+		}
+		/* landing: the distance at the block's average speed (exact for the constant
+		 * deceleration); it ends in the block where the speed reaches the exit speed */
+		if (m->landing) {
+			double dl = 0.5 * (v0 + m->v) * budget;
+			if (dl >= rem || (m->v <= vexit + 1e-9 && rem - dl <= 0.5 * A * budget * budget)) {
+				budget -= v0 + m->v > 1e-12 ? fmin(budget, 2 * rem / (v0 + m->v)) : budget;
+				m->s = c->len; memcpy(m->pos, m->op.end, sizeof m->pos);
+				m->active = false; m->v = vexit; m->a = 0;
+				continue;
+			}
+			m->s += dl; budget = 0;
+			for (int a = 0; a < NAXES; a++) m->pos[a] = m->start[a] + c->u[a] * m->s;
+			if (m->v <= vexit + 1e-9) m->landing = false;
 			break;
 		}
 		if (m->v < 1e-6) { budget = 0; break; }     /* still ramping the acceleration up from rest */
