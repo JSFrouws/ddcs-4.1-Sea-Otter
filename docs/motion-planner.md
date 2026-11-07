@@ -71,9 +71,21 @@ the limits are the tightest of the axes involved, scaled by the direction.
   10 ms tick: it fell below the exit speed, sped up and braked again (hunting on chains of
   short segments), and a stop came to rest 5–15 µm short and crept up to the end point
   from a negative acceleration. The last steps of an arc arrived ~80 ms late, as a burst of
-  their own (logic analyzer, 2026-11-07). A landing ends at its deceleration: the last tick
-  steps the remaining speed (≤ A·10 ms, a few mm/s, within the corner jump) to the exit
-  speed.
+  their own (logic analyzer, 2026-11-07). The first landing (build local-22) ended too
+  hard when braking began late: a short move still accelerating, or a soft jerk, finished
+  its last block at 2.5–9 mm/s and then nothing (test manager). Since then:
+  - the braking decision is made **one block ahead**, from the speed and acceleration the
+    axis will have after this block (starting early only brakes more gently);
+  - `brake_dist` counts undoing an acceleration in progress exactly (the speed still rises
+    by a²/2J while it unwinds);
+  - the landing deceleration allows for its own jerk ramp: d is chosen so that ramping the
+    acceleration to −d at jerk J and then holding it ends exactly on the point;
+  - a landing into the next segment (arc chords) keeps its deceleration; only a stop sets it
+    to 0.
+  `test_stop_tail` covers arcs, lines, a corner path and a 0.2 mm move at A 100/300 mm/s²,
+  J 10 000/2 000, F120–F1200: no block-to-block speed step over 1.5·A·10 ms, the last block
+  before rest at most ~0.2·A·10 ms, no late tail. The acceleration jumps to 0 at rest (as
+  in every trapezoid stop); the jerk limit holds everywhere else.
 - Planning across many segments uses each segment's **effective** acceleration
   `A·v/(v + A²/J)` (the average of a full S-curve speed change), so chains of tiny segments
   aren't charged a full jerk ramp per segment.

@@ -72,10 +72,17 @@ static double reach(double v0, double a, double L) { return sqrt(v0 * v0 + 2 * a
 
 static double brake_dist(double v, double ve, double a, double j, double acur)
 {
-	if (v <= ve) return 0;
-	double d = (v * v - ve * ve) / (2 * a) + (v + ve) * a / (2 * j);
-	if (acur > 0) d += v * acur / j;          /* first undo the acceleration still in progress */
-	return d;
+	/* first undo the acceleration still in progress: it takes acur/j, and the speed still
+	 * rises by acur²/2j meanwhile (2026-11-07: "+ v acur/j" alone under-counted that, so a short
+	 * move still accelerating started braking late and could not stop in time) */
+	double d0 = 0;
+	if (acur > 0) {
+		double t = acur / j;
+		d0 = v * t + 0.5 * acur * t * t - j * t * t * t / 6;
+		v += acur * acur / (2 * j);
+	}
+	if (v <= ve) return d0;
+	return d0 + (v * v - ve * ve) / (2 * a) + (v + ve) * a / (2 * j);
 }
 
 /* ---- segment geometry: speed, acceleration and jerk limited per axis ---- */
@@ -370,6 +377,24 @@ static bool jog_coasting(const motion_t *m)
 	return false;
 }
 
+/* The deceleration d that lands on ve exactly at the end of rem when the acceleration first
+ * ramps from a to -d at jerk J and then holds: constant-deceleration (v² - ve²)/(2 rem) would
+ * ignore the ramp, fall behind with a soft jerk and arrive too fast (test manager, J 2000). */
+static double land_decel(double v, double a, double ve, double rem, double J)
+{
+	double d = (v * v - ve * ve) / (2 * rem);
+	for (int it = 0; it < 4; it++) {
+		double t = (a + d) / J;                     /* ramp time from a down to -d */
+		if (t <= 0) break;
+		double vr = v + a * t - 0.5 * J * t * t, dr = v * t + 0.5 * a * t * t - J * t * t * t / 6;
+		if (vr <= ve || dr >= rem) break;           /* the ramp alone gets there: take the plain value */
+		double nd = (vr * vr - ve * ve) / (2 * (rem - dr));
+		if (fabs(nd - d) < 1e-6 * d) { d = nd; break; }
+		d = nd;
+	}
+	return d;
+}
+
 static void run_lines(motion_t *m, double dt)
 {
 	if (m->feed_ov != m->last_ov) { m->last_ov = m->feed_ov; if (m->qn) m->replan_from = 0; }
@@ -398,11 +423,17 @@ static void run_lines(motion_t *m, double dt)
 		 * and braked again (hunting, slow chains of short segments), and at a stop it came to
 		 * rest 5-15 µm short and crept up to the end from a negative acceleration - the last
 		 * steps of an arc came ~80 ms late, as a burst of their own (logic analyzer). */
+		/* Decided one block ahead: from the speed and acceleration it will have after this block
+		 * if it does not brake now. A landing that starts early only brakes more gently; one
+		 * that starts late cannot stop in time - a short move still accelerating needed more
+		 * than A and ended with its last block at 2.5-9 mm/s and then nothing (test manager,
+		 * local-22, 2026-11-07). */
 		double v0 = m->v;
-		bool brake = !halt && m->v > vexit && (m->landing || rem - m->v * budget <= brake_dist(m->v, vexit, A, J, m->a));
+		double an = fmin(A, fmax(m->a, 0) + J * budget), vn = fmin(fmax(vt, m->v), m->v + an * budget);
+		bool brake = !halt && m->v > vexit && (m->landing || rem - (m->v + vn) * budget <= brake_dist(vn, vexit, A, J, an));
 		if (!brake) m->landing = false;           /* hold, or the exit speed was raised (replan): not landing */
 		if (brake) {
-			if (rem > 1e-9) { m->landing = true; want = -fmin(A, (m->v * m->v - vexit * vexit) / (2 * rem)); }
+			if (rem > 1e-9) { m->landing = true; want = -fmin(A, land_decel(m->v, m->a, vexit, rem, J)); }
 			else want = -fmin(A, sqrt(2 * J * (m->v - vexit)));                          /* brake for what's coming */
 		}
 		else if (m->v < vt - 1e-6) want = fmin(A, sqrt(2 * J * (vt - m->v)));                      /* rounded top */
@@ -422,7 +453,11 @@ static void run_lines(motion_t *m, double dt)
 			if (dl >= rem || (m->v <= vexit + 1e-9 && rem - dl <= 0.5 * A * budget * budget)) {
 				budget -= v0 + m->v > 1e-12 ? fmin(budget, 2 * rem / (v0 + m->v)) : budget;
 				m->s = c->len; memcpy(m->pos, m->op.end, sizeof m->pos);
-				m->active = false; m->v = vexit; m->a = 0;
+				/* into a stop: at rest; into the next segment (arc chords): the deceleration goes
+				 * on - zeroing it made every chord ramp it up again at jerk J and, with a soft jerk,
+				 * the arc reached its stop too fast */
+				m->active = false; m->v = vexit;
+				if (vexit < 1e-9) m->a = 0;
 				continue;
 			}
 			m->s += dl; budget = 0;

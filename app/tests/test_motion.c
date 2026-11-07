@@ -171,40 +171,75 @@ void test_motion(void)
 	SET.ax[AX_Y].home_level_high = SET.limit_level_high; SET.limit_level_per_axis = false;
 }
 
-/* A stop at the end of a path (arc into M0, program end) comes to rest ON the end point: no
- * block without motion and then a few last steps later (logic analyzer 2026-11-07: the last
- * 2 steps of an arc came ~80 ms late, as a burst of their own). Checked on the commanded
- * position per 10 ms block, from several feeds. */
+/* A stop at the end of a path (arc or line into M0 / a dwell / program end) lands ON the end
+ * point and comes down to rest with the axes' acceleration: no block without motion and then
+ * a few last steps later (logic analyzer 2026-11-07: the last 2 steps of an arc came ~80 ms
+ * late, as a burst of their own), and no last block still at several mm/s followed by
+ * nothing (test manager, local-22: a short move still accelerating ended at 2.5-9 mm/s -> 0
+ * in one block). Checked on the commanded position per 10 ms block: the path speed changes
+ * by at most ~A x 10 ms from one block to the next, also into the stop (a corner may turn
+ * the direction at once - the corner jump - so the two-line path counts from its last
+ * segment). At A = 100 (the machine's) and the default 300 mm/s², jerk 10 000 (default) and
+ * 2 000, feeds 120 to 1200 mm/min; arcs, lines, a 0.2 mm move that never reaches its feed. */
 #include "core/gcode.h"
 void test_stop_tail(void)
 {
-	SUITE("stop tail: a stop lands in one go");
-	static const double feeds[] = { 120, 300, 600, 1200 };
-	int bad = 0, runs = 0;
-	for (size_t f = 0; f < ARRAY_LEN(feeds); f++) {
-		for (int kind = 0; kind < 2; kind++) {
-			fx_reset();
-			motion_t *m = &C.mo;
-			char src[160];
-			if (kind == 0) snprintf(src, sizeof src, "G91 G2 X5 Y-5 I0 J-5 F%g\nM0\n", feeds[f]);
-			else snprintf(src, sizeof src, "G91 G1 X3.3333 Y1.1 F%g\nG1 X-2.5 Y4.75\nM0\n", feeds[f]);
-			gc_t g; gc_op_t op;
-			gc_begin(&g, src, strlen(src), m->pos);
-			while (gc_next(&g, &op) > 0) if (op.kind == OP_LINE) motion_push(m, &op);
-			double last[NAXES]; memcpy(last, m->pos, sizeof last);
-			bool rested = false;
-			for (int i = 0; i < 2000 && !motion_idle(m); i++) {
-				fx_run(10);
-				double d = 0;
-				for (int a = 0; a < NAXES; a++) d += fabs(m->pos[a] - last[a]);
-				if (d < 1e-12 && i > 2) rested = true;
-				else if (d > 0 && rested) { bad++; printf("  feed %g kind %d: moved %.4f mm after resting\n", feeds[f], kind, d); break; }
-				memcpy(last, m->pos, sizeof last);
-			}
-			runs++;
-			CHECK_NEAR(m->pos[0], g.pos[0], 1e-9); CHECK_NEAR(m->pos[1], g.pos[1], 1e-9);
+	SUITE("stop tail: a stop lands in one go, at the axes' deceleration");
+	static const double feeds[] = { 120, 300, 600, 900, 1200 }, accels[] = { 100, 300 }, jerks[] = { 10000, 2000 };
+	static const char *const kinds[] = { "G91 G2 X5 Y-5 I0 J-5 F%g\nG4 P0.3\n", "G91 G3 X-5 Y5 I-5 J0 F%g\nG4 P0.3\n",
+		"G91 G1 X3 F%g\nG4 P0.3\n", "G91 G1 X3.3333 Y1.1 F%g\nG1 X-2.5 Y4.75\nM0\n", "G91 G1 X0.2 F%g\nM0\n" };
+	int tails = 0, hard = 0, runs = 0;
+	double worst = 0, worst_end = 0;
+	for (size_t jk = 0; jk < ARRAY_LEN(jerks); jk++)
+	for (size_t ac = 0; ac < ARRAY_LEN(accels); ac++)
+	for (size_t f = 0; f < ARRAY_LEN(feeds); f++)
+	for (size_t k = 0; k < ARRAY_LEN(kinds); k++) {
+		fx_reset();
+		for (int a = 0; a < NAXES; a++) { SET.ax[a].accel = accels[ac]; SET.ax[a].jerk = jerks[jk]; }
+		motion_t *m = &C.mo;
+		char src[160];
+		snprintf(src, sizeof src, kinds[k], feeds[f]);
+		gc_t g; gc_op_t op;
+		gc_begin(&g, src, strlen(src), m->pos);
+		while (gc_next(&g, &op) > 0) if (op.kind == OP_LINE || op.kind == OP_DWELL) motion_push(m, &op);
+		static double vs[3000];
+		double last[NAXES], vl = 0;
+		int nv = 0;
+		memcpy(last, m->pos, sizeof last);
+		bool rested = false, moved = false;
+		int fin = 0;
+		double dvmax = 0, lim = accels[ac] * 0.010;      /* mm/s per block */
+		for (int i = 0; i < 3000 && !motion_idle(m); i++) {
+			fx_run(10);
+			double d = 0, d2 = 0;
+			for (int a = 0; a < NAXES; a++) { d += fabs(m->pos[a] - last[a]); d2 += (m->pos[a] - last[a]) * (m->pos[a] - last[a]); }
+			double v = sqrt(d2) / 0.010;
+			if (d < 1e-12 && moved) rested = true;
+			else if (d > 0 && rested) { tails++; printf("  J %g A %g F%g kind %zu: moved %.4f mm after resting\n", jerks[jk], accels[ac], feeds[f], k, d); break; }
+			if (d > 0) moved = true;
+			bool last_seg = k != 3 || !m->active || fabs(m->op.end[0] - g.pos[0]) + fabs(m->op.end[1] - g.pos[1]) < 1e-9;
+			fin = last_seg ? fin + 1 : 0;              /* blocks into the last segment: the first two straddle the corner */
+			if (moved && last_seg && (k != 3 || fin > 2)) dvmax = fmax(dvmax, fabs(v - vl));
+			vl = v;
+			if (moved && !rested && nv < 3000) vs[nv++] = v;
+			memcpy(last, m->pos, sizeof last);
 		}
+		if (!rested) dvmax = fmax(dvmax, vl);           /* idle right after the last block: that speed drops to 0 */
+		/* the last block that moved: its speed is what drops to 0 at once */
+		for (int i = nv - 1; i >= 0; i--) if (vs[i] > 0) { worst_end = fmax(worst_end, vs[i] / lim); break; }
+		runs++;
+		worst = fmax(worst, dvmax / lim);
+		if (dvmax > lim * 1.5) {
+			hard++;
+			printf("  J %g A %g F%g kind %zu: speed step %.2f mm/s in one block (A x 10 ms = %.2f)\n   v:", jerks[jk], accels[ac], feeds[f], k, dvmax, lim);
+			for (int i = nv > 30 ? nv - 30 : 0; i < nv; i++) printf(" %.2f", vs[i]);
+			printf("\n");
+		}
+		CHECK_NEAR(m->pos[0], g.pos[0], 1e-9); CHECK_NEAR(m->pos[1], g.pos[1], 1e-9);
 	}
-	CHECK(bad == 0);
-	printf("  %d stops, %d with a late tail\n", runs, bad);
+	CHECK(tails == 0);
+	CHECK(hard == 0);
+	CHECK(worst_end <= 1.5);                            /* the last block before rest: at most ~A x 10 ms */
+	printf("  %d stops: %d with a late tail, %d with a speed step over 1.5 x A x 10 ms (worst %.2f x; last block before rest at most %.2f x A x 10 ms)\n",
+		runs, tails, hard, worst, worst_end);
 }
