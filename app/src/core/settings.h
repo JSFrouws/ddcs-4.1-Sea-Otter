@@ -59,6 +59,10 @@ typedef struct {
 	int tc_mode;               /* M6: 0 pause + change by hand, 1 tool-change macro, 2 ignore */
 	int tc_where;              /* by hand: 0 Z up to safe height where it is, 1 the tool-change position */
 	double tc_return_pct;
+	int gc_dwell_ms;           /* G4 P / cycle P: 0 seconds, 1 milliseconds (Fanuc) */
+	int gc_tlo;                /* G43/G44: 0 ignored (Z touched off per tool), 1 the Tools table length */
+	int gc_cutcomp;            /* G41/G42: 0 refuse the program, 1 ignore (path already compensated in CAM) */
+	bool gc_block_delete;      /* skip blocks that start with / */
 	int job_order;             /* several JOB parts: 0 one tool at a time (all parts per tool), 1 one part at a time */      /* back to the program after the change: % of rapid */
 } settings_t;
 

@@ -37,8 +37,8 @@ typedef struct {
 	 * start a block, like CAM operation names) or, without those, every retract to the
 	 * safe height it uses most (the highest Z that occurs often) */
 	int *goto_line; int ngoto; bool goto_sections; float goto_z;
-	char err[128]; int err_line;
-	char warn[128];
+	char err[136]; int err_line;
+	char warn[256];
 	bool loaded;
 } program_t;
 

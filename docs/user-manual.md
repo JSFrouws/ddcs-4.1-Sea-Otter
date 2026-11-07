@@ -108,13 +108,12 @@ Every other key works as usual, F2 Pause and F3 Reset included.
 ### 3.2 Load a program
 1. **Page R** → Files. **F3** switches Local / USB. **Y±** picks a file. Only `.nc`,
    `.ngc`, `.tap`, `.gcode` and `.txt` are listed; **F5 All files** shows everything.
-2. **F1 Load** (or Select). The whole file is checked first; an unsupported code is
-   reported with its line number and the file is not loaded.
-   Supported: G0–G3 (also in the G17/G18/G19 planes), G4, G10 L2/L20, G20/G21, G28, G53,
-   G54–G59, drilling cycles G73/G81/G82/G83/G85/G89 with G80 and G98/G99, G90/G91, G94,
-   M0/M1, M3/M4/M5, M6 (pause for a tool change), M7/M8/M9, M10/M11, M30. G40/G49/G61/G64
-   are accepted. G43 is accepted but ignored (no tool length compensation). G41/G42
-   (cutter compensation) and G84 (tapping) are refused.
+2. **F1 Load** (or Select). The whole file is checked first. The dialect is Fanuc-style
+   (most LinuxCNC and Grbl programs read the same), with subprograms, macro variables and
+   loops. Codes that change nothing on this machine are **accepted with a warning**
+   (amber, on the Files page and in the load message). Only codes that would cut something
+   different if ignored, or are unsafe, **refuse the load**: the message gives the line and
+   the reason. The full list is in **§ 10 Supported G-code**.
 
 ### 3.3 Zero the workpiece
 1. Jog to the part's edge (Jog: arrow keys; **F4 Step** picks 0.01 / 0.1 / 1 / 10 mm or
@@ -417,6 +416,7 @@ the pendant alone can do everything.
 - **F2** restores this machine's original values. **F4** exports the settings to USB.
 
 Useful ones: *Display › Default toolpath view* (2D / ISO / G-code view) ·
+*G-code* (§ 10: G4 P in seconds or ms, G43 tool length, G41/G42, block delete) ·
 *Jog & touch-off › Safe Z* · *Homing & limits › Controlled stop* ·
 *API* (below) · *Pendant › Reverse wheel direction* ·
 *Tool change* (§ 3.7: by hand / macro / ignore, where, return speed).
@@ -481,9 +481,118 @@ The controller serves a browser panel and the API on port 8080
 [api-reference.md](api-reference.md). What the network may do is set in *Settings › API*
 (§ 6). A remote start, once allowed, counts down on the panel first, and Reset cancels it.
 
-## 9. Known limits (2026-11-03)
+## 9. Known limits (2026-11-07)
 - Not yet tested with a probe (probing is not configured).
 - Loading a very large file (64 000 lines) takes ~4 s, and the panel freezes for that time.
-- G84 tapping and tool length compensation (G43) are not supported.
-- `G28` without axis words sends all axes to machine zero **together**, not Z first, as
-  written in the program. Check CAM output before the first real run.
+- Not supported (the program is refused): tapping (G84/G74), cutter radius compensation
+  (G41/G42, unless set to *ignore*), probing (G31/G38), rotation, scaling, polar
+  coordinates. See § 10.
+- The position readout shows G54–G59 coordinates; a G92 / G52 shift made by a running
+  program is not added to it.
+
+## 10. Supported G-code
+Fanuc-style. Programs from CAM posts for Fanuc, Haas, LinuxCNC, Mach3 and Grbl load as they
+are. **Accepted** = does what it says. **Warns** = accepted and ignored, listed in the load
+warning (each different one once). **Refused** = the program does not load, and the message
+says why. An unknown G code refuses; an unknown M code warns.
+
+**Program structure**
+
+| Code | Here |
+|---|---|
+| `%` | the first one is ignored; the closing one ends the program (nothing after it runs) |
+| `O1234` / `:1234` | program number. A second O-number in the main flow ends the main program (warns) |
+| `N10` | sequence number (a GOTO / M97 / M99 P target) |
+| `( … )` `;` | comments |
+| `/` at the start of a line | block delete: skipped when *Settings › G-code › Block delete* is on, else it runs |
+| upper / lower case, `G01` = `G1`, `X1.` = `X1` | accepted. Numbers are mm (inch with G20), also without a decimal point |
+
+**Motion and modes**
+
+| Code | Here |
+|---|---|
+| G0, G1, G2, G3 | rapid, line, arcs (I J K or R; G17/G18/G19 planes; helix with the third axis) |
+| G4 | dwell: `X` in seconds, or `P` in seconds or milliseconds (*Settings › G-code › G4 P*; a P of 100 s or more warns) |
+| G9, G61 / G64 | exact stop for one block / for every block (the machine stops at the end of each move); G64 back to blending |
+| G17 G18 G19 | arc plane |
+| G20 G21 | inch / mm |
+| G90 G91 | absolute / incremental |
+| G90.1 G91.1 | arc centre I J K absolute / incremental (default) |
+| G93 G94 G95 | feed: inverse time (F on every feed move), mm/min, mm/rev (× the programmed S) |
+| G53 | machine coordinates for this block (rapid) |
+| G27 | moves to the point (warns: the position is not checked) |
+| G28, G30 | via the named point (in the current G90/G91) to the home position of the named axes. Without axis words: Z home first, then X Y A. G30 uses the home position too (warns) |
+| G29 | from home via the G28 point to the named point |
+| G28.1, G30.1 | warn (G28/G30 always go to the home position) |
+| G5 P…, G5.1 Q…, G8 P…, G187 | high-precision / smoothing modes: warn |
+| G60, G61.1, G62, G63 | warn |
+| G15, G40, G49, G50, G50.1, G67, G69, G80, G97 | cancel codes: accepted |
+
+**Offsets and tools**
+
+| Code | Here |
+|---|---|
+| G54–G59 | work offsets (Work page) |
+| G10 L2 Pn / L20 Pn | set work offset n. L2: the value (with G91 it adds); L20: so the current position reads the value. Changes the Work page only when the program really runs |
+| G10 L1 / L10 / L12 Pn | tool table: L1 Z = length, R = radius; L10 R = length; L12 R = radius. L11/L13 (wear) warn |
+| G52 X Y Z | local shift on top of G54–G59; `G52 X0 Y0 Z0` cancels |
+| G92 / G92.1 / G92.2 / G92.3 | shift so the position reads the values / cancel and forget / cancel (kept for G92.3) / restore. Only inside the program: never kept for the next run |
+| G43 Hn / G44 / G49 | *Settings › G-code › G43*: **Ignore** (default: you touch off Z for every tool; warns) or **Apply** the Tools table length (G43 adds it, G44 subtracts it; no H = the tool of the last T) |
+| G40 | accepted |
+| G41 / G42 | *Settings › G-code › G41/G42*: **Refuse** (default), or **Ignore**: only for programs posted with compensation *wear* / *in computer*, where the path already is the tool centre |
+
+**Drilling cycles.** G98 goes back to the start height, G99 to R. R, Z, Q and P stay in force
+for the next holes. In G91, R is from the start height and Z from R. `K` or `L` repeats the
+hole, shifted by X/Y each time in G91. K0 stores the data only. G80 cancels.
+
+| Code | Here |
+|---|---|
+| G81 / G82 | drill / drill + dwell P at the bottom |
+| G83 / G73 | peck by Q, back to R after each peck / chip break, back off 0.25 mm |
+| G85 / G89 | bore, feed out / + dwell |
+| G86 | bore; the spindle stops at the bottom, rapid out, spindle on again |
+| G76 | fine bore: no spindle orientation here, so dwell and feed out like G89 (warns) |
+| G74, G84 | **refused**: tapping needs a spindle synchronised to the feed |
+| G87, G88 | **refused**: back boring needs spindle orientation; G88 needs a manual retract |
+
+**M codes**
+
+| Code | Here |
+|---|---|
+| M0, M1, M60 | stop (M1 only with optional stop on); Start continues |
+| M2, M30 | end of program |
+| M3, M4, M5 | spindle CW / CCW / off |
+| M6 | tool change (*Settings › Tool change*) |
+| M7, M8, M9, M10, M11 | mist, flood, off, aux on / off |
+| M98 P1000 L3 | call subprogram O1000 (in the same file, after the main program's M30) 3 times. `M98 P31000` = O1000 three times |
+| M99 | return. `M99 P50` returns to N50 of the caller. In the main program it ends it (warns; no endless repeat) |
+| M97 P100 | call block N100 of this program as a subroutine (up to its M99) |
+| others (M19, M48, M49 …) | warn, ignored |
+
+**Macro B**
+
+| Feature | Here |
+|---|---|
+| `#1`–`#33` local, `#100`–`#199` and `#500`–`#999` common | `#500` and up start vacant every run (not kept between runs; warns) |
+| `#1 = [#2 + 3] * SIN[30]` | `+ − * /` MOD, AND OR XOR, EQ NE GT GE LT LE, `[ ]`; SIN COS TAN ASIN ACOS ATAN (also `ATAN[a]/[b]`) SQRT ABS ROUND FIX FUP LN EXP POW BIN BCD (degrees) |
+| `X#24`, `X-#1`, `X[#1+2]` | a vacant variable leaves the word out |
+| `IF [cond] GOTO n`, `IF [cond] THEN #1 = …`, `GOTO n` | |
+| `WHILE [cond] DO1` … `END1` | DO1–DO3, nested |
+| `G65 P9010 A1 B2 X3` | macro call with arguments (A→#1, B→#2, X→#24 …, its own locals), `L` repeats |
+| `#5001`–`#5004`, `#5021`–`#5024`, `#5041`–`#5044` | position: block end (work), machine, work |
+| `#5221`… (G54 X), `#5241`… (G55) … | work offsets: read, and write like G10 L2 |
+| `#4001`–`#4120` | modal state (G group codes, F, S, T, N, O) |
+| `#2001`–`#2012` | tool lengths |
+| `#3000 = n (TEXT)` | alarm: stops the load / run with TEXT |
+| `#3006 = 1 (TEXT)` | stop like M0, TEXT in the warnings |
+| I/O (`#1000` …) and anything else | refused |
+
+A program that jumps (M98, M97, G65, GOTO, WHILE) runs its lines out of order. **Resume
+from line** goes to the first time the program reaches that line, and a multi-part job then
+cuts the whole program per part (not per tool). More than 1 000 000 jumps in one run count
+as an endless loop and stop it.
+
+**Refused** (would cut wrong or be unsafe if ignored): G41/G42 (unless set to ignore),
+G12/G13 circle pockets, G16 polar, G31/G38.x probing, G32/G33 threading, G51 scaling, G51.1
+mirror, G54.1 / G59.1–G59.3 (only G54–G59 exist), G66, G68 rotation, G74/G84 tapping,
+G87/G88, G96 constant surface speed, G5 spline, G7/G7.1, LinuxCNC o-word subroutines.

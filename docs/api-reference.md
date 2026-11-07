@@ -381,6 +381,10 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `planner.lookahead` | Axes | Planner lookahead (segments) |  | whole number, 4 to 400 | yes |
 | `planner.junction_dev` | Axes | Corner tolerance | mm | number, 0 to 1 | yes |
 | `gcode.default_feed` | Jog & touch-off | Feed when a program sets none | mm/min | number, 1 to 20000 | yes |
+| `gcode.dwell_p` | G-code | G4 P / drilling cycle P in: `Seconds (G4 P1.5 = 1.5 s)` / `Milliseconds (Fanuc: G4 P1500 = 1.5 s)` |  | choice index 0 to 1, or the name (default 0) | yes |
+| `gcode.tool_length` | G-code | G43 / G44 tool length: `Ignore: Z is touched off per tool` / `Apply the Tools table length` |  | choice index 0 to 1 (default 0) | yes |
+| `gcode.cutter_comp` | G-code | G41 / G42 cutter compensation: `Refuse the program` / `Ignore: path already compensated (CAM wear mode)` |  | choice index 0 to 1 (default 0) | yes |
+| `gcode.block_delete` | G-code | Block delete: skip lines that start with / |  | on/off (default off) | yes |
 | `pendant.on` | Pendant | MPG pendant fitted (optional) |  | on/off |  |
 | `pendant.quick_ms` | Pendant | Quick press = Enter, shorter than | ms | whole number, 100 to 1500 |  |
 | `pendant.wheel_div` | Pendant | Counts per wheel detent |  | whole number, 1 to 8 |  |

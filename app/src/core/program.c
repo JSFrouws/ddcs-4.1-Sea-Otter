@@ -86,14 +86,18 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 			p->ntc++;
 		}
 		if (op.kind != OP_LINE) continue;
-		add_pv(p, op.end, g.wcs, op.line, op.rapid, !op.arc);
+		/* the preview and the cut box show the tool tip: without the G43 length (the limit box keeps it) */
+		double tip[NAXES];
+		memcpy(tip, op.end, sizeof tip);
+		tip[AX_Z] -= g.tlo;
+		add_pv(p, tip, g.wcs, op.line, op.rapid, !op.arc);
 		for (int a = 0; a < 3; a++) {                       /* every move's end point */
 			float w = (float)(op.end[a] - off[a]);
 			if (w < p->mlo[a]) p->mlo[a] = w;
 			if (w > p->mhi[a]) p->mhi[a] = w;
 		}
 		if (!op.rapid) for (int a = 0; a < 3; a++) {
-			float w = (float)(op.end[a] - off[a]);
+			float w = (float)(tip[a] - off[a]);
 			if (w < p->lo[a]) p->lo[a] = w;
 			if (w > p->hi[a]) p->hi[a] = w;
 		}
@@ -149,7 +153,15 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 		p->ntc = 0;
 		snprintf(p->warn, sizeof p->warn, "more than %d tool changes - a multi-part job runs the whole program per part", PROG_MAX_TC);
 	}
-	if (g.warn[0]) snprintf(p->warn, sizeof p->warn, "line %d: %s", g.warn_line + 1, g.warn);
+	if (g.flow && p->ntc > 1) {                             /* jumps: tool segments are not line ranges */
+		p->ntc = 0;
+		snprintf(p->warn, sizeof p->warn, "subprograms / loops - a multi-part job runs the whole program per part");
+	}
+	if (g.warn[0]) {
+		char more[24] = "";
+		if (g.warn_more) snprintf(more, sizeof more, " (+%d more)", g.warn_more);
+		snprintf(p->warn, sizeof p->warn, "line %d: %s%s", g.warn_line + 1, g.warn, more);
+	}
 	if (r < 0) {
 		snprintf(p->err, sizeof p->err, "line %d: %s", g.err_line + 1, g.err);
 		p->err_line = g.err_line;
