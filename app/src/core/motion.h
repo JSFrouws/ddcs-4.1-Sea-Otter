@@ -16,7 +16,7 @@
 
 #define MQ_LEN 512
 
-typedef enum { MEV_NONE, MEV_SPINDLE, MEV_COOLANT, MEV_PAUSE, MEV_END, MEV_HOMED, MEV_HOME_FAIL } mev_t;
+typedef enum { MEV_NONE, MEV_SPINDLE, MEV_COOLANT, MEV_PAUSE, MEV_END, MEV_HOMED, MEV_HOME_FAIL, MEV_PROBED, MEV_PROBE_FAIL } mev_t;
 
 typedef struct {
 	fpga_t *f;
@@ -68,6 +68,12 @@ typedef struct {
 	/* homing */
 	struct { bool on; int k, phase, axis, only; double travel, ref; } home;   /* only: one axis (-1 = all); ref: where the switch released */
 	bool (*switch_active)(int axis);
+	/* probing: one axis toward the probe input, the same way homing finds its switch (seek, brake,
+	 * back off slowly until it releases = the trigger point, brake) - but nothing is preset:
+	 * trig is the machine position where the probe released. fail: 1 not found within max,
+	 * 2 never released, 3 already active at the start */
+	struct { bool on; int phase, axis, dir, fail; double travel, max, v_seek, v_latch, trig; } probe;
+	bool (*probe_active)(void);
 	bool (*range)(int axis, double *lo, double *hi);   /* soft/bench limits for jogs + nudges */
 	/* the controller's level gate: true = no steps on this axis this way (E-stop, drives off,
 	 * a tripped limit switch). Not asked while braking or homing, which handle switches
@@ -99,6 +105,9 @@ void motion_nudge(motion_t *m, int axis, double mm);
 void motion_hold(motion_t *m, bool on);
 void motion_stop(motion_t *m, bool immediate);        /* controlled: decel, then flush */
 void motion_home(motion_t *m, int axis);       /* axis -1 = all, in the configured order */
+/* probe along one axis (dir +1/-1) for at most max_travel mm, seek / latch in mm/min.
+ * Ends with MEV_PROBED (probe.trig) or MEV_PROBE_FAIL (probe.fail), standing still */
+void motion_probe(motion_t *m, int axis, int dir, double max_travel, double seek, double latch);
 void motion_set_pos(motion_t *m, int axis, double mm);
 /* where the machine will be once everything queued has run (relative jogs chain from here) */
 void motion_queued_end(const motion_t *m, double out[NAXES]);

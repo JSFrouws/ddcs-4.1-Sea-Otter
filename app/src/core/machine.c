@@ -146,12 +146,20 @@ const char *can(cmd_t c, const arg_t *a, src_t src)
 	if (!a) a = &none;
 	if (src == SRC_API && !SET.api) return "API is switched off (Settings > API)";
 	if (!(ALLOW[C.m] & B(c))) return WHY[C.m];
+	if (C.m == M_TOOL && C.ts.phase && (c == C_JOG || c == C_TOUCHOFF || c == C_START))
+		return "Measuring the tool on the tool setter - Reset stops it";
 	switch (c) {
 	case C_START:
 		if (src == SRC_API && !SET.remote_start) return "remote START is switched off on the panel (Settings > API) (403)";
 		if (C.m == M_IDLE && !C.prog.loaded) return "No program loaded - Files > Load";
 		if (C.m == M_IDLE && !motion_idle(&C.mo)) return "Wait for the jog to finish";
 		if (C.m == M_IDLE && C.armed != ARM_SIM) { const char *w = program_outside(); if (w) return w; }
+		/* G53 / G28 go to MACHINE coordinates, which mean nothing until the machine is homed:
+		 * G53 G0 Z0 (a CAM post's retract) could just as well move down. Simulate still runs */
+		if (C.m == M_IDLE && C.armed != ARM_SIM && !C.homed && C.prog.mc_line >= 0) {
+			snprintf(why, sizeof why, "Line %d moves in machine coordinates (G53/G28) - home first", C.prog.mc_line + 1);
+			return why;
+		}
 		if (C.m == M_HOLD) for (int k = 0; k < NAXES; k++) if (C.lim_dir[k]) return "A limit switch is active - Reset, then jog off it";
 		if (C.m == M_TOOL) {
 			if (!motion_idle(&C.mo)) return "Wait for the jog to finish";
@@ -183,7 +191,15 @@ const char *can(cmd_t c, const arg_t *a, src_t src)
 	case C_PAUSE:
 		if (C.m == M_TOOL && motion_idle(&C.mo)) return "Nothing to pause";
 		break;
-	case C_PROBE: return "No probe input is configured on this machine";
+	case C_PROBE: {                                       /* kind = the Probe routine (Work page list) */
+		if (a->kind != 1) return "Only Tool length (fixed sensor) is built so far";
+		if (!SET.setter) return "Tool setter is off (Settings > Tool change > Tool setter)";
+		if (C.spindle) return "Switch the spindle off first - the tool goes onto the setter";
+		const char *w = ctl_setter_why_not();
+		if (w) { snprintf(why, sizeof why, "Tool setter: %s", w); return why; }
+		if (!motion_idle(&C.mo)) return "Wait for the jog to finish";
+		break;
+	}
 	case C_GOTOZERO: {
 		if (!motion_idle(&C.mo)) return "Wait for the jog to finish";
 		double t[NAXES];
@@ -236,6 +252,8 @@ static void tc_clear(void)
 {
 	C.tc_state = TC_NONE; C.tc_confirm = false; C.feed_wait = false;
 	free(C.tc_text); C.tc_text = NULL;
+	C.tc_setter = C.tc_measured = false;
+	C.ts.phase = C.ts.why = 0;
 }
 
 bool ctl_wcs_fixed(int i) { return C.prog.loaded && i >= 0 && i < NWCS && (C.prog.code_wcs >> i & 1); }
@@ -511,6 +529,7 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 	case C_HOME: {                                        /* kind 1 = one axis (the Home menu, 2026-11-02), else all */
 		int ax = a && a->kind == 1 ? a->axis : -1;         /* an axis without a switch is refused in can() */
 		if (ax < 0) C.homed = false;                      /* one axis re-homed keeps the state the machine had */
+		C.ts_ref_ok = false;                              /* the setter measurement was in the old machine frame */
 		motion_home(&C.mo, ax);
 		if (ax >= 0) ctl_toast(false, "Homing %c", AXIS_CH[ax]); else ctl_toast(false, "Homing %s", HOME_ORDERS[SET.home_order]);
 		break;
@@ -539,6 +558,16 @@ static void effect(cmd_t c, const arg_t *a, mstate_t from, src_t src)
 			ctl_toast(false, "%s on hold - Start continues, Reset stops", C.move_name);
 		}
 		else motion_stop(&C.mo, false);
+		if (C.ts.phase) {                                /* the setter stopped: in M_TOOL Start measures again */
+			motion_stop(&C.mo, false);                   /* a probe move does not hold: stop it */
+			if (C.ts.why == TS_OLD) C.tc_setter = false; /* a held program changes by hand after Start */
+			C.ts.phase = C.ts.why = 0; C.tc_confirm = false;
+			ctl_toast(false, "Tool setter stopped");
+		}
+		break;
+	case C_PROBE:
+		ctl_setter_start(TS_REF);
+		ctl_toast(false, "Measuring the tool in the spindle on the tool setter");
 		break;
 	case C_STOP:
 		motion_stop(&C.mo, false);
@@ -656,13 +685,28 @@ bool act(cmd_t c, const arg_t *a, src_t src)
 	if (c == C_START && C.m == M_IDLE && C.macro_on && !macro_refresh()) return false;
 	const char *why = can(c, a, src);
 	if (why) { if (src != SRC_MACHINE) ctl_toast(true, "%s", why); return false; }
+	/* the tool setter measures the new tool first - unless Z was touched off by hand during the
+	 * change: then that is the new length, and the setter has no reference for it any more */
+	bool touched = false;
+	if (c == C_START && C.m == M_TOOL) {
+		int w = ctl_prog_wcs();
+		touched = fabs(WD.wcs[w].off[AX_Z] - C.tc_off[w][AX_Z]) > 1e-9;
+	}
+	bool measure = c == C_START && C.m == M_TOOL && C.tc_setter && !C.tc_measured && !touched;
 	if (c == C_START && C.m == M_TOOL && !C.tc_confirm) {   /* user: Start asks first, then goes */
 		double t[NAXES], via;
 		double v = ctl_tc_target(t, &via);
 		const double *o = WD.wcs[ctl_prog_wcs()].off;
 		C.tc_confirm = true;
-		ctl_toast(false, "Start again: straight to X%.3f Y%.3f Z%.3f at %.0f mm/min, then T%d continues",
+		if (measure) ctl_toast(false, "Start again: T%d is measured on the tool setter, then straight back to X%.3f Y%.3f at %.0f mm/min",
+			C.tc_tool, t[AX_X] - o[AX_X], t[AX_Y] - o[AX_Y], v);
+		else ctl_toast(false, "Start again: straight to X%.3f Y%.3f Z%.3f at %.0f mm/min, then T%d continues",
 			t[AX_X] - o[AX_X], t[AX_Y] - o[AX_Y], via - o[AX_Z], v, C.tc_tool);
+		return true;
+	}
+	if (measure) {                                        /* confirmed: measure, then setter_done() starts */
+		ctl_setter_start(TS_NEW);
+		ctl_toast(false, "Measuring T%d on the tool setter", C.tc_tool);
 		return true;
 	}
 	mstate_t from = C.m;

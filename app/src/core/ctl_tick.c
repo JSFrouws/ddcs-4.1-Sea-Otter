@@ -21,6 +21,7 @@ static bool level_active(int port, bool active_high)
 /* the home switch (homing's callback) and the limit switch: one input unless home.separate_inputs */
 static bool switch_active(int axis) { return level_active(axis_home_port(axis), axis_home_level_high(axis)); }
 static bool limit_active(int axis) { return level_active(SET.ax[axis].limit_port, axis_level_high(axis)); }
+static bool probe_active(void) { return level_active(SET.probe_port, SET.probe_level_high); }
 
 /* the level gate under every block (motion.c emit_block): E-stop and drives off stop everything, a
  * tripped switch its own direction. Edges alone missed a move that never reached the switch
@@ -203,6 +204,7 @@ void ctl_init(bus_t *bus, bool sim, const char *cfg_path, const char *wd_path)
 	}
 	motion_init(&C.mo, &C.fp, p);
 	C.mo.switch_active = switch_active;
+	C.mo.probe_active = probe_active;
 	C.mo.axis_blocked = axis_blocked;
 	C.mo.range = ctl_axis_range;
 	C.resume_line = C.work_done = -1; C.touch_axis = -1; C.limit_axis = -1;
@@ -320,6 +322,8 @@ static bool tc_macro_path(int t, char *out, size_t n)
 	return false;
 }
 
+static void tc_by_hand(int t, int w);
+
 static void tool_change(int t)
 {
 	motion_hold(&C.mo, false);                          /* the motion stops itself at a pause op */
@@ -340,8 +344,18 @@ static void tool_change(int t)
 		if (!tc_macro_path(t, path, sizeof path)) ctl_toast(true, "No toolchange-T%d.nc or toolchange.nc in the macro folders - change by hand", t);
 		else {
 			char *text = macro_expand_file(path, &len, err, sizeof err);
+			int mc = -1;
+			if (text && !C.homed) {                       /* machine coordinates before homing: not run */
+				gc_t chk;
+				gc_begin(&chk, text, len, C.mo.pos);
+				gc_seek(&chk, 1 << 30);
+				mc = chk.mc_line;
+			}
 			if (!text) ctl_toast(true, "Tool-change macro: %s - change by hand", err);
-			else {
+			else if (mc >= 0) {
+				ctl_toast(true, "Tool-change macro line %d uses machine coordinates (G53/G28) - not homed, change by hand", mc + 1);
+				free(text);
+			} else {
 				free(C.tc_text);
 				C.tc_text = text;
 				double p[NAXES];
@@ -355,7 +369,27 @@ static void tool_change(int t)
 			}
 		}
 	}
-	/* by hand: Z up to the safe height, optionally to the tool-change position, then M_TOOL */
+	/* by hand, with the tool setter: first the tool that is in, unless it is measured already */
+	C.tc_setter = false; C.tc_measured = false;
+	if (SET.setter) {
+		const char *why = ctl_setter_why_not();
+		if (why) ctl_toast(true, "Tool setter not used: %s - change by hand and touch off Z", why);
+		else {
+			C.tc_setter = true;
+			if (!ctl_setter_ref_ok()) {
+				snprintf(C.pause_msg, sizeof C.pause_msg, "M6: measuring the tool in now on the tool setter");
+				C.tc_state = TC_MEASURE;
+				ctl_setter_start(TS_OLD);
+				return;
+			}
+		}
+	}
+	tc_by_hand(t, w);
+}
+
+/* by hand: Z up to the safe height, optionally to the tool-change position, then M_TOOL */
+static void tc_by_hand(int t, int w)
+{
 	double p[NAXES];
 	memcpy(p, C.mo.pos, sizeof p);
 	p[AX_Z] = fmax(p[AX_Z], WD.wcs[w].off[AX_Z] + SET.safe_z);
@@ -367,8 +401,138 @@ static void tool_change(int t)
 		p[AX_Z] = SET.tc[2];
 	} else if (SET.tc_where == 1) ctl_toast(true, "Not homed - changing the tool here (the tool-change position is in machine coordinates)");
 	move_if(p, 0, true);
-	snprintf(C.pause_msg, sizeof C.pause_msg, "M6: going to change to T%d", t);
+	snprintf(C.pause_msg, sizeof C.pause_msg, "M6: going to change to T%d%s", t, C.tc_setter ? " (measured on the tool setter after)" : "");
 	C.tc_state = TC_GOING;
+}
+
+/* ---- tool setter: up to the start height, across, probe down, back up ---- */
+const char *ctl_setter_why_not(void)
+{
+	if (!SET.probe_port) return "no probe input set (Settings > Homing & limits)";
+	if (!C.homed) return "not homed (the setter is in machine coordinates)";
+	if (SET.gc_tlo) return "G43 applies the Tools table length (Settings > G-code) - use one or the other";
+	double lo, hi;                                      /* the setter and its probing travel inside the box */
+	for (int a = 0; a < 2; a++)
+		if (ctl_axis_range(a, &lo, &hi) && (SET.setter_pos[a] < lo - 1e-6 || SET.setter_pos[a] > hi + 1e-6))
+			return a == AX_X ? "setter X outside the limits (Settings > Tool change)" : "setter Y outside the limits (Settings > Tool change)";
+	if (ctl_axis_range(AX_Z, &lo, &hi) && (SET.setter_pos[2] > hi + 1e-6 || SET.setter_pos[2] - SET.setter_travel < lo - 1e-6))
+		return "setter start Z or its probing travel outside the Z limits (Settings > Tool change)";
+	return NULL;
+}
+
+bool ctl_setter_ref_ok(void)
+{
+	if (!C.ts_ref_ok || !C.homed) return false;
+	for (int k = 0; k < NWCS; k++) if (fabs(WD.wcs[k].off[AX_Z] - C.ts_ref_z[k]) > 1e-9) return false;   /* a work Z set again */
+	return true;
+}
+
+static void setter_ref(double trig)
+{
+	C.ts_ref = trig; C.ts_ref_ok = true;
+	for (int k = 0; k < NWCS; k++) C.ts_ref_z[k] = WD.wcs[k].off[AX_Z];
+}
+
+void ctl_setter_start(int why)
+{
+	C.ts.why = why;
+	if (probe_active()) {                               /* pressed before it is reached: wiring, level, or a crash */
+		C.ts.phase = 0;
+		C.mo.probe.fail = 3; C.mo.ev = MEV_PROBE_FAIL;   /* handled like a failed probe, next tick */
+		return;
+	}
+	double p[NAXES], lo, hi;
+	motion_queued_end(&C.mo, p);
+	/* across at the safe height of the work (never through the stock or the clamps) and at
+	 * least the setter's start height; never down, never past the Z limit */
+	int w = why == TS_REF ? WD.active : ctl_prog_wcs();
+	double lift = fmax(p[AX_Z], fmax(SET.setter_pos[2], WD.wcs[w].off[AX_Z] + SET.safe_z));
+	if (ctl_axis_range(AX_Z, &lo, &hi)) lift = fmax(fmin(lift, hi), p[AX_Z]);
+	C.ts.lift = lift; C.ts.t0 = now_ms();
+	p[AX_Z] = lift;
+	move_if(p, 0, true);
+	p[AX_X] = SET.setter_pos[0]; p[AX_Y] = SET.setter_pos[1];
+	move_if(p, 0, true);
+	p[AX_Z] = SET.setter_pos[2];
+	move_if(p, 0, true);
+	C.ts.phase = 1;
+}
+
+static void setter_done(bool ok, double trig, const char *fail)
+{
+	int why = C.ts.why;
+	C.ts.phase = 0; C.ts.why = 0;
+	if (why == TS_REF) {
+		if (ok) {
+			setter_ref(trig);
+			ctl_toast(false, "Tool length measured (setter at machine Z%.3f) - the next M6 measures only the new tool", trig);
+		} else ctl_toast(true, "Tool setter: %s", fail);
+		if (C.m == M_PROBING) act(C_DONE, NULL, SRC_MACHINE);
+		return;
+	}
+	if (why == TS_OLD) {                                /* during an M6: then the change itself */
+		if (ok) setter_ref(trig);
+		else {
+			C.tc_setter = false;
+			ctl_toast(true, "Tool setter: %s - change by hand and touch off Z", fail);
+		}
+		tc_by_hand(C.tc_tool, ctl_prog_wcs());
+		return;
+	}
+	if (why == TS_NEW) {                                /* the new tool, back in M_TOOL */
+		if (!ok) {
+			C.tc_confirm = false;
+			ctl_toast(true, "Tool setter: %s - try Start again, or touch off Z by hand and Start", fail);
+			return;
+		}
+		double dz = trig - C.ts_ref;                    /* longer tool: it touches higher, the work Z is higher */
+		for (int k = 0; k < NWCS; k++) WD.wcs[k].off[AX_Z] += dz;
+		setter_ref(trig);
+		workdata_save(C.wd_path);
+		C.tc_measured = true;
+		const char *no = can(C_START, NULL, SRC_MACHINE);
+		if (no) { ctl_toast(true, "T%d measured (%+.3f mm, work Z shifted) - but: %s", C.tc_tool, dz, no); return; }
+		act(C_START, NULL, SRC_MACHINE);                /* confirmed already: back to the program */
+		ctl_toast(false, "T%d measured: %+.3f mm against the last tool, every work Z shifted - back to the program", C.tc_tool, dz);
+	}
+}
+
+static void setter_tick(void)
+{
+	if (C.ts.phase == 1 && motion_idle(&C.mo) && C.mo.ev == MEV_NONE) {
+		/* something stopped the approach (a runaway, a stuck FPGA, a limit): never probe from
+		 * anywhere else than above the setter */
+		const char *bad = !C.homed ? "the machine is no longer homed"
+			: (fabs(C.mo.pos[AX_X] - SET.setter_pos[0]) > 0.01 || fabs(C.mo.pos[AX_Y] - SET.setter_pos[1]) > 0.01
+			   || fabs(C.mo.pos[AX_Z] - SET.setter_pos[2]) > 0.01) ? "did not get to the setter position" : NULL;
+		if (bad) { setter_done(false, 0, bad); return; }
+		/* at an M6 the spindle was just switched off: give it the spindle wait to run down */
+		if (C.ts.why == TS_OLD && now_ms() - C.ts.t0 < (uint64_t)(SET.spindle_delay * 1000)) return;
+		motion_probe(&C.mo, AX_Z, -1, SET.setter_travel, SET.setter_seek, SET.setter_latch);
+		C.ts.phase = 2;
+	} else if (C.ts.phase == 2 && !C.mo.probe.on && C.mo.ev == MEV_NONE) {
+		setter_done(false, 0, "the probe move was stopped");    /* motion_stop from elsewhere: no event comes */
+	} else if (C.ts.phase == 3 && motion_idle(&C.mo) && C.mo.ev == MEV_NONE) {
+		if (C.mo.pos[AX_Z] < C.ts.lift - 0.01) setter_done(false, 0, "stopped before it was back up");
+		else setter_done(true, C.mo.probe.trig, NULL);
+	}
+}
+
+static void setter_event(bool ok)
+{
+	if (!C.ts.why) return;
+	if (!ok) {
+		static const char *const FAILS[] = { "", "not reached within the probing travel", "did not release (stuck or wired wrong)",
+			"the probe input is active before probing (wiring, level, or something on the setter)" };
+		int f = C.mo.probe.fail;
+		setter_done(false, 0, FAILS[f >= 1 && f <= 3 ? f : 1]);
+		return;
+	}
+	double p[NAXES];                                    /* back up to the travel height, then report */
+	memcpy(p, C.mo.pos, sizeof p);
+	p[AX_Z] = fmax(p[AX_Z], C.ts.lift);
+	move_if(p, 0, true);
+	C.ts.phase = 3;
 }
 
 /* the tool-change macro runs as part of the program; afterwards back to the program */
@@ -456,6 +620,8 @@ static void motion_events(void)
 	case MEV_END: act(C_DONE, NULL, SRC_MACHINE); break;
 	case MEV_HOMED: a.dir = 1; act(C_DONE, &a, SRC_MACHINE); break;
 	case MEV_HOME_FAIL: a.dir = 0; act(C_DONE, &a, SRC_MACHINE); break;
+	case MEV_PROBED: setter_event(true); break;
+	case MEV_PROBE_FAIL: setter_event(false); break;
 	default: break;
 	}
 }
@@ -578,6 +744,11 @@ void ctl_tick(double dt)
 		C.mo.runaway = 0;
 	}
 	motion_events();
+	if (C.ts.phase) setter_tick();
+	else if (C.m == M_RUN && C.tc_state == TC_MEASURE && motion_idle(&C.mo) && C.mo.ev == MEV_NONE) {
+		ctl_toast(true, "Tool setter stopped - change by hand and touch off Z");   /* Pause during the old tool's measurement */
+		tc_by_hand(C.tc_tool, ctl_prog_wcs());
+	}
 	if (C.m == M_MOVE && motion_idle(&C.mo)) act(C_DONE, NULL, SRC_MACHINE);
 	if (C.m == M_RUN && C.tc_state == TC_GOING && motion_idle(&C.mo) && C.mo.ev == MEV_NONE) {
 		C.tc_state = TC_NONE;

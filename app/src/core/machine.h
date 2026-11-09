@@ -56,9 +56,18 @@ typedef struct {
 	/* tool change at an M6 (Settings > Tool change). The feeder waits at the M6 (feed_wait)
 	 * until it has been dealt with: by hand (TC_GOING to the change position, then M_TOOL),
 	 * by a macro (TC_MACRO: its moves run as part of the program), or skipped */
-	enum { TC_NONE, TC_GOING, TC_MACRO } tc_state;
+	enum { TC_NONE, TC_GOING, TC_MACRO, TC_MEASURE } tc_state;
 	int tc_tool;
 	bool tc_confirm;                /* Start pressed once in M_TOOL: the return move is shown */
+	/* tool setter (Settings > Tool change). The way bCNC / CNCjs / BitSetter-style setups do
+	 * it: measure the tool in the spindle (unless measured since the work Z was last set),
+	 * change, measure the new one, shift every work Z by the difference. ts_ref = where the
+	 * tool the work Z offsets belong to triggers the setter (machine Z); it holds while those
+	 * offsets are unchanged and the machine stays homed */
+	bool tc_setter, tc_measured;    /* this change uses the setter / the new tool has been measured */
+	struct { int phase, why; double lift; uint64_t t0; } ts;   /* phase 0 idle, 1 going there, 2 probing, 3 back up; why TS_*;
+	                                                              lift = the machine Z it travels at; t0 = start (spin-down wait) */
+	bool ts_ref_ok; double ts_ref, ts_ref_z[NWCS];
 	bool feed_wait;
 	double tc_off[NWCS][NAXES];     /* work offsets when the change began (Z touch-off = new tool length) */
 	char *tc_text; gc_t tc_gc;      /* the tool-change macro, expanded */
@@ -111,6 +120,11 @@ void ctl_motion_only(double dt);   /* stream the planned motion + FPGA heartbeat
 const char *can(cmd_t c, const arg_t *a, src_t src);   /* NULL = allowed, else why not */
 bool act(cmd_t c, const arg_t *a, src_t src);
 bool ctl_busy(void);                                   /* RUN HOLD HOMING MOVE PROBING */
+/* tool setter: TS_REF measures the tool in now (Work > Probe), TS_OLD / TS_NEW the tools of an M6 */
+enum { TS_REF = 1, TS_OLD, TS_NEW };
+const char *ctl_setter_why_not(void);                  /* NULL = probe input set and homed */
+bool ctl_setter_ref_ok(void);                          /* the tool in now is measured for the current work Z */
+void ctl_setter_start(int why);
 void ctl_toast(bool bad, const char *fmt, ...);
 void ctl_run_start_assumed(void);                     /* run_start = what the load assumes */
 void ctl_run_start_at(int wcs, double out[NAXES]);    /* the program's start on part wcs (machine) */

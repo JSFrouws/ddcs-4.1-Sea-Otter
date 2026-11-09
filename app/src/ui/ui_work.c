@@ -48,7 +48,9 @@ void work_render(fb_t *fb)
 		"changes it once, does all parts again. Safe Z between parts.",
 		"In G-code = the program writes that G54-G59 itself: it is in",
 		"the job and stays there. Shift + F4 clears the other marks.",
-		"Probe input: not configured on this machine." };
+		!SET.probe_port ? "Probe input: not set (Settings > Homing & limits)."
+		: ctl_setter_ref_ok() ? "Tool length: the tool in now is measured on the setter."
+		: "Tool length: measures the tool in now on the setter (homed)." };
 	for (int i = 0; i < 6; i++) gfx_text(fb, &font_14, x + 380, py + 10 + i * 21, i == 5 ? COL_AMBER : COL_DIM, t[i]);
 }
 
@@ -70,7 +72,7 @@ void work_key(pkey_t k, bool sh)
 	if (ui_pane() == 1) {
 		if (k == K_YP) U.probe = CLAMP(U.probe - 1, 0, (int)ARRAY_LEN(PROBES) - 1);
 		if (k == K_YM) U.probe = CLAMP(U.probe + 1, 0, (int)ARRAY_LEN(PROBES) - 1);
-		if (k == K_SEL || k == K_F6 || k == K_ENTER) act(C_PROBE, NULL, SRC_PANEL);
+		if (k == K_SEL || k == K_F6 || k == K_ENTER) { arg_t a = { .kind = U.probe }; act(C_PROBE, &a, SRC_PANEL); }
 		return;
 	}
 	if (k == K_YP) { U.wcs_row = CLAMP(U.wcs_row - 1, 0, NWCS - 1); return; }

@@ -326,12 +326,236 @@ static void test_pacing(void)
 	CHECK(C.pos_faults == 0);
 }
 
+/* 2026-11-07: a CAM post ends with G53 G0 Z0 (machine Z0 = the top on this machine). Before
+ * homing the machine position is wherever the power came on, so that move could go down:
+ * a program or tool-change macro with G53/G28 is refused until homed; Simulate still runs. */
+static void test_machine_coords_need_homing(void)
+{
+	SUITE("G53 / G28 need homing");
+	fx_reset();
+	SET.spindle_delay = 0;
+	CHECK(!C.homed);
+	load("G21 G90 G54\nG0 Z5\nG1 X1 F600\nG53 G0 Z0\nM30\n");
+	CHECK(C.prog.mc_line == 3);
+	const char *why = can(C_START, NULL, SRC_PANEL);
+	CHECK(why && strstr(why, "Line 4") && strstr(why, "home first"));
+	CHECK(!act(C_START, NULL, SRC_PANEL) && C.m == M_IDLE);
+	C.armed = ARM_SIM;
+	CHECK(can(C_START, NULL, SRC_PANEL) == NULL);         /* simulate: nothing moves */
+	C.armed = ARM_RUN;
+	load("G21 G90\nG53\nG0 X1\nM30\n");                  /* G53 on its own moves nothing */
+	CHECK(C.prog.mc_line == -1 && can(C_START, NULL, SRC_PANEL) == NULL);
+	load("G21 G90\nG28 Z0\nM30\n");
+	CHECK(C.prog.mc_line == 1 && can(C_START, NULL, SRC_PANEL) != NULL);
+	CHECK(act(C_HOME, NULL, SRC_PANEL));
+	fx_until_idle(60000);
+	CHECK(C.homed && can(C_START, NULL, SRC_PANEL) == NULL);
+
+	/* a tool-change macro that parks in machine coordinates: not run un-homed, by hand instead */
+	C.homed = false;
+	snprintf(macro_dir_user, sizeof macro_dir_user, "%s", ".");
+	FILE *mf = fopen("toolchange.nc", "w");
+	if (mf) { fputs("G90\nG53 G0 Z0\nM0\n", mf); fclose(mf); }
+	SET.tc_mode = 1; SET.tc_where = 0; WD.loaded_tool = 1;
+	load("G21 G90 G54\nG0 Z5\nT2 M6\nG0 X2\nM30\n");
+	CHECK(C.prog.mc_line == -1 && act(C_START, NULL, SRC_PANEL));
+	int t = 0;
+	while (C.m == M_RUN && t < 30000) { fx_run(10); t += 10; }
+	CHECK(C.m == M_TOOL && C.tc_state != TC_MACRO);         /* changing by hand, the macro not run */
+	act(C_STOP, NULL, SRC_PANEL);
+	fx_until_idle(5000);
+	remove("toolchange.nc"); macro_dir_user[0] = 0;
+	SET.tc_mode = 0;
+}
+
+/* run until the state leaves `st` (or time out); returns the ms it took */
+static int run_while(mstate_t st, int max_ms)
+{
+	int t = 0;
+	while (C.m == st && t < max_ms) { fx_run(10); t += 10; }
+	return t;
+}
+
+/* 2026-11-07: tool setter (a fixed length sensor), the way bCNC / CNCjs / BitSetter setups
+ * work: measure the tool in, change, measure the new one, shift the work Z by the difference */
+static void test_tool_setter(void)
+{
+	SUITE("tool setter: probe move, M6 measures before and after");
+	fx_reset();
+	SET.spindle_delay = 0;
+	{
+		settings_t d;
+		settings_defaults(&d);
+		CHECK(d.setter == 0 && d.probe_port == 0 && !d.probe_level_high);   /* off until fitted */
+	}
+	arg_t pr = { .kind = 1 };
+	CHECK(can(C_PROBE, &pr, SRC_PANEL) && strstr(can(C_PROBE, &pr, SRC_PANEL), "setter is off"));
+	SET.setter = 1;
+	CHECK(strstr(can(C_PROBE, &pr, SRC_PANEL), "no probe input") != NULL);
+	SET.probe_port = 5; SET.probe_level_high = false;
+	CHECK(strstr(can(C_PROBE, &pr, SRC_PANEL), "not homed") != NULL);
+	CHECK(act(C_HOME, NULL, SRC_PANEL));
+	fx_until_idle(60000);
+	CHECK(C.homed);
+	arg_t other = { .kind = 0 };
+	CHECK(can(C_PROBE, &other, SRC_PANEL) != NULL);       /* Z plate etc.: not built */
+
+	/* the setter at machine X20 Y20, its button at Z-80; the tool reaches 30 mm below Z */
+	SIM.setter_input = 5; SIM.setter_mm[0] = 20; SIM.setter_mm[1] = 20; SIM.setter_mm[2] = -80; SIM.tool_len = 30;
+	SET.setter_pos[0] = 20; SET.setter_pos[1] = 20; SET.setter_pos[2] = -10;
+	SET.setter_travel = 80; SET.setter_seek = 300; SET.setter_latch = 20;
+	CHECK(can(C_PROBE, &pr, SRC_PANEL) == NULL);
+	SET.gc_tlo = 1;                                        /* G43 Apply: the Tools table sets lengths - not both */
+	CHECK(strstr(can(C_PROBE, &pr, SRC_PANEL), "G43") != NULL);
+	SET.gc_tlo = 0;
+	C.spindle = true;
+	CHECK(strstr(can(C_PROBE, &pr, SRC_PANEL), "spindle") != NULL);   /* never a spinning tool onto the setter */
+	C.spindle = false;
+	SET.bench_limits = true; SET.ax[AX_X].bench_min = 30;
+	CHECK(strstr(can(C_PROBE, &pr, SRC_PANEL), "outside the limits") != NULL);
+	SET.ax[AX_X].bench_min = SET.ax[AX_X].soft_min; SET.bench_limits = false;
+	WD.active = 0;
+	for (int i = 0; i < NWCS; i++) WD.wcs[i].job = false;
+	WD.wcs[0].off[AX_X] = 100; WD.wcs[0].off[AX_Y] = 100; WD.wcs[0].off[AX_Z] = -60;
+	WD.wcs[1].off[AX_Z] = -70;
+
+	/* across at the work's safe height even when the setter's start Z is lower (clamps) */
+	{
+		arg_t jd = { .axis = AX_Z, .dir = -1, .dist = 45 };   /* tool down at machine Z-60 */
+		CHECK(act(C_JOG, &jd, SRC_PANEL));
+		fx_until_idle(20000);
+		SET.setter_pos[2] = -70; SIM.tool_len = 0;            /* start below the safe height (-55) */
+		CHECK(act(C_PROBE, &pr, SRC_PANEL));
+		double zmin_across = 0;
+		int tt = 0;
+		while (C.m == M_PROBING && tt < 60000) {
+			if (fabs(C.mo.pos[AX_X] - 20) > 0.01 || fabs(C.mo.pos[AX_Y] - 20) > 0.01) zmin_across = fmin(zmin_across, C.mo.pos[AX_Z]);
+			fx_run(10); tt += 10;
+		}
+		CHECK(zmin_across >= -60 - 1e-6);                    /* only where it started, going up */
+		CHECK(C.m == M_IDLE && ctl_setter_ref_ok());
+		CHECK_NEAR(C.mo.pos[AX_Z], -55, 1e-6);                /* back up to the travel height */
+		SET.setter_pos[2] = -10;
+		/* stopped on the way (here: a runaway-style stop of the approach): no probing elsewhere */
+		C.ts_ref_ok = false;
+		CHECK(act(C_PROBE, &pr, SRC_PANEL));
+		fx_run(100);
+		motion_stop(&C.mo, true);
+		run_while(M_PROBING, 10000);
+		CHECK(C.m == M_IDLE && !ctl_setter_ref_ok() && strstr(C.msg, "did not get to the setter"));
+		fx_until_idle(5000);
+		arg_t ju = { .axis = AX_Z, .dir = 1, .dist = -10 - C.mo.pos[AX_Z] };   /* up, off the setter */
+		CHECK(act(C_JOG, &ju, SRC_PANEL));
+		fx_until_idle(20000);
+		SIM.tool_len = 30;                                     /* the 30 mm tool back in */
+	}
+
+	/* Work > Probe > Tool length: the reference for the tool in now */
+	CHECK(act(C_PROBE, &pr, SRC_PANEL) && C.m == M_PROBING);
+	run_while(M_PROBING, 60000);
+	CHECK(C.m == M_IDLE && ctl_setter_ref_ok());
+	CHECK_NEAR(C.ts_ref, -50, 0.02);                        /* -80 + 30: where this tool touches */
+	CHECK_NEAR(C.mo.pos[AX_Z], -10, 1e-6);                  /* back up at the start height */
+	CHECK_NEAR(C.mo.pos[AX_X], 20, 1e-6);
+	CHECK(SIM.crashes == 0);
+
+	/* an M6 by hand: T1 is measured already, so straight to the change; a 5 mm longer T2 */
+	SET.tc_mode = 0; SET.tc_where = 0;
+	WD.loaded_tool = 1;
+	load("G21 G90 G54\nG0 Z3\nG0 X5 Y5\nG1 Z-1 F600\nG0 Z3\nT2 M6\nG0 X10\nG1 Z-1 F600\nG0 Z3\nM30\n");
+	CHECK(act(C_START, NULL, SRC_PANEL));
+	bool measured_old = false;
+	int t = 0;
+	while (C.m == M_RUN && t < 60000) { measured_old |= C.tc_state == TC_MEASURE; fx_run(10); t += 10; }
+	CHECK(C.m == M_TOOL && C.tc_setter && !measured_old);
+	SIM.tool_len = 35;                                       /* the operator fits T2 */
+	CHECK(act(C_START, NULL, SRC_PANEL) && C.tc_confirm && strstr(C.msg, "tool setter"));
+	CHECK(act(C_START, NULL, SRC_PANEL) && C.m == M_TOOL && C.ts.phase);   /* measuring, still M_TOOL */
+	arg_t jz = { .axis = AX_Z, .dir = 1, .dist = 1 };
+	CHECK(!act(C_JOG, &jz, SRC_PANEL));                     /* nothing else moves meanwhile */
+	run_while(M_TOOL, 60000);
+	CHECK(C.m == M_RUN && C.tc_measured && WD.loaded_tool == 2);
+	CHECK_NEAR(WD.wcs[0].off[AX_Z], -55, 0.02);              /* 5 mm longer: work Z 5 mm higher */
+	CHECK_NEAR(WD.wcs[1].off[AX_Z], -65, 0.02);              /* every WCS: the tool changed for all */
+	CHECK_NEAR(C.ts_ref, -45, 0.02);
+	run_while(M_RUN, 60000);
+	CHECK(C.m == M_IDLE);
+	CHECK_NEAR(ctl_work(AX_Z), 3, 1e-6);
+	CHECK_NEAR(sim_pos_mm(AX_Z) - SIM.tool_len, (-60 + 3) - 30, 0.03);   /* T2's tip where T1's was at work Z3 */
+	CHECK(ctl_setter_ref_ok());                               /* T2 is the reference now */
+
+	/* Z touched off again: the reference is gone, the next M6 measures the old tool first */
+	WD.wcs[0].off[AX_Z] = -54;
+	CHECK(!ctl_setter_ref_ok());
+	WD.loaded_tool = 1; C.resume_line = -1; C.work_done = -1;
+	CHECK(act(C_START, NULL, SRC_PANEL));
+	measured_old = false; t = 0;
+	while (C.m == M_RUN && t < 60000) { measured_old |= C.tc_state == TC_MEASURE; fx_run(10); t += 10; }
+	CHECK(C.m == M_TOOL && measured_old && ctl_setter_ref_ok());
+	CHECK_NEAR(C.ts_ref, -45, 0.02);                          /* T2 (35 mm) still in when measured */
+	/* the new tool is not reached (travel too short): stays in M_TOOL, says so */
+	SET.setter_travel = 5;
+	SIM.tool_len = 20;
+	act(C_START, NULL, SRC_PANEL); act(C_START, NULL, SRC_PANEL);
+	run_while(M_TOOL, 200);
+	t = 0; while (C.ts.phase && t < 30000) { fx_run(10); t += 10; }
+	CHECK(C.m == M_TOOL && !C.tc_measured && strstr(C.msg, "not reached"));
+	CHECK_NEAR(WD.wcs[0].off[AX_Z], -54, 1e-9);              /* nothing shifted */
+	SET.setter_travel = 80;
+	act(C_START, NULL, SRC_PANEL); act(C_START, NULL, SRC_PANEL);
+	run_while(M_TOOL, 60000);
+	CHECK(C.m == M_RUN);
+	CHECK_NEAR(WD.wcs[0].off[AX_Z], -54 - 15, 0.02);          /* 15 mm shorter */
+	run_while(M_RUN, 60000);
+	CHECK(C.m == M_IDLE);
+
+	/* touched off by hand during the change: that is the length, the setter is skipped */
+	WD.loaded_tool = 1; C.resume_line = -1; C.work_done = -1;
+	CHECK(act(C_START, NULL, SRC_PANEL));
+	run_while(M_RUN, 60000);
+	CHECK(C.m == M_TOOL);
+	WD.wcs[0].off[AX_Z] -= 1;                                 /* = a touch-off */
+	double z0 = WD.wcs[0].off[AX_Z];
+	act(C_START, NULL, SRC_PANEL); act(C_START, NULL, SRC_PANEL);
+	CHECK(C.m == M_RUN && !C.tc_measured);
+	CHECK_NEAR(WD.wcs[0].off[AX_Z], z0, 1e-9);
+	run_while(M_RUN, 60000);
+	CHECK(!ctl_setter_ref_ok());                              /* no reference for this tool */
+
+	/* Pause while the old tool is measured: the probe stops; after Start it changes by hand */
+	WD.loaded_tool = 1; C.resume_line = -1; C.work_done = -1;
+	CHECK(act(C_START, NULL, SRC_PANEL));
+	t = 0; while (!(C.tc_state == TC_MEASURE && C.ts.phase == 2) && t < 60000) { fx_run(10); t += 10; }
+	CHECK(C.tc_state == TC_MEASURE && C.ts.phase == 2 && C.mo.probe.on);
+	fx_run(100);
+	CHECK(act(C_PAUSE, NULL, SRC_PANEL) && C.m == M_HOLD);
+	fx_run(500);
+	CHECK(!C.mo.probe.on && !C.ts.phase && motion_idle(&C.mo));
+	CHECK(act(C_START, NULL, SRC_PANEL) && C.m == M_RUN);
+	run_while(M_RUN, 30000);
+	CHECK(C.m == M_TOOL && !C.tc_setter);
+	CHECK(act(C_STOP, NULL, SRC_PANEL) && C.m == M_IDLE);
+	fx_until_idle(5000);
+
+	/* the probe input already active at the start: refused as a fault, nothing moves down */
+	SIM.extra_inputs_closed = 1u << 4;
+	double zb = C.mo.pos[AX_Z];
+	CHECK(act(C_PROBE, &pr, SRC_PANEL));
+	run_while(M_PROBING, 10000);
+	CHECK(C.m == M_IDLE && strstr(C.msg, "active before probing"));
+	CHECK(C.mo.pos[AX_Z] >= zb - 1e-9);
+	SIM.extra_inputs_closed = 0;
+	SIM.setter_input = 0; SET.setter = 0; SET.probe_port = 0;
+}
+
 void test_machine(void)
 {
 	test_scale_safety();
 	test_jog_ramp_outputs();
 	test_wheel_follow_zone();
 	test_pacing();
+	test_machine_coords_need_homing();
+	test_tool_setter();
 	SUITE("state machine and controller vs simulated machine");
 	fx_reset();
 	SET.spindle_delay = 0;

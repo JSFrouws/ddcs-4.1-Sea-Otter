@@ -31,6 +31,7 @@ typedef struct {
 	bool limit_level_per_axis; /* 2026-11-02: each axis has its own level (axis.*.level_high) instead of the one above */
 	bool home_combined;        /* 2026-11-02: one switch per axis for home and limit (axis.*.limit_port); off = homing reads axis.*.home_port */
 	int estop_port; bool estop_level_high;
+	int probe_port; bool probe_level_high;       /* probe / tool setter input (vendor #156, #182), 0 = none */
 	bool pendant_estop;
 	double spindle_max, spindle_default, spindle_delay;
 	int out_spindle, out_flood, out_aux;         /* OUT1..3 for M3 / M8 / M10, 0 = none ("-") */
@@ -64,6 +65,12 @@ typedef struct {
 	int gc_cutcomp;            /* G41/G42: 0 refuse the program, 1 ignore (path already compensated in CAM), 2 compensate; default 0 */
 	bool gc_block_delete;      /* skip blocks that start with / */
 	int job_order;             /* several JOB parts: 0 one tool at a time (all parts per tool), 1 one part at a time */      /* back to the program after the change: % of rapid */
+	/* tool setter (2026-11-07): a fixed length sensor on the table. An M6 changed by hand
+	 * measures the tool before and after the change and shifts the work Z by the difference */
+	int setter;                /* 0 off, 1 measure at every tool change by hand */
+	double setter_pos[3];      /* machine X Y over the sensor, and the Z the probing starts from */
+	double setter_travel;      /* mm down from setter_pos[2] before giving up */
+	double setter_seek, setter_latch;   /* mm/min: finding it, and the slow back-off that measures */
 } settings_t;
 
 /* ST_PORT: a connector choice (INnn, OUTn, a pulse/dir output) stored as an index into opts,

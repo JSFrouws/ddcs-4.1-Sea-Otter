@@ -55,7 +55,7 @@ changed on the panel, never over the API. A switched-off action answers
 | `api.panel` | on | `panel/toast`, `panel/instructions`, `panel/screen`, `POST`/`DELETE message` (reading it is always allowed) |
 | `api.remote_start` | **off** | `run/start`, `run/resume-from`, `move/macro`, and Start during a tool change |
 | `api.jog` | **off** | `jog` |
-| `api.moves` | **off** | `machine/home`, `move/gotozero` (Goto 0 / Safe Z) |
+| `api.moves` | **off** | `machine/home`, `move/gotozero` (Goto 0 / Safe Z), `probe/tool-length` |
 | `api.spindle` | **off** | `machine/spindle` |
 | `api.coolant` | **off** | `machine/coolant` |
 | `api.drives` | **off** | `machine/drives {"on":true}` (switching them **off** is always allowed) |
@@ -218,6 +218,7 @@ in the FPGA. Rendering a full trace takes a while: don't fetch it mid-test.
 | POST | `machine/stop` | – | Stops whatever moves (program, move, jog, homing) and cancels a start countdown. Always answers 200: `{"ok":true,"state":"IDLE","fpgaAtStop":{"x":…}}`, with the FPGA counters read at the moment of the stop. With `motion.graceful_stop` on (default) the machine brakes along the path (no lost steps, ≈ 1 mm run-on at full speed) |
 | POST | `machine/drives` | `{"on":true}` / `{"on":false}` | Drives on / off. Off is always immediate |
 | POST | `machine/home` | – | Home all axes in the configured order (Reset or `machine/stop` stops it) |
+| POST | `probe/tool-length` | – | Measure the tool in now on the tool setter (`setter.*`): the reference the next M6 compares with. Needs `probe.port` and a homed machine (else 409 with the reason); state PROBING until done (Reset or `machine/stop` stops it) |
 | POST | `machine/spindle` | `{"on":true,"rpm":12000}` (`rpm` optional) | Spindle on/off by hand, like F6. Idle only: a program switches it with M3/M5 |
 | POST | `machine/coolant` | `{"on":true}` | The flood output (M8) on/off by hand, like Shift + F6. Also while a program runs |
 
@@ -434,6 +435,8 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `limits.level_high` | Homing & limits | Limit/home active when open (NC) |  | on/off | yes |
 | `estop.port` | Homing & limits | External E-stop input |  | port: `"-"` · `"IN01"` … `"IN18"` | yes |
 | `estop.level_high` | Homing & limits | E-stop active when open (NC) |  | on/off | yes |
+| `probe.port` | Homing & limits | Probe / tool setter input |  | port: `"-"` · `"IN01"` … `"IN18"`; default `"-"` | yes |
+| `probe.level_high` | Homing & limits | Probe active when open (NC) |  | on/off; default off (normally-open setter) | yes |
 | `spindle.max` | Spindle & outputs | Spindle max RPM (10 V) | rpm | number, 100 to 60000 | yes |
 | `spindle.default` | Spindle & outputs | Spindle RPM when none given | rpm | number, 0 to 60000 | yes |
 | `spindle.delay` | Spindle & outputs | Spin-up wait | s | number, 0 to 30 | yes |
@@ -452,6 +455,13 @@ only be changed on the panel. Answer: `{"ok":true,"changed":2}`.
 | `macro.tc_x` | Tool change | Tool change X (machine) | mm | number, -9999 to 9999 | yes |
 | `macro.tc_y` | Tool change | Tool change Y (machine) | mm | number, -9999 to 9999 | yes |
 | `macro.tc_z` | Tool change | Tool change Z (machine) | mm | number, -9999 to 9999 | yes |
+| `setter.mode` | Tool change | Tool setter (length sensor) |  | 0 Off · 1 Measure every tool change by hand; default 0 | yes |
+| `setter.x` | Tool change | Tool setter X (machine) | mm | number, -9999 to 9999 | yes |
+| `setter.y` | Tool change | Tool setter Y (machine) | mm | number, -9999 to 9999 | yes |
+| `setter.z` | Tool change | Tool setter: start probing at Z (machine) | mm | number, -9999 to 9999 | yes |
+| `setter.travel` | Tool change | Tool setter: probe down at most | mm | number, 1 to 500 | yes |
+| `setter.seek` | Tool change | Tool setter: seek speed | mm/min | number, 10 to 1200 | yes |
+| `setter.latch` | Tool change | Tool setter: measuring speed (back-off) | mm/min | number, 1 to 300 | yes |
 | `macro.warm_rpm` | Macros | Warm-up spindle speed | rpm | number, 0 to 60000 | yes |
 | `macro.warm_s` | Macros | Warm-up time | s | number, 1 to 3600 | yes |
 

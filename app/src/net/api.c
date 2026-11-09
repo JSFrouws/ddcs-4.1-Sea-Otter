@@ -475,6 +475,7 @@ void api_handle(const http_req_t *q, http_resp_t *r)
 		static const struct { const char *path; int prefix; size_t off; const char *what, *key; } P[] = {
 			{ "machine/home", 0, offsetof(settings_t, api_moves), "Homing", "api.moves" },
 			{ "move/gotozero", 0, offsetof(settings_t, api_moves), "Goto 0 / Safe Z", "api.moves" },
+			{ "probe/tool-length", 0, offsetof(settings_t, api_moves), "Probing", "api.moves" },
 			{ "jog", 0, offsetof(settings_t, api_jog), "Jogging", "api.jog" },
 			{ "machine/spindle", 0, offsetof(settings_t, api_spindle), "The spindle", "api.spindle" },
 			{ "machine/coolant", 0, offsetof(settings_t, api_coolant), "Coolant", "api.coolant" },
@@ -492,6 +493,7 @@ void api_handle(const http_req_t *q, http_resp_t *r)
 				if (!allowed(r, *(const bool *)((const char *)&SET + P[i].off), P[i].what, P[i].key)) return;
 	}
 	if (!strcmp(p, "machine/home")) { doit(r, C_HOME, NULL); return; }
+	if (!strcmp(p, "probe/tool-length")) { a.kind = 1; doit(r, C_PROBE, &a); return; }   /* the tool in now, on the fixed setter */
 	if (!strcmp(p, "jog")) {
 		if (!jstr(b, "axis", s, sizeof s) || (a.axis = axis_of(s)) < 0 || !jnum(b, "dist", &v)) { resp_text(r, 400, "application/json", "{\"error\":\"need axis and dist\"}"); return; }
 		a.dir = v < 0 ? -1 : 1; a.dist = fabs(v);

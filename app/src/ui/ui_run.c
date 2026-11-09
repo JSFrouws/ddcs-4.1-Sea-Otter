@@ -309,7 +309,7 @@ void run_key(pkey_t k, bool sh)
 	if (sh) {                                              /* ALT: the second printed word */
 		if (k == K_XM) { act(C_GOTOZERO, NULL, SRC_PANEL); return; }
 		if (k == K_ENTER) { U.homesel = true; U.homesel_t = now_ms(); return; }   /* the Home menu */
-		if (k == K_MOD) { act(C_PROBE, NULL, SRC_PANEL); return; }
+		if (k == K_MOD) { arg_t a = { .kind = 1 }; act(C_PROBE, &a, SRC_PANEL); return; }   /* the routine built so far: tool length */
 		if (k == K_YM) {
 			if (ctl_busy()) { ctl_toast(true, "Jog is locked while %s", STATE_NAMES[C.m]); return; }
 			U.screen = SCR_JOG; U.pane[SCR_JOG] = 0; U.shift = true; return;

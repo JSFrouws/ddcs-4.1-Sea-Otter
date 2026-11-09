@@ -122,6 +122,10 @@ Every other key works as usual, F2 Pause and F3 Reset included.
    The Files page then shows the program's box (cutting moves, work coordinates; `-` for an
    axis the program never moves) and whether **every** move, rapids included, stays inside
    the soft limits - the same check Start makes.
+   G53 (with an axis), G28, G29 and G30 move in **machine coordinates**, which only mean
+   something once the machine is homed: a program with them is refused at Start until it is
+   (the message names the line). CAM posts often end with `G53 G0 Z0` - machine Z0 is the Z
+   switch at the top. Simulate runs regardless.
 
 ### 3.3 Zero the workpiece
 1. Jog to the part's edge (Jog: arrow keys; **F4 Step** picks 0.01 / 0.1 / 1 / 10 mm or
@@ -268,6 +272,32 @@ coolant) and approaches it: Z up, XY across, then down.
 **F3 Reset** during a tool change stops the program. Its progress is remembered, as with any stop.
 If the tool asked for is already in, nothing happens. Simulate never stops for a tool.
 
+**With a tool setter** (a fixed length sensor on the table; *Settings › Tool change › Tool
+setter* = *Measure every tool change by hand*, off by default). This is how bCNC, CNCjs and
+BitSetter-style setups do it: no tool table, the setter compares the old and new tool.
+1. At the M6 the tool in now is measured first - Z up to *start probing at Z*, across to
+   the setter, down at the seek speed until it switches, then a slow back-off: the length is
+   where it releases. Skipped when this tool was measured since the work Z was last set.
+2. The change itself as above (the tool-change position, if chosen).
+3. **F1 Start** asks, **Start** again measures the new tool, shifts **every** work Z
+   (G54-G59) by the difference, and goes back to the program.
+
+A Z touch-off during the change wins: the setter is skipped for that tool (and the next M6
+measures again). If the setter isn't reached or doesn't release, the change stays in TOOL
+CHANGE with the reason: Start tries again, or touch off by hand. Reset stops a measurement.
+It needs a homed machine and *Probe / tool setter input* (Settings › Homing & limits; a
+normally-open setter = level off), a setter position inside the soft / bench limits, and
+*Settings › G-code › G43* on **Ignore** (with **Apply** the Tools table already sets each
+tool's length; using both would correct it twice).
+It travels to and from the setter at least at the work's safe height, probes only once it
+is really above the setter, and at an M6 waits the spin-up time for the spindle to run down
+first; *Tool length* by hand is refused while the spindle is on. Without them an M6 falls back to by hand, and says why.
+
+*Work › Probe › Tool length (fixed sensor)* (also **Shift + Probe** on Run, and
+`POST /api/v1/probe/tool-length`) measures the tool in now: do it right after zeroing Z,
+and the first M6 only has to measure the new tool. Homing or setting a work Z again
+forgets that measurement.
+
 **Run a tool-change macro**: Sea Otter runs a G-code file instead of stopping, then goes
 back to the program (Z up first, then across, then down). It looks in the macro folders
 (`/local/macros` first, then `/ddcsv4`) for:
@@ -285,7 +315,8 @@ G53 G0 Z{macro.tc_z}
 G53 G0 X{macro.tc_x} Y{macro.tc_y}
 M0 (put in T{tool}, then Start)
 ```
-Without either file, it falls back to changing by hand.
+Without either file, it falls back to changing by hand. A macro that uses machine coordinates
+(G53/G28) is not run before the machine is homed: it changes by hand instead, and says so.
 
 **Ignore M6**: the tool number is noted and the program runs on.
 

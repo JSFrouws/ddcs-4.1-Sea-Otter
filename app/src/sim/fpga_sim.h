@@ -38,6 +38,9 @@ typedef struct {
 	bool pendant_held; int pendant_axis; int pendant_mult;
 	uint16_t wheel;
 	uint32_t extra_inputs_closed;   /* other INnn forced closed by tests (bit n-1) */
+	/* a tool setter (normally open, closes when pressed): the tool tip (spindle Z - tool_len)
+	 * at or below setter_mm[2] within 5 mm of its X/Y. In the machine frame (2000 steps/mm) */
+	uint8_t setter_input; double setter_mm[3], tool_len;
 	bool no_watchdog;               /* tests: pretend the heartbeat is always fresh */
 	/* observed outputs */
 	uint8_t outputs; int pwm; bool beep;
