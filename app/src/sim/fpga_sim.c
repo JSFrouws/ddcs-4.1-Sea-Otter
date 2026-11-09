@@ -1,3 +1,4 @@
+#include <math.h>
 #include <string.h>
 #include "fpga_sim.h"
 #include "../hal/fpga_regs.h"
@@ -52,6 +53,8 @@ static uint32_t input_levels(void)
 		if (is_closed) closed |= 1u << (in - 1);
 		if (is_closed && SIM.home_input[a]) closed |= 1u << (SIM.home_input[a] - 1);
 	}
+	if (SIM.setter_input && fabs(sim_pos_mm(AX_X) - SIM.setter_mm[0]) <= 5 && fabs(sim_pos_mm(AX_Y) - SIM.setter_mm[1]) <= 5
+		&& sim_pos_mm(AX_Z) - SIM.tool_len <= SIM.setter_mm[2]) closed |= 1u << (SIM.setter_input - 1);
 	return ~closed & 0x3FFFFu;
 }
 

@@ -17,7 +17,8 @@ static const char *const VIEWS[] = { "2D plan", "Isometric wireframe", "G-code v
 static const char *const DIRS[] = { "Negative", "Positive", NULL };
 static const char *const TC_MODES[] = { "Pause: change by hand", "Run a tool-change macro", "Ignore M6", NULL };
 static const char *const JOB_ORDERS[] = { "One tool at a time (all parts, then change)", "One part at a time (all tools on it)", NULL };
-static const char *const TC_WHERE[] = { "Z up to safe height, stay here", "Tool-change position (homed)", NULL };
+static const char *const SETTER_MODES[] = { "Off", "Measure every tool change by hand", NULL };
+static const char *const TC_WHERE[] ={ "Z up to safe height, stay here", "Tool-change position (homed)", NULL };
 static const char *const IN_PORTS[] = { "-", "IN01", "IN02", "IN03", "IN04", "IN05", "IN06", "IN07", "IN08", "IN09",
 	"IN10", "IN11", "IN12", "IN13", "IN14", "IN15", "IN16", "IN17", "IN18", NULL };
 static const char *const OUT_PORTS[] = { "-", "OUT1", "OUT2", "OUT3", NULL };
@@ -74,6 +75,8 @@ const setting_desc_t SETTINGS[] = {
 	{ "limits.bench", "Homing & limits", "Bench limits (work box, also un-homed)", "", ST_BOOL, O(bench_limits), 0, 1, 0, 0, 1, 0 },
 	{ "estop.port", "Homing & limits", "External E-stop input", "", ST_PORT, O(estop_port), 0, 18, 0, IN_PORTS, 1, 0 },
 	{ "estop.level_high", "Homing & limits", "E-stop active when open (NC)", "", ST_BOOL, O(estop_level_high), 0, 1, 0, 0, 1, 0 },
+	{ "probe.port", "Homing & limits", "Probe / tool setter input", "", ST_PORT, O(probe_port), 0, 18, 0, IN_PORTS, 1, 0 },
+	{ "probe.level_high", "Homing & limits", "Probe active when open (NC)", "", ST_BOOL, O(probe_level_high), 0, 1, 0, 0, 1, 0 },
 	{ "limits.approach_pct", "Homing & limits", "Speed towards a limit inside the approach zone", "%", ST_INT, O(approach_pct), 10, 100, 0, 0, 1, 0 },
 	{ "motion.graceful_stop", "Homing & limits", "Controlled stop on Reset, E-stop, limit (no lost steps)", "", ST_BOOL, O(graceful_stop), 0, 1, 0, 0, 1, 0 },
 	{ "motion.queue_ms", "Axes", "Motion kept queued in the FPGA", "ms", ST_INT, O(queue_ms), 20, 200, 0, 0, 1, 0 },
@@ -127,6 +130,13 @@ const setting_desc_t SETTINGS[] = {
 	{ "gcode.tool_length", "G-code", "G43 / G44 tool length", "", ST_ENUM, O(gc_tlo), 0, 1, 0, TLOS, 1, 0 },
 	{ "gcode.cutter_comp", "G-code", "G41 / G42 cutter compensation", "", ST_ENUM, O(gc_cutcomp), 0, 2, 0, CUTCOMPS, 1, 0 },
 	{ "gcode.block_delete", "G-code", "Block delete: skip lines that start with /", "", ST_BOOL, O(gc_block_delete), 0, 1, 0, 0, 1, 0 },
+	{ "setter.mode", "Tool change", "Tool setter (length sensor)", "", ST_ENUM, O(setter), 0, 1, 0, SETTER_MODES, 1, 0 },
+	{ "setter.x", "Tool change", "Tool setter X (machine)", "mm", ST_DBL, O(setter_pos[0]), -9999, 9999, DEC_POS, 0, 1, 0 },
+	{ "setter.y", "Tool change", "Tool setter Y (machine)", "mm", ST_DBL, O(setter_pos[1]), -9999, 9999, DEC_POS, 0, 1, 0 },
+	{ "setter.z", "Tool change", "Tool setter: start probing at Z (machine)", "mm", ST_DBL, O(setter_pos[2]), -9999, 9999, DEC_POS, 0, 1, 0 },
+	{ "setter.travel", "Tool change", "Tool setter: probe down at most", "mm", ST_DBL, O(setter_travel), 1, 500, 1, 0, 1, 0 },
+	{ "setter.seek", "Tool change", "Tool setter: seek speed", "mm/min", ST_DBL, O(setter_seek), 10, 1200, 0, 0, 1, 0 },
+	{ "setter.latch", "Tool change", "Tool setter: measuring speed (back-off)", "mm/min", ST_DBL, O(setter_latch), 1, 300, 0, 0, 1, 0 },
 	{ "macro.warm_rpm", "Macros", "Warm-up spindle speed", "rpm", ST_DBL, O(warm_rpm), 0, 60000, 0, 0, 1, 0 },
 	{ "macro.warm_s", "Macros", "Warm-up time", "s", ST_DBL, O(warm_s), 1, 3600, 0, 0, 1, 0 },
 };
@@ -170,6 +180,11 @@ void settings_defaults(settings_t *s)
 	 * would then cut a tool radius wrong without a warning */
 	s->gc_cutcomp = 0;
 	s->tc_mode = 0; s->tc_where = 0; s->tc_return_pct = 50;   /* user 2026-10-22: by hand, back at half rapid */
+	/* user 2026-11-07: no tool setter on this machine - off, and no probe input; when one is
+	 * fitted: a normally-open sensor (vendor #182 "Low"), probing from the top of Z */
+	s->probe_port = 0; s->probe_level_high = false;
+	s->setter = 0; s->setter_pos[0] = 10; s->setter_pos[1] = 10; s->setter_pos[2] = -5;
+	s->setter_travel = 80; s->setter_seek = 200; s->setter_latch = 20;
 	s->graceful_stop = true;   /* user 2026-10-18: brake at max deceleration, never lose steps */
 	s->queue_ms = 50;   /* 2026-11-01: the FPGA's block queue, decoded and driven (docs/block-mode.md) */
 	s->pos_dec = 3; s->tool_dec = 2; s->view_iso = 0; s->edge_dia = 0;

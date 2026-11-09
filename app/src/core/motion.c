@@ -50,7 +50,7 @@ static void rescale(motion_t *m)
 	for (int a = 0; a < NAXES; a++) m->pos[a] = (double)m->steps[a] / m->spm[a];
 	memcpy(m->plan_end, m->pos, sizeof m->plan_end);
 	memcpy(m->emit_pos, m->pos, sizeof m->emit_pos);
-	m->home.on = false;
+	m->home.on = false; m->probe.on = false;
 }
 
 void motion_queued_end(const motion_t *m, double out[NAXES])
@@ -257,7 +257,7 @@ static void replan(motion_t *m)
 
 bool motion_idle(const motion_t *m)
 {
-	if (m->active || m->qn || motion_jogging(m) || m->home.on || m->hw_busy || m->q_est) return false;
+	if (m->active || m->qn || motion_jogging(m) || m->home.on || m->probe.on || m->hw_busy || m->q_est) return false;
 	for (int a = 0; a < NAXES; a++) if (fabs(m->nudge[a]) > 1e-9 || fabs(m->jv[a]) > 1e-12) return false;
 	return true;
 }
@@ -290,7 +290,7 @@ static void begin_brake(motion_t *m)
 void motion_stop(motion_t *m, bool immediate)
 {
 	bool brake = !immediate && !m->dry && SET.graceful_stop;   /* a jog / wheel move brakes on its ramp */
-	memset(m->jog, 0, sizeof m->jog); m->home.on = false;
+	memset(m->jog, 0, sizeof m->jog); m->home.on = false; m->probe.on = false;
 	memset(m->nudge, 0, sizeof m->nudge); memset(m->nudge_in, 0, sizeof m->nudge_in); memset(m->wheel_v, 0, sizeof m->wheel_v);
 	if (!immediate && !m->dry && SET.graceful_stop && m->active && m->op.kind == OP_LINE && m->v > 1e-6) {
 		/* Controlled stop (user requirement 2026-10-18): brake along the programmed path at the
@@ -717,6 +717,61 @@ static void run_home(motion_t *m, double dt)
 	}
 }
 
+/* ---- probing: homing's search, without the preset (a tool setter, later a touch plate) ---- */
+void motion_probe(motion_t *m, int axis, int dir, double max_travel, double seek, double latch)
+{
+	motion_stop(m, true);
+	memset(&m->probe, 0, sizeof m->probe);
+	m->probe.on = true; m->probe.axis = axis; m->probe.dir = dir >= 0 ? 1 : -1; m->probe.max = max_travel;
+	m->probe.v_seek = seek / 60.0; m->probe.v_latch = latch / 60.0;
+}
+
+static void probe_end(motion_t *m, int fail)
+{
+	m->probe.on = false; m->probe.fail = fail;
+	m->ev = fail ? MEV_PROBE_FAIL : MEV_PROBED;
+}
+
+static void run_probe(motion_t *m, double dt)
+{
+	int a = m->probe.axis, dir = m->probe.dir;
+	bool sw = m->probe_active && m->probe_active();
+	double step;
+	if (m->probe.phase == 0) {                         /* seek toward the probe */
+		if (sw && m->probe.travel == 0) { probe_end(m, 3); return; }   /* already pressed: wiring or a crash */
+		if (sw) m->probe.phase = 1;
+		else if (m->probe.travel >= m->probe.max) { m->probe.fail = 1; m->probe.phase = 9; }
+		else {
+			step = follow(m, a, dir, m->probe.max - m->probe.travel, m->probe.v_seek, dt);
+			m->pos[a] += step; m->probe.travel += fabs(step); m->last_dir[a] = dir;   /* a blocked axis still counts: it fails at max */
+			return;
+		}
+	}
+	if (m->probe.phase == 1) {                         /* pressed: brake to a stop (the probe's overtravel) */
+		m->pos[a] += follow(m, a, 0, 0, 0, dt);
+		if (fabs(m->jv[a]) > 1e-12) return;
+		m->probe.phase = 2; m->probe.travel = 0;
+	}
+	if (m->probe.phase == 2) {                         /* back off slowly until it releases: the trigger point */
+		if (sw) {
+			step = follow(m, a, -dir, 1e18, m->probe.v_latch, dt);
+			m->pos[a] += step; m->probe.travel += fabs(step); m->last_dir[a] = -dir;
+			if (m->probe.travel > 10) { m->probe.fail = 2; m->probe.phase = 9; }
+			return;
+		}
+		/* the counter at the release (as homing): the command runs the queue ahead of the motor */
+		int32_t cnt[NAXES];
+		if (!m->dry) { fpga_positions(m->f, cnt); m->probe.trig = (double)cnt[a] / SET.ax[a].steps_per_mm; }
+		else m->probe.trig = m->pos[a];
+		m->probe.phase = 3;
+	}
+	if (m->probe.phase == 3 || m->probe.phase == 9) {  /* brake; done once the FPGA has played it all */
+		if (fabs(m->jv[a]) > 1e-12) { m->pos[a] += follow(m, a, 0, 0, 0, dt); return; }
+		if (m->q_est > 0 || m->hw_busy) return;
+		probe_end(m, m->probe.phase == 9 ? m->probe.fail : 0);
+	}
+}
+
 /* ---- blocks (2026-11-01, docs/block-mode.md): one block per 10 ms carrying all axes ---- */
 #define BLOCK_DT 0.010
 
@@ -737,7 +792,7 @@ static int emit_block(motion_t *m)
 			for (int k = 0; k < NAXES; k++) m->pos[k] = (double)m->steps[k] / SET.ax[k].steps_per_mm;
 			memcpy(m->plan_end, m->pos, sizeof m->plan_end);
 			memcpy(m->emit_pos, m->pos, sizeof m->emit_pos);
-			m->home.on = false;
+			m->home.on = false; m->probe.on = false;
 			return 0;
 		}
 		/* level gate: braking (stopping) and homing may run on into a switch, nothing else */
@@ -786,6 +841,7 @@ static void tick_blocks(motion_t *m, double dt)
 	int q0 = m->q_est, sent = 0;
 	for (int i = 0; i < 32 && m->q_est < target && m->q_est < FPGA_QUEUE_FULL; i++) {
 		if (m->home.on) run_home(m, BLOCK_DT);
+		else if (m->probe.on) run_probe(m, BLOCK_DT);
 		else { run_lines(m, BLOCK_DT); run_simple(m, BLOCK_DT); }
 		if (!emit_block(m)) break;                         /* nothing to move: idle, or gated */
 		m->q_est++; sent++;
@@ -807,6 +863,7 @@ void motion_tick(motion_t *m, double dt)
 	rescale(m);
 	if (m->stopping && (m->stop_left -= dt) < 0) { motion_stop(m, true); m->stop_cut = true; }
 	if (m->home.on) run_home(m, dt);
+	else if (m->probe.on) run_probe(m, dt);
 	else {
 		/* the path in steps of at most 10 ms, however long this tick was: the braking and
 		 * S-curve decisions are taken per step, so a late tick (a screen redraw) does not

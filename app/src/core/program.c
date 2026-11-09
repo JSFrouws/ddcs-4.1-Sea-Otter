@@ -173,6 +173,7 @@ int program_load_text(program_t *p, const char *name, const char *text, size_t l
 		if (g.warn_more) snprintf(more, sizeof more, " (+%d more)", g.warn_more);
 		snprintf(p->warn, sizeof p->warn, "line %d: %s%s", g.warn_line + 1, g.warn, more);
 	}
+	p->mc_line = g.mc_line;
 	if (r < 0) {
 		snprintf(p->err, sizeof p->err, "line %d: %s", g.err_line + 1, g.err);
 		p->err_line = g.err_line;

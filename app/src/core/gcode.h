@@ -120,6 +120,7 @@ typedef struct {
 	char cmt[64];                 /* the block's comment: the message of #3000 / #3006 */
 	char err[112]; int err_line;
 	char warn[200]; int warn_line, warn_more;
+	int mc_line;                  /* first line that moves in machine coordinates (G53 with an axis, G28/G29/G30), -1 = none */
 } gc_t;
 
 void gc_begin(gc_t *g, const char *text, size_t len, const double machine_pos[NAXES]);

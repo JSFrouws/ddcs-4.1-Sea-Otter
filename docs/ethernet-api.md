@@ -88,7 +88,7 @@ result arrive as events and via `GET /jobs/<id>`.
 |---|---|---|---|
 | POST | `/probe` | `{"axis":"Z","dir":-1,"feed":100,"maxTravel":30,"retract":2}` | Single probe move; returns trigger position |
 | POST | `/probe/z-plate` | `{"plate":15.0,"wcs":"G54"}` | Touch off Z on a plate, set WCS Z = plate thickness |
-| POST | `/probe/tool-length` | `{"tool":3}` | Measure tool length on the fixed sensor, update tool table |
+| POST | `/probe/tool-length` | – | **Built (2026-11-07)**: measure the tool in now on the fixed sensor, as the reference for the next M6 (no tool table: the setter compares old and new tool) - see api-reference.md |
 | POST | `/probe/edge` | `{"axis":"X","dir":1,"toolDiameter":6,"setWcs":true}` | Find an edge |
 | POST | `/probe/corner` | `{"corner":"front-left","setWcs":true}` | Find an outside corner (X and Y) |
 | POST | `/probe/center` | `{"type":"bore","approxDiameter":30}` | Find a bore or boss centre |

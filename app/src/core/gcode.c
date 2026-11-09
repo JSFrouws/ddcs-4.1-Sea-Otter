@@ -26,6 +26,7 @@ void gc_begin(gc_t *g, const char *text, size_t len, const double mpos[NAXES])
 	g->line = -1;
 	g->force_wcs = -1;
 	g->prog_no = -1; g->seq_no = -1;
+	g->mc_line = -1;
 	for (int a = 0; a < NAXES; a++) g->sc[a] = 1;
 	for (int i = 0; i < NWCS; i++) memcpy(g->wcs_off[i], WD.wcs[i].off, sizeof g->wcs_off[i]);
 	for (int i = 0; i < NTOOLS; i++) { g->tl_len[i] = WD.tool[i].len; g->tl_dia[i] = WD.tool[i].dia; }
@@ -1327,6 +1328,8 @@ static int exec_block(gc_t *g, words_t *w, bool emit, bool *call65)
 
 	bool any_axis = false;
 	for (int a = 0; a < NAXES; a++) any_axis |= axis_word(w, a);
+	/* machine coordinates only mean something once homed: remembered so a run can be refused */
+	if (g->mc_line < 0 && ((g53 && any_axis) || nonmodal == NM_G28 || nonmodal == NM_G29 || nonmodal == NM_G30)) g->mc_line = g->line;
 	double t[NAXES];
 
 	if (cc_new && cc_switch(g, w, cc_new, emit) < 0) return -1;

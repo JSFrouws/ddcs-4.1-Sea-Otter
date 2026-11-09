@@ -41,6 +41,7 @@ typedef struct {
 	int *goto_line; int ngoto; bool goto_sections; float goto_z;
 	char err[136]; int err_line;
 	char warn[256];
+	int mc_line;                 /* first line with G53 (with an axis) or G28/G29/G30: machine coordinates, needs homing; -1 none */
 	bool loaded;
 } program_t;
 
